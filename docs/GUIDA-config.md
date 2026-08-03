@@ -35,10 +35,11 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `failOnNameless` | booleano | `false` | Gate: fallisce se elementi interattivi senza nome — **globale** |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
+| `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 
-> `failOn`, `failOnNameless`, `minScore` sono **gate globali**: metterli in `defaults` ha senso; un
-> override per-target su queste tre non viene applicato al gate complessivo.
+> `failOn`, `failOnNameless`, `minScore`, `showIncomplete` sono **globali**: il gate è complessivo e il
+> report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
 
 ## Oggetto target
 
@@ -105,8 +106,9 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 "flows": [
   {
     "name": "dettaglio",                 // etichetta (compare come flow:<name>/… nei report)
-    "start": "/app/lista",               // URL di partenza
+    "start": "/app/lista",               // URL di partenza (onora navWait/navDelayMs del target)
     "skipIfMissing": "#tabella",         // se il selettore manca sulla start page, salta il flow
+    "skipIfMissingTimeoutMs": 8000,      // attesa max per la sentinella (liste async); default 8000
     "sourceHint": "…/dettaglio.xhtml",   // opzionale: override del sourceHint per questo flow
     "steps": [ … ]                        // sequenza di azioni + scansioni
   }

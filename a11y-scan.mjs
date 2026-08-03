@@ -84,6 +84,7 @@ if (args.help || args.h) {
   --min-score <0..1>  Gate Lighthouse: fallisci se un punteggio scende sotto la soglia (es. 0.90). Implica --lighthouse
   --screen-reader     Esegui il virtual screen reader (annunci) su ogni vista (richiede optional deps)
   --no-flows          Non eseguire i flows di navigazione scriptata (pagine di dettaglio)
+  --no-incomplete     Nascondi la colonna/sezione "Da verificare" (incomplete axe) dal report HTML
   --no-lighthouse     Disabilita Lighthouse anche se attivo in config (precedenza sulla config)
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
@@ -127,12 +128,15 @@ const asInsecure = v => (v === undefined ? true : (v === 'false' || v === false 
 const CLI_LH = args['no-lighthouse'] ? false : (args.lighthouse ? true : undefined);
 const CLI_SR = args['no-screen-reader'] ? false : (args['screen-reader'] ? true : undefined);
 const CLI_FLOWS_OFF = args['no-flows'] ? true : undefined;        // noFlows: true da CLI
+const CLI_INCOMPLETE = args['no-incomplete'] ? false : undefined; // showIncomplete: false da CLI (--no-incomplete)
 const CLI_CRAWL = args['no-crawl'] ? 0 : args.crawl;             // --no-crawl disabilita (0)
 
 // Parametri di GATE: globali (la valutazione del gate è complessiva). CLI > defaults > built-in.
 const FAIL_ON = String(resolveParam(args['fail-on'], null, 'failOn', 'serious')).toLowerCase();
 const FAIL_ON_NAMELESS = !!resolveParam(args['fail-on-nameless'], null, 'failOnNameless', false);
 const MIN_SCORE = (() => { const v = resolveParam(args['min-score'], null, 'minScore', null); return (v === null || v === undefined) ? null : parseFloat(v); })();
+// Report HTML (globale: il report è aggregato su tutti i target -> no override per-target). CLI --no-incomplete > defaults.showIncomplete > built-in.
+const SHOW_INCOMPLETE = resolveParam(CLI_INCOMPLETE, null, 'showIncomplete', true) !== false;
 
 // Parametri PER-TARGET: inizializzati al valore globale, riassegnati per ogni target da applyTargetParams().
 let CRAWL = parseInt(resolveParam(CLI_CRAWL, null, 'crawl', 0), 10) || 0;
@@ -539,9 +543,14 @@ async function runFlows(browser, target, pageResults) {
     try {
       await login(page, target);
       await postLogin(page, target);
-      await page.goto(BASE + flow.start, { waitUntil: 'networkidle' });
-      // skipIfMissing: se un elemento-sentinella non c'e' (es. lista vuota), salta il flow.
-      if (flow.skipIfMissing && !(await page.$(flow.skipIfMissing))) {
+      // Coerente con la navigazione delle pages: onora navWait/navDelayMs del target (le SPA con
+      // HMR non raggiungono 'networkidle' e le liste async non sono pronte al momento di skipIfMissing).
+      await page.goto(BASE + flow.start, { waitUntil: target.navWait || 'networkidle' });
+      if (target.navDelayMs) await page.waitForTimeout(target.navDelayMs);
+      // skipIfMissing: se un elemento-sentinella non c'e' (es. lista vuota), salta il flow. Attende
+      // (non controllo istantaneo): le liste async possono comparire dopo navDelayMs; l'assenza va
+      // confermata solo dopo un timeout ragionevole.
+      if (flow.skipIfMissing && !(await page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).catch(() => null))) {
         console.warn(`    flow '${flow.name}' saltato: sentinella '${flow.skipIfMissing}' assente (dati mancanti?)`);
         continue;
       }
@@ -1073,6 +1082,38 @@ const COVERAGE = {
     + "NON una certificazione di conformità: un esito automatico pulito non implica conformità WCAG.",
 };
 
+// Landmark ARIA (per colorare la vista grafica dell'albero).
+const AX_LANDMARKS = new Set(['banner', 'navigation', 'main', 'complementary', 'contentinfo', 'region', 'search', 'form']);
+
+// Costruisce un albero annidato dall'ariaSnapshot (indentazione a 2 spazi) per la vista grafica.
+function parseAriaTree(snapshot) {
+  const roots = [];
+  const stack = [{ depth: -1, children: roots }];
+  for (const raw of String(snapshot || '').split('\n')) {
+    const m = raw.match(/^(\s*)-\s+(.*)$/);
+    if (!m) continue;
+    const depth = Math.floor(m[1].length / 2);
+    const label = m[2].replace(/:\s*$/, '');   // toglie il ':' finale dei nodi-contenitore
+    const node = { label, children: [], depth };
+    while (stack.length > 1 && stack[stack.length - 1].depth >= depth) stack.pop();
+    stack[stack.length - 1].children.push(node);
+    stack.push(node);
+  }
+  return roots;
+}
+
+// Classe CSS per un nodo dell'albero ARIA: rosso se interattivo-senza-nome, colori per landmark/
+// heading, grigio per proprieta' (/url) e testo.
+function axRoleClass(label) {
+  const t = label.trim();
+  if (new RegExp(`^(${INTERACTIVE_ROLES.join('|')})$`).test(t)) return 'ax-nameless';
+  if (/^\//.test(t) || /^text:/.test(t)) return 'ax-muted';
+  const role = (t.match(/^'?([a-z]+)/) || [])[1] || '';
+  if (AX_LANDMARKS.has(role)) return 'ax-land';
+  if (role === 'heading') return 'ax-head';
+  return '';
+}
+
 function writeSummaryAndHtml(results, ariaFiles = {}) {
   const app = appLabel(results);
   const perTarget = {};
@@ -1104,7 +1145,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     return `<tr><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a></td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
       <td>${pr.lhScore != null ? (pr.lhScore * 100).toFixed(0) + '%' : '-'}</td>
-      <td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>
+      ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
       <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td></tr>`;
   }).join('\n');
 
@@ -1121,10 +1162,24 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       <td>${(r.tags || []).filter(t => /wcag\d/.test(t)).map(esc).join(', ')}</td>
       <td><a href="${esc(r.helpUrl)}" target="_blank">regola ↗</a></td></tr>`).join('\n');
 
+  // Render ricorsivo dell'albero ARIA come nodi espandibili (contenitori = <details>).
+  const renderAx = nodes => '<ul class="axtree">' + nodes.map(n => {
+    const lab = `<span class="${axRoleClass(n.label)}">${esc(n.label)}</span>`;
+    return n.children.length
+      ? `<li><details><summary>${lab}</summary>${renderAx(n.children)}</details></li>`
+      : `<li>${lab}</li>`;
+  }).join('') + '</ul>';
+
   // Drill-down per pagina: ogni violazione con elementi, selettore e snippet + elementi senza nome (a11y-tree)
   const details = results.map((pr, i) => {
     const nameless = pr.axTree ? pr.axTree.nameless : [];
-    const ariaLink = ariaFiles[i] ? ` — <a href="${esc(ariaFiles[i])}">albero ARIA ↗</a>` : '';
+    const ariaLink = ariaFiles[i] ? ` — <a href="${esc(ariaFiles[i])}" download>scarica YAML ↗</a>` : '';
+    // Vista grafica dell'albero ARIA (nodi espandibili), collassata di default.
+    let axTreeBlock = '';
+    if (pr.ariaSnapshot) {
+      const nodes = pr.axTree ? pr.axTree.nodes : 0;
+      axTreeBlock = `<details class="axtree-wrap"><summary><span class="mod">albero ARIA</span> ${nodes} nodi <small>— struttura letta dallo screen reader (clic per espandere)</small></summary>${renderAx(parseAriaTree(pr.ariaSnapshot))}</details>`;
+    }
     let axBlock = '';
     if (nameless.length) {
       const byRole = {};
@@ -1136,7 +1191,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     }
     let incBlock = '';
     const incomplete = pr.incomplete || [];
-    if (incomplete.length) {
+    if (SHOW_INCOMPLETE && incomplete.length) {
       const irows = incomplete.map(v => `<li><code>${esc(v.id)}</code> — ${esc(v.help)} <b>(${v.nodes.length})</b></li>`).join('\n');
       incBlock = `<details><summary><span class="mod">da verificare</span> ${incomplete.reduce((n, v) => n + v.nodes.length, 0)} elementi che axe non ha deciso (sfondi calcolati/gradienti): NON sono un pass, verifica manuale</summary><ul class="nodes">${irows}</ul></details>`;
     }
@@ -1147,7 +1202,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       const lines = pr.sr.phrases.map(p => `<li class="${SR_ROLE_ONLY.test(p.trim()) ? 'ser' : ''}">${esc(p)}</li>`).join('\n');
       srBlock = `<details><summary><span class="mod">screen reader</span> ${roMark}${pr.sr.stops} annunci del virtual screen reader (trascrizione)</summary><ol class="nodes">${lines}</ol></details>`;
     }
-    if (!pr.violations.length && !axBlock && !incBlock && !srBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>`;
+    if (!pr.violations.length && !axBlock && !incBlock && !srBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${axTreeBlock}`;
     const vs = pr.violations
       .sort((a, b) => SEVERITY_ORDER[b.impact] - SEVERITY_ORDER[a.impact])
       .map(v => {
@@ -1159,7 +1214,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
           <a href="${esc(v.helpUrl)}" target="_blank">↗</a></summary>
           <ul class="nodes">${nodes}</ul></details>`;
       }).join('\n');
-    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${axBlock}${incBlock}${srBlock}${vs}`;
+    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${axTreeBlock}${axBlock}${incBlock}${srBlock}${vs}`;
   }).join('\n');
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(app)} — Accessibility Report</title>
@@ -1173,11 +1228,15 @@ summary{cursor:pointer}ul.nodes{margin:.4rem 0}li{margin:.5rem 0}
 code.sel{background:#eef;padding:1px 4px}pre{background:#f6f6f6;padding:.4rem;overflow-x:auto;font-size:12px;margin:.2rem 0;white-space:pre-wrap}
 .fs{font-size:12px;color:#555;white-space:pre-wrap}h3{margin-top:1.5rem;border-bottom:1px solid #eee}
 .disclaimer{border:1px solid #d9a441;background:#fff8e8;border-left:5px solid #d9a441;padding:.8rem 1rem;margin:1rem 0;border-radius:4px}
-.disclaimer h2{margin:.2rem 0 .5rem;font-size:1.05rem;border:0}.disclaimer ul{margin:.3rem 0 .3rem 1.1rem}.disclaimer .note{font-weight:600;margin-top:.5rem}</style></head>
+.disclaimer h2{margin:.2rem 0 .5rem;font-size:1.05rem;border:0}.disclaimer ul{margin:.3rem 0 .3rem 1.1rem}.disclaimer .note{font-weight:600;margin-top:.5rem}
+ul.axtree{list-style:none;margin:.1rem 0;padding-left:1.1rem;border-left:1px dotted #ccc}
+ul.axtree li{margin:.05rem 0}.axtree details{border:0;background:none;padding:0;margin:0}.axtree summary{cursor:pointer}
+.axtree span{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.ax-land{color:#0a7;font-weight:600}.ax-head{color:#06c;font-weight:700}.ax-nameless{color:#b00;font-weight:700}.ax-muted{color:#999}</style></head>
 <body><h1>${esc(app)} — Report Accessibilita' WCAG 2.1 AA</h1>
 <p>Base: <code>${esc(BASE)}</code> — tag: <code>${esc(TAGS.join(', '))}</code> — gate: <code>fail-on=${esc(FAIL_ON)}${MIN_SCORE != null ? `, min-score=${MIN_SCORE}` : ''}</code></p>
 <p>Totali occorrenze axe: <span class="crit">critical ${summary.totals.critical}</span>, <span class="ser">serious ${summary.totals.serious}</span>, moderate ${summary.totals.moderate}, minor ${summary.totals.minor}
- — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span> — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
+${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
 
 <div class="disclaimer">
 <h2>⚠️ Copertura e limiti dell'automazione</h2>
@@ -1188,7 +1247,7 @@ code.sel{background:#eef;padding:1px 4px}pre{background:#f6f6f6;padding:.4rem;ov
 </div>
 
 <table><caption>Riepilogo per pagina (clicca la pagina per il dettaglio)</caption>
-<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th><th>Da verificare<br><small>(incomplete)</small></th><th>Senza nome<br><small>(a11y-tree)</small></th></tr>
+<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th></tr>
 ${rows}
 </table>
 

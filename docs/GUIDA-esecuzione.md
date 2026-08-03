@@ -76,6 +76,7 @@ La CLI ha sempre la **precedenza** sulla config. Ordine di risoluzione:
 | `--fail-on <sev>` | `critical`\|`serious`\|`moderate`\|`minor`\|`none` | `serious` | Gate axe: fallisce se esistono violazioni ≥ gravità |
 | `--fail-on-nameless` | flag | off | Gate screen-reader: fallisce se ci sono elementi interattivi senza nome accessibile |
 | `--no-flows` | flag | off | Non esegue i `flows` (navigazione scriptata delle viste di dettaglio) |
+| `--no-incomplete` | flag | off | Nasconde la colonna/sezione "Da verificare" (incomplete axe) dal report HTML |
 | `--no-lighthouse` | flag | — | **Disabilita** Lighthouse anche se attivo in config (precede la config) |
 | `--no-screen-reader` | flag | — | **Disabilita** il virtual screen reader anche se attivo in config |
 | `--no-crawl` | flag | — | **Disabilita** il crawl anche se attivo in config (equivale a `--crawl 0`) |

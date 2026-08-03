@@ -87,6 +87,33 @@
         "name": "dashboard",
         "path": "/dashboard"
       }
+    ],
+    "$flowsNote": "Discovery dinamico (nessun id cablato): apre la PRIMA adesione della lista e scansiona la vista che si apre. NB: cliccando una riga si apre la VETRINA dell'adesione (/adesioni/:id/view); il WIZARD di configurazione (/adesioni/:id) si ha per adesioni in configurazione. Per scansionare il wizard di uno stato SPECIFICO (bozza / pubblicato produzione) servira' un'estensione del tool per selezionare l'elemento per stato (TODO). L'espansione dei sub-step e' opzionale (presente solo nel wizard).",
+    "flows": [
+      {
+        "name": "adesione-dettaglio",
+        "start": "/adesioni",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/adesioni",
+        "steps": [
+          { "click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima adesione (vetrina o wizard)" },
+          { "scan": "adesione-dettaglio" },
+          { "clickText": "In Compilazione", "optional": true, "wait": "domcontentloaded", "delayMs": 1500, "desc": "espandi sub-step (solo se wizard)" },
+          { "scan": "adesione-dettaglio-espanso" }
+        ]
+      },
+      {
+        "name": "servizio-vetrina",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-view",
+        "$note": "La lista servizi e' raggruppata: primo click = apre il gruppo, secondo click = apre il primo servizio del gruppo (vetrina /servizi/:id/view). Assume il raggruppamento attivo.",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo gruppo di servizi" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio del gruppo (vetrina)" },
+          { "scan": "servizio-vetrina" }
+        ]
+      }
     ]
   }
 }
