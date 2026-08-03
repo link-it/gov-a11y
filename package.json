@@ -1,0 +1,28 @@
+{
+  "name": "@link-it/gov-a11y",
+  "version": "1.0.0",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "description": "Audit accessibilita' WCAG 2.x (axe-core + Playwright, Lighthouse e virtual screen reader opzionali) per webapp, config-driven multi-app. Runnable a mano e in CI.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/link-it/gov-a11y.git"
+  },
+  "bin": {
+    "gov-a11y": "./a11y-scan.mjs"
+  },
+  "scripts": {
+    "scan": "node a11y-scan.mjs",
+    "test": "node test/run-all.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "playwright": "^1.49.0"
+  },
+  "optionalDependencies": {
+    "@guidepup/virtual-screen-reader": "^0.30.1",
+    "jsdom": "^25.0.1",
+    "lighthouse": "^12.8.2"
+  }
+}

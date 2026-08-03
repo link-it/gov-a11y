@@ -1,0 +1,87 @@
+# gov-a11y - Accessibility (WCAG) scanner for Link.it web consoles
+# https://github.com/link-it/gov-a11y
+#
+# Copyright (c) 2025-2026 Link.it srl (https://link.it).
+#
+# This program is free software: you can redistribute it and/or modify it under
+# the terms of the GNU General Public License version 3, as published by the
+# Free Software Foundation. This program is distributed WITHOUT ANY WARRANTY;
+# see the GNU General Public License <http://www.gnu.org/licenses/> for details.
+name: 'gov-a11y'
+description: 'Audit accessibilità WCAG (axe-core + Playwright, screen reader e Lighthouse opzionali) contro una webapp in esecuzione. Legge il config locale del repo chiamante.'
+author: 'Link.it'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  base:
+    description: 'Base URL della webapp in test (deve essere già raggiungibile, es. avviata come service).'
+    required: true
+  config:
+    description: 'Percorso del file targets.<app>.json nel repo chiamante (es. ci/a11y/targets.json).'
+    required: true
+  out:
+    description: 'Directory di output dei report.'
+    required: false
+    default: 'a11y-report'
+  tags:
+    description: 'Tag WCAG axe (CSV).'
+    required: false
+    default: 'wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa'
+  fail-on:
+    description: 'Gate axe: fallisci se esistono violazioni >= gravità (critical|serious|moderate|minor|none).'
+    required: false
+    default: 'serious'
+  fail-on-nameless:
+    description: 'Gate a11y-tree: fallisci se esistono elementi interattivi senza nome accessibile.'
+    required: false
+    default: 'false'
+  screen-reader:
+    description: 'Esegui il virtual screen reader (annunci) su ogni vista.'
+    required: false
+    default: 'false'
+  lighthouse:
+    description: 'Calcola anche il punteggio Lighthouse Accessibility.'
+    required: false
+    default: 'false'
+  min-score:
+    description: 'Gate Lighthouse: soglia minima 0..1 (implica lighthouse).'
+    required: false
+    default: ''
+  only:
+    description: 'Limita a un solo target (chiave del config).'
+    required: false
+    default: ''
+  node-version:
+    description: 'Versione Node da usare.'
+    required: false
+    default: '20'
+
+outputs:
+  report-dir:
+    description: 'Directory dei report generati (uguale a input out).'
+    value: ${{ inputs.out }}
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - name: Installa gov-a11y (browser + deps)
+      shell: bash
+      run: npm ci --prefix "${{ github.action_path }}"
+      env:
+        # optionalDependencies (lighthouse/jsdom/virtual-screen-reader) incluse di default.
+        PLAYWRIGHT_BROWSERS_PATH: '0'
+    - name: Esegui audit accessibilita'
+      shell: bash
+      run: |
+        ARGS=(--base "${{ inputs.base }}" --config "$GITHUB_WORKSPACE/${{ inputs.config }}" --out "$GITHUB_WORKSPACE/${{ inputs.out }}" --tags "${{ inputs.tags }}" --fail-on "${{ inputs.fail-on }}")
+        [ "${{ inputs.fail-on-nameless }}" = "true" ] && ARGS+=(--fail-on-nameless)
+        [ "${{ inputs.screen-reader }}" = "true" ] && ARGS+=(--screen-reader)
+        [ "${{ inputs.lighthouse }}" = "true" ] && ARGS+=(--lighthouse)
+        [ -n "${{ inputs.min-score }}" ] && ARGS+=(--min-score "${{ inputs.min-score }}")
+        [ -n "${{ inputs.only }}" ] && ARGS+=(--only "${{ inputs.only }}")
+        node "${{ github.action_path }}/a11y-scan.mjs" "${ARGS[@]}"

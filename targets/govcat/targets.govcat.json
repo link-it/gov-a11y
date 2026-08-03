@@ -1,0 +1,92 @@
+{
+  "$app": "GovCat",
+  "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'); la select-org e' SEMPRE presente -> postLogin. navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle.",
+  "defaults": {
+    "screenReader": true,
+    "lighthouse": true
+  },
+  "govcat": {
+    "name": "govcat",
+    "enabled": true,
+    "loginPath": "/",
+    "contextPath": "/",
+    "sourceHint": "frontend/angular/projects/apicat-app/src",
+    "extraHTTPHeaders": {
+      "X-GovCat-principal": "lorenzo.gestore"
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 2500,
+    "postLogin": {
+      "steps": [
+        {
+          "goto": "/servizi",
+          "wait": "domcontentloaded",
+          "delayMs": 2500,
+          "desc": "trigger select-org"
+        },
+        {
+          "clickText": "Ministero Interno",
+          "optional": true,
+          "delayMs": 700,
+          "desc": "scegli org"
+        },
+        {
+          "clickText": "Conferma",
+          "optional": true,
+          "delayMs": 2500,
+          "desc": "conferma org"
+        }
+      ]
+    },
+    "pages": [
+      {
+        "name": "servizi",
+        "path": "/servizi"
+      },
+      {
+        "name": "servizi-new",
+        "path": "/servizi/new"
+      },
+      {
+        "name": "adesioni",
+        "path": "/adesioni"
+      },
+      {
+        "name": "adesioni-new",
+        "path": "/adesioni/new/edit"
+      },
+      {
+        "name": "client",
+        "path": "/client"
+      },
+      {
+        "name": "domini",
+        "path": "/domini"
+      },
+      {
+        "name": "soggetti",
+        "path": "/soggetti"
+      },
+      {
+        "name": "organizzazioni",
+        "path": "/organizzazioni"
+      },
+      {
+        "name": "utenti",
+        "path": "/utenti"
+      },
+      {
+        "name": "gruppi",
+        "path": "/gruppi"
+      },
+      {
+        "name": "classi-utente",
+        "path": "/classi-utente"
+      },
+      {
+        "name": "dashboard",
+        "path": "/dashboard"
+      }
+    ]
+  }
+}

@@ -1,0 +1,118 @@
+# =============================================================================
+# gov-a11y — STRUTTURA DELLA CONFIGURAZIONE (riferimento annotato)
+# =============================================================================
+# NB: il tool legge JSON (targets.*.json), NON questo YAML. Questo file è solo
+# documentazione: descrive tutte le chiavi con commenti. Per usarlo, riporta la
+# struttura in JSON. Le chiavi che iniziano con '$' sono ignorate dal tool.
+# Precedenza dei parametri: CLI > target > defaults > built-in.
+# Le funzionalità accese qui (lighthouse/screenReader/crawl) si disabilitano da CLI con
+# --no-lighthouse / --no-screen-reader / --no-crawl.
+# =============================================================================
+
+$app: "Nome App"              # etichetta mostrata nei titoli dei report (opzionale)
+$comment: "note libere"       # qualsiasi chiave '$...' è ignorata
+
+# --- Parametri dichiarativi globali (tutti opzionali, hanno un default) -------
+defaults:
+  tags: "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa"  # regole WCAG axe (default: senza wcag22aa)
+  crawl: 0                    # pagine da scoprire dopo il login (0 = solo pages[])
+  crawlDepth: 2               # profondità BFS del crawl
+  screenReader: false         # esegue il virtual screen reader su ogni vista
+  lighthouse: false           # calcola il punteggio Lighthouse (lento)
+  # --- gate (GLOBALI: qui, non per-target) ---
+  failOn: "serious"           # critical | serious | moderate | minor | none
+  failOnNameless: false       # fallisce se elementi interattivi senza nome accessibile
+  minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
+  # --- altro ---
+  noFlows: false              # non eseguire i flows
+  insecure: true              # ignora errori certificato HTTPS
+
+# --- Un target = una console/app da scansionare ------------------------------
+# La chiave ('console') è il suo identificativo (usato da --only e per le env
+# credenziali A11Y_CONSOLE_USER/PASS).
+console:
+  name: "govwayConsole"       # etichetta nei report
+  enabled: true               # false = target saltato
+  loginPath: "/govwayConsole/"    # pagina di login (relativa a --base)
+  contextPath: "/govwayConsole/"  # il crawl segue solo link sotto questo path
+  sourceHint: "tools/.../loginAS.jsp"  # file sorgente per l'aggancio (approssimato) delle issue Sonar
+
+  # credenziali: MEGLIO via env A11Y_CONSOLE_USER / A11Y_CONSOLE_PASS
+  user: "amministratore"
+  # pass: "..."               # SCONSIGLIATO nel file — usa env/secret
+
+  # selettori del form di login (usa selettori STABILI, non id generati)
+  login:
+    usernameSelector: "input[name='login'], #username"   # lista = fallback
+    passwordSelector: "input[type='password']"
+    submitSelector: "input.deButton[value='Login'], input[type='submit']"
+    successUrlIncludes: "govwayConsole"    # sottostringa attesa nell'URL post-login (check soft)
+    waitMs: 8000              # timeout attesa campo utente
+
+  # azioni dopo il login (es. selezione organizzazione in una SPA)
+  postLogin:
+    steps:
+      - { clickText: "Organizzazione X", optional: true }
+
+  # navigazione
+  navWait: "networkidle"      # waitUntil per goto: networkidle | load | domcontentloaded
+  navDelayMs: 0               # attesa extra (ms) dopo ogni navigazione
+  viewport: { width: 1366, height: 900 }
+  extraHTTPHeaders:           # header aggiuntivi (es. auth di test SPA)
+    X-Auth-Test: "..."
+
+  # override dei parametri di 'defaults' validi solo per questo target
+  crawl: 300
+  screenReader: true
+  lighthouse: true
+
+  # viste da scansionare SEMPRE (copertura deterministica, ideale per il gate CI)
+  pages:
+    - { name: "landing", path: "/govwayConsole/" }
+    - { name: "soggetti", path: "/govwayConsole/soggettiList.do" }
+
+  # navigazioni scriptate: raggiungono viste non navigabili via URL (dettagli/report/tab)
+  flows:
+    - name: "dettaglio-soggetto"
+      start: "/govwayConsole/soggettiList.do"
+      skipIfMissing: "table.dataTable"   # se manca sulla start page, il flow è saltato
+      sourceHint: "tools/.../soggetti.jsp"   # opzionale
+      steps:
+        # tipi di step disponibili:
+        - { goto: "/path" }                                    # naviga a URL
+        - { click: "#sel" }                                    # click (supporta :has(), :text-is())
+        - { clickText: "Testo", exact: true }                  # click per testo
+        - { fill: { selector: "#campo", value: "x" } }         # compila campo
+        - { wait: "networkidle" }                              # attesa load-state o selettore
+        - { scan: "etichetta" }                                # scansiona lo stato corrente
+        - { scanTabs: ".rich-tab-header" }                     # scopre i tab e scansiona ognuno
+        - { scanMenu: [                                         # naviga le voci di piu' menu (dinamico)
+              { item: "#menuct a.voceMenuRC",                   #   menu principale
+                listRow: "[id^='entry_']",                      #   -> primo elemento della lista -> dettaglio
+                recurse: { depth: 2, max: 40 },                 #   -> esplora ricorsiva SOLO-navigazione (matite, count-link...); no form/SALVA
+                detailMenu: { open: "#divIconMenu_barraTitolo", item: ".context-menu a" },  # -> 3-puntini
+                detailConfig: "[id^='form-add-tab-link']" },    #   -> CONFIGURA (pagina d'ingresso wizard)
+                # nota: 'recurse' supersede 'detailEdit' (i link/matite li segue la ricorsione)
+              { open: "#menuUtente",   item: "#menuUtente_menu a" },   # dropdown: 'open' apre il menu
+              { open: "#menuModalita", item: "#menuModalita_menu a" }  # (logout sempre saltato)
+            ] }                                                  # opz. per menu: skip
+        - { scanCharts: {                                       # enumera icone-report e le genera
+              grid: "/path/griglia.jsf",
+              icon: "a.tipologia-button",
+              generate: "#generaReport",
+              label: "span.tipologia-button-text",
+              limit: 5,                                          # opzionale: primi N (dev)
+              dimensionField: "dimensioni",                     # select da iterare (per contenuto)
+              dimensionSkip: "personalizzato",                  # opzioni da saltare
+              dimensionOption: ".rich-combobox-item"            # selettore voci lista combobox
+            } }
+        # modificatori comuni per ogni step:
+        #   delayMs, timeoutMs, optional (true = non interrompe), desc, sourceHint
+        #   se il flow non ha step scan*, scansiona lo stato finale
+
+# --- Altri target nello stesso file (facoltativo) ----------------------------
+monitor:
+  name: "govwayMonitor"
+  enabled: true
+  loginPath: "/govwayMonitor/"
+  # ...come sopra...

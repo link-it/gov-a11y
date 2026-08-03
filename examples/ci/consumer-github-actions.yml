@@ -1,0 +1,49 @@
+# ESEMPIO — da copiare nel repo dell'APP (es. .github/workflows/a11y.yml).
+# Modello: l'app tiene la PROPRIA config in ci/a11y/targets.json (niente credenziali nel file);
+# la CI avvia l'app, poi invoca gov-a11y (che clona il tool e legge il config locale).
+name: accessibilita
+on: [push, pull_request]
+
+jobs:
+  a11y:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1) Avvia l'app in test e rendila raggiungibile su una porta (adatta al tuo progetto).
+      #    Esempi tipici: docker compose up -d / npm run start:ci / un service container.
+      - name: Avvia l'app
+        run: |
+          # docker compose up -d      # oppure:
+          # npm ci && npm run start:ci &
+          # ./scripts/wait-for.sh http://localhost:6200
+          echo "avvia qui la tua app su \$APP_URL"
+
+      # 2) Esegui l'audit tramite la reusable action gov-a11y.
+      - name: Audit accessibilita'
+        uses: link-it/gov-a11y@v1
+        with:
+          base: http://localhost:6200
+          config: ci/a11y/targets.json      # la config di QUESTA app, versionata nel suo repo
+          out: a11y-report
+          tags: wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa
+          fail-on: serious
+          fail-on-nameless: 'true'          # step 2: elementi interattivi senza nome
+          screen-reader: 'true'             # step 3: virtual screen reader (annunci)
+        env:
+          # Credenziali per-target dai secret (chiave = nome target in MAIUSCOLO):
+          A11Y_GOVCAT_USER: ${{ secrets.A11Y_GOVCAT_USER }}
+          A11Y_GOVCAT_PASS: ${{ secrets.A11Y_GOVCAT_PASS }}
+
+      # 3) Pubblica i report come artifact (SARIF, HTML, JUnit, Sonar, summary).
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: a11y-report
+          path: a11y-report
+
+      # 4) (Opzionale) carica il SARIF su GitHub Code Scanning.
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: a11y-report/a11y.sarif

@@ -1,0 +1,214 @@
+{
+  "$app": "GovWay",
+  "$defaultsNote": "Parametri dichiarativi validi per tutti i target di questo file. La CLI ha sempre la precedenza (CLI > target > defaults > built-in). Qui: crawl attivo (utile sulla console link-based; sul monitor RichFaces troverà poco ma non nuoce), screen-reader e Lighthouse su entrambi i target. tags include wcag22aa.",
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa",
+    "crawl": 1500,
+    "crawlDepth": 10,
+    "screenReader": true,
+    "lighthouse": true
+  },
+  "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env GW_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env GW_MONITOR_USER/PASS, GW_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
+  "monitor": {
+    "name": "govwayMonitor",
+    "enabled": true,
+    "loginPath": "/govwayMonitor/",
+    "user": "operatore",
+    "login": {
+      "usernameSelector": "#username, input[name='username']",
+      "passwordSelector": "#password, input[name='password'], input[type='password']",
+      "submitSelector": "#loginBtn, input[type='submit'], button[type='submit']",
+      "successUrlIncludes": "govwayMonitor"
+    },
+    "sourceHint": "tools/web_interfaces/monitor/deploy/pages/templates/defaultTemplate.xhtml",
+    "contextPath": "/govwayMonitor/",
+    "$pagesNote": "Il menu di govwayMonitor naviga via postback AJAX (RichFaces): il crawl non scopre URL. Queste sono le pagine d'ingresso GET-navigabili (verificate a runtime). Le pagine di DETTAGLIO (dettaglio*, fault*, dump*, tokenInfo, visualizza*, transazioniLivello2) sono escluse perche' richiedono un record gia' selezionato in sessione.",
+    "pages": [
+      {
+        "name": "welcome",
+        "path": "/govwayMonitor/commons/pages/welcome.jsf"
+      },
+      {
+        "name": "statoPdd",
+        "path": "/govwayMonitor/commons/pages/statoPdd.jsf"
+      },
+      {
+        "name": "about",
+        "path": "/govwayMonitor/commons/pages/about.jsf"
+      },
+      {
+        "name": "modalita",
+        "path": "/govwayMonitor/commons/pages/modalita.jsf"
+      },
+      {
+        "name": "transazioni-ricerca",
+        "path": "/govwayMonitor/transazioni/pages/form/transazioni.jsf"
+      },
+      {
+        "name": "transazioni-list",
+        "path": "/govwayMonitor/transazioni/pages/list/transazioni.jsf"
+      },
+      {
+        "name": "transazioni-live",
+        "path": "/govwayMonitor/transazioni/pages/form/esitiLive.jsf"
+      },
+      {
+        "name": "eventi",
+        "path": "/govwayMonitor/eventi/pages/list/eventi.jsf"
+      },
+      {
+        "name": "allarmi-stato",
+        "path": "/govwayMonitor/allarmi/pages/list/statoAllarmi.jsf"
+      },
+      {
+        "name": "allarmi-history",
+        "path": "/govwayMonitor/allarmi/pages/list/allarmeHistory.jsf"
+      },
+      {
+        "name": "stat-analisi",
+        "path": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf"
+      },
+      {
+        "name": "stat-andamento",
+        "path": "/govwayMonitor/stat/pages/form/andamentoTemporaleGrafico.jsf"
+      },
+      {
+        "name": "stat-config",
+        "path": "/govwayMonitor/stat/pages/list/configurazioniGenerali.jsf"
+      }
+    ],
+    "$pagesRedirectNote": "Alcune pagine (transazioni-live/esitiLive, allarmi-stato/statoAllarmi, allarmi-history/allarmeHistory) possono rimbalzare su welcome.jsf se il relativo modulo non e' abilitato o l'utenza non ha i permessi: il tool le rileva (warning 'redirect') e le salta (dedup su URL effettivo). Restano in lista perche' in ambienti con quei moduli attivi vengono scansionate correttamente.",
+    "$flowsNote": "I flows raggiungono viste NON GET-navigabili (pagine di dettaglio) navigando come un utente: start -> steps (click/fill/wait) -> scan del DOM risultante. Step: {click|clickText|fill|goto, wait:'networkidle'|selettore, delayMs, optional:true=non interrompe il flow se fallisce, timeoutMs, desc}. skipIfMissing: se il selettore-sentinella manca sulla start page (es. lista vuota) il flow viene saltato. Usa SEMPRE selettori stabili (id non-generato, title, testo, classe), MAI id 'j_idNN' generati da JSF.",
+    "flows": [
+      {
+        "name": "transazioni-risultati",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/list/transazioni.xhtml",
+        "steps": [
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca (Cerca)"
+          },
+          {
+            "wait": "#msgDt_tbl",
+            "timeoutMs": 8000,
+            "optional": true,
+            "desc": "attendi tabella risultati"
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Apre il dettaglio della prima transazione (click su div.rowTransazione: la classe e' stabile, l'id contiene un UUID) e scansiona ogni TAB separatamente. I tab sono scoperti DINAMICAMENTE via scanTabs (selettore .rich-tab-header, standard RichFaces): cosi' record con tab diversi/aggiuntivi (es. Fault) vengono coperti senza cablare le etichette. Nel report ogni tab compare come flow:transazione-dettaglio/<slug-etichetta>. Richiede almeno una transazione nei risultati; con lista vuota il click riga fallisce e il flow si interrompe (warning).",
+        "steps": [
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "#msgDt_tbl",
+            "timeoutMs": 8000,
+            "desc": "attendi risultati"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri dettaglio prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "stat-tutte",
+        "start": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf",
+        "skipIfMissing": "fieldset legend",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/stat/pages/form/analisiStatistica.xhtml",
+        "$note": "Analisi Statistica: la griglia analisiStatistica.jsf espone 33 report (11 sezioni x 3 tipi: Line/Bar/Pie chart, Tabella). Lo step scanCharts li enumera DINAMICAMENTE e per ognuno ri-naviga alla griglia, clicca l'icona (a.tipologia-button, etichetta dal fieldset legend + span), clicca #generaReport e scansiona il report reale (grafico SVG o dataTable). Copre TUTTE le statistiche senza cablarle. Inoltre, se il form presenta la select 'dimensioni' (Bar chart e Tabella delle distribuzioni per-X), enumera le sue opzioni a runtime e genera+scansiona il report per OGNUNA: ogni variante compare come flow:stat-tutte/<sezione>-<tipo>/<opzione>. dimensionSkip='personalizzato' esclude la variante 'personalizzato' (aprirebbe una select 'Seleziona Informazione 3D' non compilata, stato non valido; il suo layout non aggiunge strutture a11y nuove rispetto alle altre): restano 2-dimensioni e 3-dimensioni (include la data). Valori semi-cablati (per CONTENUTO, non per id/label di posizione): dimensionField='dimensioni' (individua la select) e dimensionSkip='personalizzato' (variante da saltare). I filtri hanno default validi, non serve compilarli. NB: con le dimensioni il totale sale (~69 report) -> run piu' lungo; usa scanCharts.limit per campionare in sviluppo.",
+        "steps": [
+          {
+            "scanCharts": {
+              "grid": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf",
+              "icon": "a.tipologia-button",
+              "generate": "#generaReport",
+              "label": "span.tipologia-button-text",
+              "dimensionField": "dimensioni",
+              "dimensionSkip": "personalizzato"
+            },
+            "wait": "networkidle",
+            "delayMs": 2500
+          }
+        ]
+      }
+    ]
+  },
+  "console": {
+    "name": "govwayConsole",
+    "enabled": true,
+    "loginPath": "/govwayConsole/",
+    "user": "amministratore",
+    "login": {
+      "usernameSelector": "input[name='login'], input[name='username'], input[name='j_username'], #username",
+      "passwordSelector": "input[name='password'], input[name='j_password'], input[type='password']",
+      "submitSelector": "input.deButton[value='Login'], input[type='submit'], button[type='submit'], #loginBtn",
+      "successUrlIncludes": "govwayConsole"
+    },
+    "sourceHint": "tools/web_interfaces/control_station/deploy/public/loginAS.jsp",
+    "contextPath": "/govwayConsole/",
+    "pages": [
+      {
+        "name": "landing",
+        "path": "/govwayConsole/"
+      }
+    ],
+    "crawl": 0,
+    "flows": [
+      {
+        "name": "menu",
+        "start": "/govwayConsole/",
+        "$note": "scanMenu console: 3 menu (sinistro/omino/Profili). Sul menu sinistro: listRow entry_ -> dettaglio, poi RICORSIONE solo-navigazione (recurse {depth,max}: segue matite, count-link Soggetti/Ruoli/Proprieta, ecc., ovunque, con dedup su URL normalizzato e skip di distruttivi/SALVA), + detailMenu 3-puntini + detailConfig CONFIGURA. Tutto dinamico, non cablato, anti-logout. depth/max sono parametri regolabili.",
+        "steps": [
+          {
+            "scanMenu": [
+              {
+                "item": "#menuct a.voceMenuRC",
+                "listRow": "[id^='entry_']",
+                "recurse": {
+                  "depth": 2,
+                  "max": 40
+                },
+                "detailMenu": {
+                  "open": "#divIconMenu_barraTitolo",
+                  "item": ".context-menu a"
+                },
+                "detailConfig": "[id^='form-add-tab-link']"
+              },
+              {
+                "open": "#menuUtente",
+                "item": "#menuUtente_menu a"
+              },
+              {
+                "open": "#menuModalita",
+                "item": "#menuModalita_menu a"
+              }
+            ],
+            "wait": "networkidle",
+            "delayMs": 400
+          }
+        ]
+      }
+    ]
+  }
+}

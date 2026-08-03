@@ -1,0 +1,68 @@
+{
+  "$app": "GovWay",
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa",
+    "crawl": 1500,
+    "crawlDepth": 10,
+    "screenReader": true,
+    "lighthouse": true
+  },
+  "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env GW_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env GW_MONITOR_USER/PASS, GW_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
+  "console": {
+    "name": "govwayConsole",
+    "enabled": true,
+    "loginPath": "/govwayConsole/",
+    "user": "amministratore",
+    "login": {
+      "usernameSelector": "input[name='login'], input[name='username'], input[name='j_username'], #username",
+      "passwordSelector": "input[name='password'], input[name='j_password'], input[type='password']",
+      "submitSelector": "input.deButton[value='Login'], input[type='submit'], button[type='submit'], #loginBtn",
+      "successUrlIncludes": "govwayConsole"
+    },
+    "sourceHint": "tools/web_interfaces/control_station/deploy/public/loginAS.jsp",
+    "contextPath": "/govwayConsole/",
+    "pages": [
+      {
+        "name": "landing",
+        "path": "/govwayConsole/"
+      }
+    ],
+    "crawl": 0,
+    "flows": [
+      {
+        "name": "menu",
+        "start": "/govwayConsole/",
+        "$note": "scanMenu console: 3 menu (sinistro/omino/Profili). Sul menu sinistro: listRow entry_ -> dettaglio, poi RICORSIONE solo-navigazione (recurse {depth,max}: segue matite, count-link Soggetti/Ruoli/Proprieta, ecc., ovunque, con dedup su URL normalizzato e skip di distruttivi/SALVA), + detailMenu 3-puntini + detailConfig CONFIGURA. Tutto dinamico, non cablato, anti-logout. depth/max sono parametri regolabili.",
+        "steps": [
+          {
+            "scanMenu": [
+              {
+                "item": "#menuct a.voceMenuRC",
+                "listRow": "[id^='entry_']",
+                "recurse": {
+                  "depth": 2,
+                  "max": 40
+                },
+                "detailMenu": {
+                  "open": "#divIconMenu_barraTitolo",
+                  "item": ".context-menu a"
+                },
+                "detailConfig": "[id^='form-add-tab-link']"
+              },
+              {
+                "open": "#menuUtente",
+                "item": "#menuUtente_menu a"
+              },
+              {
+                "open": "#menuModalita",
+                "item": "#menuModalita_menu a"
+              }
+            ],
+            "wait": "networkidle",
+            "delayMs": 400
+          }
+        ]
+      }
+    ]
+  }
+}

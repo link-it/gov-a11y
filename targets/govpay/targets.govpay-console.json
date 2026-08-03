@@ -1,0 +1,196 @@
+{
+  "$app": "GovPay Console",
+  "$comment": "GovPay Console (Angular SPA). Dev: 'npm run start' -> http://localhost:4200 (oppure 'npm run start:port' -> :5300). Rotte da projects/govpay-console/src/app/app.routes.ts e dai *.routes.ts dei feature. AUTH: l'app usa OAuth2/SPID/IAM (assets/config/app-config.json, blocco 'Auth', rotta app 'auth/login') -> adatta il blocco auth all'ambiente che testi: header/bypass di test (piu' semplice) OPPURE login a form IAM/Keycloak. Le credenziali NON vanno qui: usa i secret CI (env GW_GOVPAYCONSOLE_USER/PASS) o i flag --user/--pass.",
+
+  "defaults": {
+    "screenReader": true,
+    "lighthouse": true
+  },
+  "govpayConsole": {
+    "name": "govpay-console",
+    "enabled": true,
+    "loginPath": "/",
+    "contextPath": "/",
+    "sourceHint": "projects/govpay-console/src/app",
+
+    "$auth": "Login Basic a form (modalita' Default dell'app). I selettori sono quelli reali della pagina /auth/login. Le credenziali NON vanno qui: passale via env GW_GOVPAYCONSOLE_USER/GW_GOVPAYCONSOLE_PASS o flag --user/--pass. Il login Basic stabilisce una sessione backend (cookie 'govpay-console-api' + XSRF) che persiste ai reload. Richiede il backend avviato con il preset giusto (es. 'npm run start:demo-v2').",
+    "login": {
+      "usernameSelector": "input[formcontrolname='username']",
+      "passwordSelector": "input[formcontrolname='password']",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "dashboard"
+    },
+    "$mockLoginDev": "Alternativa SENZA credenziali: la pagina di login ha un bottone 'Mock login (dev)' (utente fittizio, tutte le ACL). E' pero' solo lato client e NON crea sessione backend -> le API rispondono 401 e le viste autenticate rimandano al login. Utile solo per scansionare pagine che non dipendono dal backend. Per usarlo: togli 'login' e metti postLogin con { clickText: 'Mock login (dev)' }.",
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 2500,
+
+    "$pages": "Viste GET-navigabili: liste + maschere di creazione '/nuovo' (statiche). Le maschere di dettaglio/modifica per-id NON sono GET-navigabili -> vedi 'flows'.",
+    "pages": [
+      { "name": "dashboard",           "path": "/dashboard" },
+      { "name": "pendenze",            "path": "/pendenze" },
+      { "name": "ricevute",            "path": "/ricevute" },
+      { "name": "pagamenti",           "path": "/pagamenti" },
+      { "name": "riscossioni",         "path": "/riscossioni" },
+      { "name": "rendicontazioni",     "path": "/rendicontazioni" },
+      { "name": "incassi",             "path": "/incassi" },
+      { "name": "giornale-eventi",     "path": "/giornale-eventi" },
+      { "name": "tracciati",           "path": "/tracciati" },
+      { "name": "domini",              "path": "/domini" },
+      { "name": "domini-nuovo",        "path": "/domini/nuovo" },
+      { "name": "tipi-pendenza",       "path": "/tipi-pendenza" },
+      { "name": "tipi-pendenza-nuovo", "path": "/tipi-pendenza/nuovo" },
+      { "name": "entrate",             "path": "/entrate" },
+      { "name": "entrate-nuovo",       "path": "/entrate/nuovo" },
+      { "name": "applicazioni",        "path": "/applicazioni" },
+      { "name": "applicazioni-nuovo",  "path": "/applicazioni/nuovo" },
+      { "name": "operatori",           "path": "/operatori" },
+      { "name": "operatori-nuovo",     "path": "/operatori/nuovo" },
+      { "name": "ruoli",               "path": "/ruoli" },
+      { "name": "ruoli-nuovo",         "path": "/ruoli/nuovo" },
+      { "name": "intermediari",        "path": "/intermediari" },
+      { "name": "intermediari-nuovo",  "path": "/intermediari/nuovo" },
+      { "name": "profilo",             "path": "/profilo" },
+      { "name": "impostazioni",        "path": "/impostazioni" },
+      { "name": "about",               "path": "/about" }
+    ],
+
+    "$flows": "Maschere di dettaglio/modifica raggiungibili solo cliccando una riga della lista (tutte le liste usano il componente condiviso lnk-item-list/lnk-item-row). Ogni flow: apri il primo elemento -> scansiona il dettaglio; dove esiste la modifica, apre anche quella. skipIfMissing salta il flow se la lista e' vuota (dati di test assenti).",
+    "flows": [
+      {
+        "name": "pendenza-dettaglio", "start": "/pendenze", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/pendenze",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "pendenza-dettaglio" }
+        ]
+      },
+      {
+        "name": "pagamento-dettaglio", "start": "/pagamenti", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/pagamenti",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "pagamento-dettaglio" }
+        ]
+      },
+      {
+        "name": "ricevuta-dettaglio", "start": "/ricevute", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/ricevute",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "ricevuta-dettaglio" }
+        ]
+      },
+      {
+        "name": "riscossione-dettaglio", "start": "/riscossioni", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/riscossioni",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "riscossione-dettaglio" }
+        ]
+      },
+      {
+        "name": "incasso-dettaglio", "start": "/incassi", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/incassi",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "incasso-dettaglio" }
+        ]
+      },
+      {
+        "name": "rendicontazione-dettaglio", "start": "/rendicontazioni", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/rendicontazioni",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "rendicontazione-dettaglio" }
+        ]
+      },
+      {
+        "name": "giornale-evento-dettaglio", "start": "/giornale-eventi", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/giornale-eventi",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "giornale-evento-dettaglio" }
+        ]
+      },
+      {
+        "name": "tracciato-dettaglio", "start": "/tracciati", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/tracciati",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "tracciato-dettaglio" }
+        ]
+      },
+      {
+        "name": "dominio-dettaglio-modifica", "start": "/domini", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/domini",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "dominio-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "dominio-modifica" }
+        ]
+      },
+      {
+        "name": "tipo-pendenza-dettaglio-modifica", "start": "/tipi-pendenza", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/tipi-pendenza",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "tipo-pendenza-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "tipo-pendenza-modifica" }
+        ]
+      },
+      {
+        "name": "entrata-dettaglio-modifica", "start": "/entrate", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/entrate",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "entrata-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "entrata-modifica" }
+        ]
+      },
+      {
+        "name": "applicazione-dettaglio-modifica", "start": "/applicazioni", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/applicazioni",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "applicazione-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "applicazione-modifica" }
+        ]
+      },
+      {
+        "name": "operatore-dettaglio-modifica", "start": "/operatori", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/operatori",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "operatore-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "operatore-modifica" }
+        ]
+      },
+      {
+        "name": "ruolo-dettaglio-modifica", "start": "/ruoli", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/ruoli",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "ruolo-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "ruolo-modifica" }
+        ]
+      },
+      {
+        "name": "intermediario-dettaglio-modifica", "start": "/intermediari", "skipIfMissing": "lnk-item-list lnk-item-row",
+        "sourceHint": "projects/govpay-console/src/app/features/intermediari",
+        "steps": [
+          { "click": "lnk-item-list lnk-item-row .cursor-pointer", "wait": "domcontentloaded", "delayMs": 1500, "desc": "apri primo dettaglio" },
+          { "scan": "intermediario-dettaglio" },
+          { "clickText": "Modifica", "optional": true, "wait": "domcontentloaded", "delayMs": 1200, "desc": "apri maschera modifica" },
+          { "scan": "intermediario-modifica" }
+        ]
+      }
+    ]
+  }
+}

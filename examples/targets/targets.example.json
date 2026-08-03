@@ -1,0 +1,63 @@
+{
+  "$comment": "TEMPLATE di configurazione gov-a11y. Copialo in targets.<app>.json e adatta URL/rotte/auth. Ogni chiave di primo livello (non $) e' un target. 'base' arriva da --base o env A11Y_BASE_URL. Credenziali reali: usa i secret di CI (env A11Y_<TARGET>_USER/PASS), NON questo file.",
+  "$app": "Nome App (etichetta leggibile mostrata nei titoli di report.html/summary.json; se assente, usa i nomi dei target)",
+
+  "spaHeaderAuth": {
+    "$note": "Esempio SPA (Angular/React) con auth via header e selezione organizzazione sempre presente (postLogin). navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle.",
+    "name": "appSpa",
+    "enabled": true,
+    "loginPath": "/",
+    "contextPath": "/",
+    "sourceHint": "frontend/src",
+    "extraHTTPHeaders": { "X-App-Principal": "utente.di.test" },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 2500,
+    "postLogin": {
+      "steps": [
+        { "goto": "/home", "wait": "domcontentloaded", "delayMs": 2000, "desc": "trigger eventuale select-org/consenso" },
+        { "clickText": "Organizzazione Demo", "optional": true, "delayMs": 500, "desc": "scegli organizzazione (se richiesta)" },
+        { "clickText": "Conferma", "optional": true, "delayMs": 2000, "desc": "conferma" }
+      ]
+    },
+    "pages": [
+      { "name": "home",      "path": "/home" },
+      { "name": "lista",     "path": "/items" },
+      { "name": "form-nuovo","path": "/items/new" },
+      { "name": "dashboard", "path": "/dashboard" }
+    ]
+  },
+
+  "classicFormLogin": {
+    "$note": "Esempio app server-rendered (JSF/JSP) con login a form e flow per raggiungere una vista di dettaglio non GET-navigabile.",
+    "name": "appClassica",
+    "enabled": false,
+    "loginPath": "/app/",
+    "contextPath": "/app/",
+    "sourceHint": "src/main/webapp/pages/template.xhtml",
+    "user": "operatore",
+    "login": {
+      "usernameSelector": "#username, input[name='username']",
+      "passwordSelector": "input[type='password'], input[name='password']",
+      "submitSelector": "button[type='submit'], input[type='submit'], #loginBtn",
+      "successUrlIncludes": "app"
+    },
+    "pages": [
+      { "name": "welcome", "path": "/app/pages/welcome.jsf" },
+      { "name": "lista",   "path": "/app/pages/list/items.jsf" }
+    ],
+    "flows": [
+      {
+        "name": "item-dettaglio",
+        "start": "/app/pages/list/items.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "src/main/webapp/pages/detail/item.xhtml",
+        "steps": [
+          { "click": "#filtra", "wait": "networkidle", "delayMs": 1500, "desc": "esegui ricerca" },
+          { "wait": "#risultati_tbl", "timeoutMs": 8000, "optional": true, "desc": "attendi tabella" },
+          { "click": "div.rowItem", "wait": "networkidle", "delayMs": 2000, "desc": "apri primo dettaglio" },
+          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1000, "desc": "scansiona ogni tab" }
+        ]
+      }
+    ]
+  }
+}

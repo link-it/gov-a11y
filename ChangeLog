@@ -1,0 +1,6 @@
+2026-08-03  Alfonso Tatarelli <a.tatarelli@gmail.com>, Andrea Poli <andreapoli80@gmail.com>
+
+	* [gov-a11y] Prima versione.
+	Scanner di accessibilità WCAG 2.x per le console web dei progetti Link.it, esterno e black-box
+	(Playwright + axe-core; virtual screen reader e Lighthouse opzionali). Config-driven e
+	multi-progetto, con report per CI e quality gate. Licenza GPL-3.0-only.
