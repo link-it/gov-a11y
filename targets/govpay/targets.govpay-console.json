@@ -1,6 +1,6 @@
 {
   "$app": "GovPay Console",
-  "$comment": "GovPay Console (Angular SPA). Dev: 'npm run start' -> http://localhost:4200 (oppure 'npm run start:port' -> :5300). Rotte da projects/govpay-console/src/app/app.routes.ts e dai *.routes.ts dei feature. AUTH: l'app usa OAuth2/SPID/IAM (assets/config/app-config.json, blocco 'Auth', rotta app 'auth/login') -> adatta il blocco auth all'ambiente che testi: header/bypass di test (piu' semplice) OPPURE login a form IAM/Keycloak. Le credenziali NON vanno qui: usa i secret CI (env GW_GOVPAYCONSOLE_USER/PASS) o i flag --user/--pass.",
+  "$comment": "GovPay Console (Angular SPA). Dev: 'npm run start' -> http://localhost:4200 (oppure 'npm run start:port' -> :5300). Rotte da projects/govpay-console/src/app/app.routes.ts e dai *.routes.ts dei feature. AUTH: l'app usa OAuth2/SPID/IAM (assets/config/app-config.json, blocco 'Auth', rotta app 'auth/login') -> adatta il blocco auth all'ambiente che testi: header/bypass di test (piu' semplice) OPPURE login a form IAM/Keycloak. Le credenziali NON vanno qui: usa i secret CI (env A11Y_GOVPAYCONSOLE_USER/PASS) o i flag --user/--pass.",
 
   "defaults": {
     "screenReader": true,
@@ -13,7 +13,7 @@
     "contextPath": "/",
     "sourceHint": "projects/govpay-console/src/app",
 
-    "$auth": "Login Basic a form (modalita' Default dell'app). I selettori sono quelli reali della pagina /auth/login. Le credenziali NON vanno qui: passale via env GW_GOVPAYCONSOLE_USER/GW_GOVPAYCONSOLE_PASS o flag --user/--pass. Il login Basic stabilisce una sessione backend (cookie 'govpay-console-api' + XSRF) che persiste ai reload. Richiede il backend avviato con il preset giusto (es. 'npm run start:demo-v2').",
+    "$auth": "Login Basic a form (modalita' Default dell'app). I selettori sono quelli reali della pagina /auth/login. Le credenziali NON vanno qui: passale via env A11Y_GOVPAYCONSOLE_USER/A11Y_GOVPAYCONSOLE_PASS o flag --user/--pass. Il login Basic stabilisce una sessione backend (cookie 'govpay-console-api' + XSRF) che persiste ai reload. Richiede il backend avviato con il preset giusto (es. 'npm run start:demo-v2').",
     "login": {
       "usernameSelector": "input[formcontrolname='username']",
       "passwordSelector": "input[formcontrolname='password']",

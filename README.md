@@ -76,7 +76,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 
 ### Variabili d'ambiente
 `A11Y_BASE_URL`, `A11Y_USER`, `A11Y_PASS`, e per-target `A11Y_<TARGET>_USER` / `A11Y_<TARGET>_PASS`
-(es. `A11Y_GOVCAT_PASS`; fallback legacy `GW_*` per retrocompatibilità con `govway-a11y`).
+(es. `A11Y_GOVCAT_PASS`).
 Le **credenziali vanno nei secret di CI**, non nel file di config.
 
 ## Config `targets.<app>.json`

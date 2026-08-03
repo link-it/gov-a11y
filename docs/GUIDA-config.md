@@ -179,7 +179,7 @@ Le voci di **logout** sono **sempre saltate** (guardia universale: non deautenti
 ## Credenziali e sicurezza
 
 Non mettere password nel file. Ordine di risoluzione credenziali:
-**env per-target** `A11Y_<TARGET>_USER/PASS` (fallback legacy `GW_<TARGET>_USER/PASS`) **>** `user`/`pass`
+**env per-target** `A11Y_<TARGET>_USER/PASS` **>** `user`/`pass`
 in config **>** globali `--user/--pass` / `A11Y_USER/PASS`. In CI usa i secret.
 
 Vedi anche: `GUIDA-esecuzione.md` (parametri CLI) e `config-schema.annotato.yaml` (struttura commentata).

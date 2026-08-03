@@ -90,7 +90,7 @@ if (args.help || args.h) {
   --insecure          Ignora errori certificato HTTPS (default true)
   --help              Questo aiuto
 
-  Credenziali per-target: env A11Y_<TARGET>_USER / A11Y_<TARGET>_PASS (fallback: GW_<TARGET>_USER/PASS).
+  Credenziali per-target: env A11Y_<TARGET>_USER / A11Y_<TARGET>_PASS.
 
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
@@ -100,10 +100,10 @@ if (args.help || args.h) {
   process.exit(0);
 }
 
-// Env de-brandizzate (A11Y_*), con fallback alle legacy GovWay (GW_*) per retrocompatibilita'.
-const BASE = (args.base || process.env.A11Y_BASE_URL || process.env.GW_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
-const USER = args.user || process.env.A11Y_USER || process.env.GW_USER || 'amministratore';
-const PASS = args.pass || process.env.A11Y_PASS || process.env.GW_PASS || '123456';
+// Parametri globali da env (A11Y_*) o flag CLI.
+const BASE = (args.base || process.env.A11Y_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+const USER = args.user || process.env.A11Y_USER || 'amministratore';
+const PASS = args.pass || process.env.A11Y_PASS || '123456';
 const OUT = resolve(process.cwd(), args.out || './report');
 const CONFIG = resolve(process.cwd(), args.config || resolve(__dirname, 'targets.json'));
 const ONLY = args.only || null;
@@ -173,10 +173,10 @@ function loadTargets() {
 }
 
 function credsFor(target) {
-  // Priorita': env per-target (A11Y_<KEY>_USER, fallback legacy GW_<KEY>_USER) > config > globale (--user/--pass).
+  // Priorita': env per-target (A11Y_<KEY>_USER) > config > globale (--user/--pass).
   const k = target.key.toUpperCase();
-  const user = process.env[`A11Y_${k}_USER`] || process.env[`GW_${k}_USER`] || target.user || USER;
-  const pass = process.env[`A11Y_${k}_PASS`] || process.env[`GW_${k}_PASS`] || target.pass || PASS;
+  const user = process.env[`A11Y_${k}_USER`] || target.user || USER;
+  const pass = process.env[`A11Y_${k}_PASS`] || target.pass || PASS;
   return { user, pass };
 }
 

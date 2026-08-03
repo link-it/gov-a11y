@@ -47,7 +47,7 @@ cp examples/targets/targets.example.json         targets.<app>.json
 
 Ogni chiave di primo livello (che non inizia con `$`) è un **target**; tieni **un solo
 target** per app salvo esigenze particolari. La chiave (es. `govpayConsole`) è usata anche per
-le credenziali da env: `GW_<CHIAVE>_USER` / `GW_<CHIAVE>_PASS`.
+le credenziali da env: `A11Y_<CHIAVE>_USER` / `A11Y_<CHIAVE>_PASS`.
 
 ---
 
@@ -85,7 +85,7 @@ Se dopo il login servono passi extra (selezione organizzazione/ente/dominio, con
 (select-org: `clickText` "Ministero Interno" → "Conferma").
 
 > **Regola d'oro**: le credenziali **non** vanno nel file di config. Usa i **secret di CI**
-> (`GW_<TARGET>_USER/PASS`) o i flag `--user/--pass`.
+> (`A11Y_<TARGET>_USER/PASS`) o i flag `--user/--pass`.
 
 ---
 
