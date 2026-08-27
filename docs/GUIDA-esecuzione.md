@@ -4,6 +4,9 @@ Tool di audit accessibilità (WCAG 2.x) delle console applicative: esegue axe-co
 opzionalmente Lighthouse (punteggio) e un virtual screen reader (annunci), navigando la webapp
 autenticata. Stesso comando **a mano** e **in pipeline**.
 
+> Cosa verifica ciascun livello e quale configurazione conviene per quale scenario:
+> [`GUIDA-livelli-di-verifica.md`](GUIDA-livelli-di-verifica.md).
+
 ## Prerequisiti
 
 ```bash
@@ -159,6 +162,55 @@ node a11y-scan.mjs --config targets/govway/targets.govway.json --base http://127
   **globali** (valutati sull'insieme di tutti i target). Vanno passati da CLI o dichiarati in
   `defaults` — vedi `GUIDA-config.md`.
 - Exit code ≠ 0 se un gate non è rispettato (utile per far fallire la pipeline).
+- Con `--min-score`, una vista **senza punteggio** (audit Lighthouse non completato) fa fallire il
+  gate: su quella vista la soglia non è verificabile, e passare il gate sarebbe un falso ok.
+
+### Il punteggio Lighthouse NON è un criterio di conformità
+
+Domanda ricorrente: "quale soglia mettiamo, 90%?". **Nessuna specifica chiede una percentuale.**
+
+La conformità WCAG è **binaria e per criterio**: una pagina è conforme AA se soddisfa *tutti* i
+criteri A e AA, più i requisiti di conformità (pagine intere, processi completi, non-interferenza).
+Non esiste un "90% conforme": esistono "conforme", "parzialmente conforme", "non conforme" — le tre
+voci della dichiarazione di accessibilità AgID. La catena normativa (Direttiva UE 2016/2102 → norma
+armonizzata EN 301 549 → Linee Guida AgID, art. 3-bis CAD) rimanda a criteri, non a punteggi; anche
+la metodologia europea di monitoraggio verifica criteri. Nella dichiarazione si elencano i criteri
+non soddisfatti: **non si cita una percentuale**.
+
+Va aggiunto che il punteggio non pretende di misurare l'accessibilità nemmeno secondo Lighthouse: è
+la **media pesata degli audit automatici superati**, e 100 non implica accessibile (l'automazione non
+vede tastiera, focus, senso dei testi). Usarlo come soglia di conformità è un errore di categoria.
+
+Anche come gate tecnico è debole, per quattro motivi concreti:
+
+1. **non è comparabile fra pagine** — essendo una media pesata, lo stesso difetto sposta il punteggio
+   di molti punti su una pagina povera di elementi e di pochi su una lista ricca;
+2. **deriva con la versione** — aggiornando `lighthouse` cambiano audit e pesi, quindi il numero si
+   muove senza che il codice sia cambiato;
+3. **non è azionabile** — dice "85 < 90", non cosa correggere: serve comunque l'analisi dei livelli
+   1-2;
+4. **è governato dalla vista peggiore** — `--min-score` fallisce se *una qualsiasi* vista è sotto
+   soglia, quindi su centinaia di viste decide il caso più rumoroso (e le viste con audit fallito,
+   tipici gli stati da postback ricaricati in una tab nuova, fanno fallire il gate).
+
+**Come impostare il gate, allora:**
+
+| Ruolo | Strumento | Perché |
+|---|---|---|
+| Gate che blocca | `--fail-on serious` + `--fail-on-nameless` | deterministici, per-occorrenza, azionabili, indipendenti da tool esterni |
+| Indicatore da tracciare | `lighthouse` (senza `--min-score`) | serie storica del punteggio: `summary.lighthouse[]` |
+| Soglia opzionale | `--min-score` su un insieme **curato** di `pages[]`, con `--no-flows` | evita la fragilità della tab CDP sugli stati non ripetibili |
+
+Per le pagine **nuove** l'obiettivo sensato è 100, non 90: il punteggio automatico è un pavimento,
+non un tetto.
+
+> **Console con debito preesistente.** Su un'applicazione legacy con centinaia di violazioni già
+> presenti, un gate assoluto ha due soli esiti: blocca tutto dal primo giorno, o è tarato così lasco
+> da non scattare mai. In quel caso l'approccio corretto non è abbassare la soglia ma il **ratchet**:
+> fotografare lo stato attuale come baseline e fallire sull'**incremento** ("nessuna nuova
+> violazione"), stringendo la baseline mano a mano che si bonifica — la logica del "new code" di
+> Sonar. Il tool oggi **non** ha una baseline: nel frattempo la via praticabile è `--fail-on none`
+> (report senza blocco) sulla run completa e un gate stretto su un sottoinsieme già bonificato.
 
 ## Esempi
 
@@ -170,7 +222,9 @@ node a11y-scan.mjs --config targets/govway/targets.govway.json --base http://127
 node a11y-scan.mjs --config targets/govway/targets.govway.json --base http://127.0.0.1:8080 \
      --only console --crawl 300 --crawl-depth 2 --screen-reader
 
-# 3) Run "ufficiale" con punteggio Lighthouse e gate a soglia (lenta)
+# 3) Run "ufficiale" con punteggio Lighthouse e gate a soglia (lenta; la soglia e' una scelta
+#    interna, non un requisito di conformita' - vedi "Il punteggio Lighthouse NON e' un criterio
+#    di conformita'")
 node a11y-scan.mjs --config targets/govway/targets.govway.json --base https://gw-staging.example.it \
      --lighthouse --min-score 0.90 --fail-on serious
 

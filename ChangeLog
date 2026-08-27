@@ -1,6 +1,18 @@
 2026-08-27  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y] 
+	Gate --min-score: le viste senza punteggio Lighthouse ora fanno fallire il gate (prima
+	venivano ignorate, quindi con tutti gli audit in errore il gate risultava superato).
+	Opzione "--check-deps": un config non leggibile e' un errore (exit 2), non piu' un esito
+	positivo con "nessun target caricato".
+	Nuovo documento docs/GUIDA-livelli-di-verifica.md: i quattro livelli di verifica (axe-core,
+	accessibility tree, virtual screen reader, Lighthouse), cosa coprono e cosa no, gate, costi
+	e configurazione consigliata per scenario. In docs/GUIDA-esecuzione.md, nuova sezione sul
+	perche' il punteggio Lighthouse non e' un criterio di conformita' ne' un buon quality gate.
+
+2026-08-27  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y] 
 	Dipendenze opzionali: nuova opzione "--check-deps" che verifica (senza scansionare) se i
 	moduli di Lighthouse e del virtual screen reader sono installati e quali feature richiede
 	la configurazione corrente. Se una feature richiesta non e' installata la scansione ora si

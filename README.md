@@ -16,7 +16,9 @@ Un **unico tool**, **config per-app**: si usa su più webapp (GovCat, GovPay, Go
 | 4. NVDA/VoiceOver reali | runner Win/macOS | fuori da questo tool (guidepup reale) |
 | 5. SR manuale (umano) | desktop | necessario a campione per conformità AgID |
 
-Questo tool copre i **livelli 1–3**, tutti eseguibili su Linux CI headless.
+Questo tool copre i **livelli 1–3**, tutti eseguibili su Linux CI headless. A questi si aggiunge il
+punteggio **Lighthouse** (indicatore sintetico, opzionale). Cosa intercetta ciascun livello, cosa
+non copre, quanto costa e quando attivarlo: **[`docs/GUIDA-livelli-di-verifica.md`](docs/GUIDA-livelli-di-verifica.md)**.
 
 ## Requisiti e installazione
 
@@ -213,6 +215,7 @@ il file su cui Sonar aggancia (approssimativamente) le issue.
 
 ## Documentazione
 
+- **[`docs/GUIDA-livelli-di-verifica.md`](docs/GUIDA-livelli-di-verifica.md)** — i quattro livelli (axe, accessibility tree, virtual screen reader, Lighthouse): cosa verificano, cosa non coprono, gate, costi, quale configurazione per quale scenario.
 - **[`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md)** — esecuzione: parametri obbligatori e tutti i flag CLI (valori, default).
 - **[`docs/GUIDA-config.md`](docs/GUIDA-config.md)** — riferimento completo della config (`defaults`, target, login, pages, flows, step incl. `scanMenu`/`recurse`).
 - **[`docs/GUIDA-nuova-app.md`](docs/GUIDA-nuova-app.md)** — guida passo-passo per aggiungere una nuova app.

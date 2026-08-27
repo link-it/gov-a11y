@@ -1458,6 +1458,13 @@ function evaluateGate(results, summary) {
     for (const l of summary.lighthouse) {
       if (l.score < MIN_SCORE) reasons.push(`Lighthouse ${(l.score * 100).toFixed(0)}% < soglia ${(MIN_SCORE * 100).toFixed(0)}% su ${l.url}`);
     }
+    // summary.lighthouse contiene SOLO le viste con punteggio: se un audit non e' completato la
+    // soglia non e' verificabile su quella vista. Passare il gate in quel caso sarebbe un falso ok
+    // (con --min-score e tutti gli audit in errore il gate risulterebbe verde).
+    const senzaPunteggio = results.filter(pr => pr.lhScore == null).length;
+    if (senzaPunteggio) {
+      reasons.push(`${senzaPunteggio} viste senza punteggio Lighthouse: soglia --min-score non verificabile (vedi i warning [lighthouse] nel log)`);
+    }
   }
   if (FAIL_ON_NAMELESS && summary.namelessTotal > 0) {
     reasons.push(`${summary.namelessTotal} elementi interattivi senza nome accessibile (a11y-tree)`);
