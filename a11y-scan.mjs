@@ -46,6 +46,7 @@ import { AxeBuilder } from '@axe-core/playwright';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,6 +66,10 @@ function parseArgs(argv) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+
+// true se il file e' eseguito come comando (non importato dai test / da altro codice):
+// solo in questo caso i prerequisiti mancanti terminano il processo.
+const IS_MAIN = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (args.help || args.h) {
   console.log(`gov-a11y — audit accessibilita' (multi-app) WCAG 2.x, esterno e black-box
@@ -89,6 +94,7 @@ if (args.help || args.h) {
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
   --insecure          Ignora errori certificato HTTPS (default true)
+  --check-deps        Verifica (senza scansionare) se le dipendenze opzionali richieste sono installate
   --help              Questo aiuto
 
   Credenziali per-target: env A11Y_<TARGET>_USER / A11Y_<TARGET>_PASS.
@@ -156,6 +162,120 @@ function applyTargetParams(target) {
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
   DO_LH = !!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null;
+}
+
+/* --------------------- dipendenze opzionali (preflight) ------------------ */
+// Lighthouse e virtual screen reader sono 'optionalDependencies': un npm install con --no-optional
+// (o un download fallito) li lascia fuori. Se la feature e' RICHIESTA, il modulo mancante e' un
+// prerequisito mancante, non un errore di runtime: si blocca subito, prima di aprire il browser.
+const OPTIONAL_FEATURES = {
+  lighthouse: {
+    label: 'Lighthouse',
+    how: '--lighthouse / --min-score / "lighthouse": true in config',
+    off: '--no-lighthouse',
+    modules: ['lighthouse'],
+    install: 'npm install lighthouse',
+  },
+  screenReader: {
+    label: 'virtual screen reader',
+    how: '--screen-reader / "screenReader": true in config',
+    off: '--no-screen-reader',
+    modules: ['@guidepup/virtual-screen-reader', 'jsdom'],
+    install: 'npm install @guidepup/virtual-screen-reader jsdom',
+  },
+};
+
+const _require = createRequire(import.meta.url);
+
+// Risolve un modulo SENZA importarlo (nessun side effect, nessun costo di caricamento). Due
+// tentativi: import.meta.resolve non c'e' su Node vecchi, require.resolve non vede i pacchetti
+// ESM-only con exports map. Ritorna il path dell'entry point, o null se non installato.
+function resolveModule(name) {
+  try { return fileURLToPath(import.meta.resolve(name)); } catch { /* fallback */ }
+  try { return _require.resolve(name); } catch { return null; }
+}
+
+// Versione installata di un modulo ('?' se il package.json non e' leggibile, null se assente).
+function moduleVersion(name) {
+  const entry = resolveModule(name);
+  if (!entry) return null;
+  // Il package.json spesso non e' esportato (exports map): risaliamo dall'entry point.
+  for (let dir = dirname(entry), prev = null; dir !== prev; prev = dir, dir = dirname(dir)) {
+    try {
+      const pkg = JSON.parse(readFileSync(resolve(dir, 'package.json'), 'utf8'));
+      if (pkg.name === name) return pkg.version || '?';
+    } catch { /* continua a risalire */ }
+  }
+  return '?';
+}
+
+function missingModules(feature) {
+  return (OPTIONAL_FEATURES[feature]?.modules || []).filter(m => !resolveModule(m));
+}
+
+// Una feature e' richiesta se lo e' per ALMENO UN target (CLI > target > defaults); senza target
+// caricabili si guarda solo CLI + defaults.
+function featureRequested(cli, cfgKey, targets) {
+  if (!targets || !targets.length) return !!resolveParam(cli, null, cfgKey, false);
+  return targets.some(t => !!resolveParam(cli, t, cfgKey, false));
+}
+
+// Gate sui prerequisiti: 'requested' = { lighthouse: bool, screenReader: bool }. Esce con codice 2
+// se una feature richiesta non ha i moduli. Non fa nulla se il file e' importato (test).
+function preflightOptionalDeps(requested) {
+  const problems = Object.entries(requested)
+    .filter(([, req]) => req)
+    .map(([key]) => ({ key, missing: missingModules(key) }))
+    .filter(p => p.missing.length);
+  if (!problems.length) return;
+  console.error(`\n\u274c Dipendenza opzionale mancante: la scansione e' stata richiesta con una feature non installata.`);
+  for (const { key, missing } of problems) {
+    const f = OPTIONAL_FEATURES[key];
+    console.error(`   - ${f.label} (richiesto da: ${f.how})`);
+    console.error(`     moduli assenti: ${missing.join(', ')}`);
+    console.error(`     installa con:   ${f.install}`);
+  }
+  console.error(`   Alternativa: disabilita la feature con ${problems.map(p => OPTIONAL_FEATURES[p.key].off).join(' ')}`);
+  if (IS_MAIN) process.exit(2);
+}
+
+// --check-deps: stampa lo stato dei moduli opzionali (installati/mancanti) e cosa chiede la config
+// corrente, SENZA avviare browser o scansione. Exit 0 se tutto il richiesto c'e', 1 altrimenti.
+function checkDeps() {
+  let targets = [];
+  // Senza config non si sa QUALI feature servono: dirlo e uscire in errore, altrimenti un path
+  // sbagliato darebbe un esito verde ("nessuna feature richiesta") che non vuol dire niente.
+  try {
+    targets = loadTargets();
+  } catch (e) {
+    console.error(`\u274c Config non leggibile: ${CONFIG}`);
+    console.error(`   ${e.code === 'ENOENT' ? 'file inesistente' : e.message}`);
+    console.error(`   Senza config non e' possibile sapere quali feature opzionali servono.`);
+    return 2;
+  }
+  if (!targets.length) console.warn(`\u26a0 Nessun target abilitato nel config: valgono solo i flag CLI e il blocco "defaults".\n`);
+  const requested = {
+    lighthouse: MIN_SCORE !== null || featureRequested(CLI_LH, 'lighthouse', targets),
+    screenReader: featureRequested(CLI_SR, 'screenReader', targets),
+  };
+  console.log(`Dipendenze opzionali (config: ${CONFIG}${targets.length ? `, target: ${targets.map(t => t.key).join(', ')}` : ''})\n`);
+  let ko = 0;
+  for (const [key, f] of Object.entries(OPTIONAL_FEATURES)) {
+    console.log(`[${f.label}] richiesto da questa esecuzione: ${requested[key] ? 'SI' : 'no'}`);
+    for (const m of f.modules) {
+      const v = moduleVersion(m);
+      console.log(`   ${v ? '\u2713' : '\u2717'} ${m.padEnd(32)} ${v ? v : 'NON INSTALLATO'}`);
+    }
+    const missing = missingModules(key);
+    if (missing.length) {
+      console.log(`   installa con: ${f.install}`);
+      if (requested[key]) ko++;
+    }
+    console.log('');
+  }
+  if (ko) console.error(`\u274c ${ko} feature richieste non sono installate: la scansione si fermerebbe con errore.`);
+  else console.log(`\u2705 Tutte le feature richieste da questa esecuzione hanno i moduli installati.`);
+  return ko ? 1 : 0;
 }
 
 const SEVERITY_ORDER = { critical: 4, serious: 3, moderate: 2, minor: 1, none: 0 };
@@ -257,26 +377,70 @@ function normalizeLinks(hrefs, contextPath) {
   return [...out];
 }
 
-async function runLighthouse(browser, url, target) {
+// Statistiche Lighthouse della run: distinguono "feature spenta" da "feature attiva ma sempre in
+// errore" (altrimenti si vedono solo lhScore: null e sembra un problema di installazione).
+let _lhOk = 0, _lhFail = 0, _lhFirstErr = null;
+
+// Header per la tab di Lighthouse. La tab aperta via CDP vive nel context DI DEFAULT del browser,
+// mentre la scansione naviga in un browser context ISOLATO (browser.newContext()): i cookie di
+// sessione NON sono condivisi, quindi senza questo passaggio Lighthouse vede la pagina non
+// autenticata (login/errore applicativo) e la run non produce punteggio.
+async function lhExtraHeaders(page, target) {
+  const headers = { ...(target?.extraHTTPHeaders || {}) };
+  try {
+    const cookies = await page.context().cookies(page.url());
+    if (cookies.length) headers.Cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+  } catch { /* senza cookie LH vedra' la pagina non autenticata: lo dira' il runtimeError */ }
+  return Object.keys(headers).length ? headers : undefined;
+}
+
+async function runLighthouse(browser, url, target, extraHeaders) {
   try {
     const { default: lighthouse } = await import('lighthouse');
     // Il browser e' lanciato con --remote-debugging-port=9222 (vedi scan()).
     // Usiamo il modulo lighthouse grezzo: apre una tab sullo stesso browser (CDP),
-    // quindi con disableStorageReset condivide localStorage/sessione (es. organizzazione
-    // selezionata) e con extraHeaders porta l'eventuale header di auth.
+    // quindi con disableStorageReset condivide localStorage e con extraHeaders porta i cookie di
+    // sessione (vedi lhExtraHeaders) e l'eventuale header di auth del target.
     const runner = await lighthouse(url, {
       port: 9222,
       output: 'json',
       logLevel: 'error',
       onlyCategories: ['accessibility'],
       disableStorageReset: true,
-      extraHeaders: target?.extraHTTPHeaders || undefined,
+      extraHeaders: extraHeaders || target?.extraHTTPHeaders || undefined,
       formFactor: 'desktop',
       screenEmulation: { disabled: true },
       throttlingMethod: 'provided',
     });
-    return runner?.lhr?.categories?.accessibility?.score ?? null;
+    // Lighthouse NON lancia eccezioni quando la pagina non e' analizzabile (redirect a login,
+    // errore HTTP, nessun paint): completa la run e mette l'esito in lhr.runtimeError, con
+    // categories.accessibility.score = null. Va detto, altrimenti si vede solo lhScore: null.
+    const lhr = runner?.lhr;
+    const rtErr = lhr?.runtimeError;
+    if (rtErr && rtErr.code && rtErr.code !== 'NO_ERROR') {
+      _lhFail++;
+      if (!_lhFirstErr) _lhFirstErr = `${rtErr.code}: ${rtErr.message}`;
+      console.warn(`  [lighthouse] ${rtErr.code} su ${url}: ${rtErr.message}`);
+      return null;
+    }
+    const score = lhr?.categories?.accessibility?.score;
+    if (score == null) {
+      _lhFail++;
+      if (!_lhFirstErr) _lhFirstErr = 'run completata senza punteggio accessibility';
+      console.warn(`  [lighthouse] nessun punteggio accessibility su ${url}${lhr?.finalDisplayedUrl ? ` (url finale: ${lhr.finalDisplayedUrl})` : ''}`);
+      return null;
+    }
+    _lhOk++;
+    return score;
   } catch (e) {
+    // Modulo assente = prerequisito mancante, non errore della pagina: stop immediato (di norma
+    // gia' intercettato dal preflight in scan(); qui copre l'uso programmatico e le importazioni).
+    if (e.code === 'ERR_MODULE_NOT_FOUND') {
+      preflightOptionalDeps({ lighthouse: true });
+      if (IS_MAIN) { console.error(`  [lighthouse] modulo non caricabile: ${e.message}`); process.exit(2); }
+    }
+    _lhFail++;
+    if (!_lhFirstErr) _lhFirstErr = e.message;
     console.warn(`  [lighthouse] errore su ${url}: ${e.message}`);
     return null;
   }
@@ -338,7 +502,11 @@ async function loadSR() {
     ]);
     _srMod = { virtual, JSDOM };
   } catch (e) {
-    console.warn(`  [screen-reader] moduli non disponibili (${e.message}). Installa: npm i @guidepup/virtual-screen-reader jsdom`);
+    if (e.code === 'ERR_MODULE_NOT_FOUND') {
+      preflightOptionalDeps({ screenReader: true });   // esce con codice 2 se i moduli non ci sono
+      if (IS_MAIN) { console.error(`  [screen-reader] moduli non caricabili: ${e.message}`); process.exit(2); }
+    }
+    console.warn(`  [screen-reader] moduli non disponibili (${e.message}). Installa: ${OPTIONAL_FEATURES.screenReader.install}`);
     _srMod = false;
   }
   return _srMod;
@@ -435,7 +603,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const url = page.url();
   const r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   let lhScore = null;
-  if (DO_LH) lhScore = await runLighthouse(browser, url, target);
+  if (DO_LH) lhScore = await runLighthouse(browser, url, target, await lhExtraHeaders(page, target));
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
   // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
@@ -823,12 +991,17 @@ async function runFlows(browser, target, pageResults) {
 
 /* ----------------------------- scan ------------------------------------- */
 async function scan() {
-  mkdirSync(OUT, { recursive: true });
   const targets = loadTargets();
   if (!targets.length) { console.error('Nessun target abilitato.'); process.exit(2); }
 
   // Lighthouse può essere abilitato per-target: la porta di debug serve se ANCHE UN SOLO target lo usa.
-  const anyLh = MIN_SCORE !== null || targets.some(t => !!resolveParam(CLI_LH, t, 'lighthouse', false));
+  const anyLh = MIN_SCORE !== null || featureRequested(CLI_LH, 'lighthouse', targets);
+  const anySr = featureRequested(CLI_SR, 'screenReader', targets);
+  // Prerequisiti PRIMA di aprire il browser: se una feature richiesta non e' installata si esce
+  // subito con errore, invece di scansionare tutto e produrre punteggi/annunci vuoti.
+  preflightOptionalDeps({ lighthouse: anyLh, screenReader: anySr });
+
+  mkdirSync(OUT, { recursive: true });   // solo dopo i controlli: niente directory report a vuoto
   const browser = await chromium.launch({
     args: anyLh ? ['--remote-debugging-port=9222'] : [],
   });
@@ -902,8 +1075,17 @@ async function scan() {
   }
 
   await browser.close();
+  // Lighthouse attivo ma sempre in errore: e' un problema di ESECUZIONE (porta CDP, timeout, URL
+  // non raggiungibile), non di installazione. Va detto una volta, in chiaro, a fine run.
+  if (anyLh && _lhFail && !_lhOk) {
+    console.warn(`\n\u26a0 [lighthouse] modulo installato ma nessun punteggio calcolato su ${_lhFail} viste.`);
+    console.warn(`  Primo errore: ${_lhFirstErr}`);
+  } else if (anyLh && _lhFail) {
+    console.warn(`\n\u26a0 [lighthouse] punteggi calcolati: ${_lhOk}, falliti: ${_lhFail} (primo errore: ${_lhFirstErr})`);
+  }
   // Per la reportistica complessiva: SR risulta attivo se lo è stato per almeno un target.
-  DO_SR = targets.some(t => !!resolveParam(CLI_SR, t, 'screenReader', false));
+  DO_SR = anySr;
+  DO_LH = anyLh;
   return pageResults;
 }
 
@@ -1117,7 +1299,7 @@ function axRoleClass(label) {
 function writeSummaryAndHtml(results, ariaFiles = {}) {
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, minScore: MIN_SCORE, screenReader: DO_SR, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, incompleteTotal: 0, srRoleOnlyTotal: 0, lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, incompleteTotal: 0, srRoleOnlyTotal: 0, lighthouse: [] };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
@@ -1287,17 +1469,20 @@ function evaluateGate(results, summary) {
 export {
   analyzeAxTree, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
   // pure / helper
-  parseArgs, resolveParam, credsFor, loadTargets, slug, normUrl, normVisit, normalizeLinks,
+  parseArgs, resolveParam, credsFor, loadTargets,
+  resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel,
   // browser
-  harvestLinks, recordScan, runStep, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse,
+  harvestLinks, recordScan, runStep, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhExtraHeaders,
   // reporters + gate
   writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate,
 };
 
 /* ----------------------------- main ------------------------------------- */
-const IS_MAIN = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (IS_MAIN) (async () => {
+  // Verifica dei prerequisiti opzionali "a secco": nessuna scansione, nessun browser.
+  if (args['check-deps']) process.exit(checkDeps());
+
   const results = await scan();
   writeAxeJson(results);
   writeSarif(results);

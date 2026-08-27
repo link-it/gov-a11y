@@ -1,3 +1,19 @@
+2026-08-27  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y] 
+	Dipendenze opzionali: nuova opzione "--check-deps" che verifica (senza scansionare) se i
+	moduli di Lighthouse e del virtual screen reader sono installati e quali feature richiede
+	la configurazione corrente. Se una feature richiesta non e' installata la scansione ora si
+	interrompe con errore (exit 2) prima di aprire il browser, invece di proseguire con
+	punteggi/annunci vuoti. Aggiunto a fine run il riepilogo degli audit Lighthouse falliti,
+	per distinguere "modulo assente" da "modulo presente ma audit in errore".
+	Corretto Lighthouse su pagine autenticate: la tab aperta via CDP vive nel context di
+	default del browser e non condivideva i cookie di sessione della scansione (audit sulla
+	pagina di login o su un errore applicativo, quindi senza punteggio); i cookie del context
+	corrente vengono ora passati come header Cookie. Gli audit che completano con
+	lhr.runtimeError (ERRORED_DOCUMENT_REQUEST, NO_FCP, ...) non sono piu' silenziosi: prima
+	davano lhScore: null senza alcun messaggio. summary.json riporta "lighthouseEnabled".
+
 2026-08-03  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y] 

@@ -245,7 +245,7 @@ node a11y-scan.mjs --base http://localhost:4200 \
 | Navigazione va in **timeout** su SPA | manca `navWait: "domcontentloaded"` (l'HMR blocca `networkidle`) |
 | **Login non riesce** | selettori `login` errati, oppure serve auth via header/`postLogin`; verifica `successUrlIncludes` |
 | Pagine scansionate ma **vuote / redirect a login** | sessione non autenticata: header mancante o step `postLogin` (select-org/dominio) non eseguiti |
-| **Lighthouse** sempre `lhScore: null` / `lighthouse: []` | manca il flag **`--lighthouse`** (è opt-in), oppure il modulo `lighthouse` non è installato (`npm install lighthouse`) |
+| **Lighthouse** sempre `lhScore: null` / `lighthouse: []` | se `summary.json` ha `lighthouseEnabled: false` la feature non era attiva; se è `true`, ogni audit è andato in errore (il modulo mancante blocca la scansione con exit 2). Cerca i warning `[lighthouse] <CODICE> su <url>` e il riepilogo a fine run: `ERRORED_DOCUMENT_REQUEST`/`NO_FCP` = la tab di Lighthouse non ha caricato la pagina (sessione, errore HTTP, timeout). Stato dei moduli: `node a11y-scan.mjs --check-deps --config <file>` |
 | Un **flow** non parte | la `skipIfMissing`/sentinella non è presente (lista vuota) → popola dati di test o rendi lo step `optional` |
 | Troppi **incomplete** | normale su sfondi calcolati/gradienti: verifica a mano il contrasto |
 

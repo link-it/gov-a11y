@@ -15,13 +15,71 @@ npm install            # installa dipendenze e scarica Chromium
 
 Le funzionalità `--lighthouse` e `--screen-reader` usano pacchetti dichiarati come
 **`optionalDependencies`**. Un `npm install` normale prova a installarli, ma se falliscono o si è usato
-`--no-optional` restano fuori; in quel caso, all'uso del flag, il tool dà un errore tipo
-`Cannot find module`. Installali esplicitamente:
+`--no-optional` restano fuori. Installali esplicitamente:
 
 ```bash
 npm install lighthouse                              # per --lighthouse
 npm install @guidepup/virtual-screen-reader jsdom   # per --screen-reader
 ```
+
+**Verifica senza installare né scansionare** (stesso `--config` della scansione, così tiene conto di
+`defaults`/override per-target):
+
+```bash
+node a11y-scan.mjs --check-deps --config ./targets/govway/targets.govway_console.json
+```
+
+```
+[Lighthouse] richiesto da questa esecuzione: SI
+   ✓ lighthouse                       12.8.2
+[virtual screen reader] richiesto da questa esecuzione: SI
+   ✓ @guidepup/virtual-screen-reader  0.30.1
+   ✓ jsdom                            25.0.1
+```
+
+Exit code: **0** se tutto il richiesto è installato, **1** altrimenti (usabile come step di CI).
+Verifiche equivalenti senza il tool: `npm ls lighthouse jsdom @guidepup/virtual-screen-reader`
+(elenca le versioni installate, `(empty)`/`missing` se assenti) oppure
+`node --input-type=module -e "import.meta.resolve('lighthouse')"` (esce con errore
+`ERR_MODULE_NOT_FOUND` se il modulo non c'è). Nessuna delle due installa nulla.
+
+**Prerequisito mancante = errore, non degrado silenzioso.** Se una feature è richiesta (da CLI o da
+config) e i suoi moduli non ci sono, la scansione si interrompe **prima** di aprire il browser con
+exit code **2**:
+
+```
+❌ Dipendenza opzionale mancante: la scansione e' stata richiesta con una feature non installata.
+   - Lighthouse (richiesto da: --lighthouse / --min-score / "lighthouse": true in config)
+     moduli assenti: lighthouse
+     installa con:   npm install lighthouse
+   Alternativa: disabilita la feature con --no-lighthouse
+```
+
+> Attenzione a non confondere i due casi: **modulo assente** → errore bloccante come sopra;
+> **modulo presente ma audit in errore** (pagina non raggiungibile, errore HTTP, timeout, porta CDP
+> occupata) → `lhScore: null` con warning per vista e, a fine run, il riepilogo
+> `⚠ [lighthouse] modulo installato ma nessun punteggio calcolato su N viste`.
+
+### Lighthouse: sessione e audit senza punteggio
+
+Lighthouse non usa la pagina della scansione: apre una **propria tab** via CDP (porta 9222) nel
+context di default del browser, mentre la scansione naviga in un `browser.newContext()` isolato. I
+cookie di sessione non sono condivisi per costruzione: il tool li rilegge dal context corrente e li
+passa a Lighthouse come header `Cookie` (insieme agli `extraHTTPHeaders` del target), altrimenti la
+console risponde con la pagina di login o un errore applicativo e l'audit non produce punteggio.
+
+Una run Lighthouse che non riesce a caricare la pagina **non solleva un'eccezione**: completa con
+`lhr.runtimeError` e `score: null`. Questi casi vengono ora segnalati per vista con il codice
+Lighthouse, es.:
+
+```
+[lighthouse] ERRORED_DOCUMENT_REQUEST su http://…/pagina: Lighthouse was unable to reliably load
+the page you requested… (Status code: 500)
+[lighthouse] NO_FCP su http://…/pagina: The page did not paint any content…
+```
+
+`summary.json` riporta in `lighthouseEnabled` se la feature era attiva, così un `lighthouse: []`
+vuoto si distingue da "feature mai richiesta".
 
 > Nota: le config `govway*` hanno `lighthouse` e `screenReader` attivi in `defaults`, quindi questi
 > pacchetti servono per farle girare complete. Per una prova rapida senza installarli, disabilita le

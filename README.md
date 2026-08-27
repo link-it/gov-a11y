@@ -29,6 +29,16 @@ npm ci                 # installa deps + (postinstall) scarica Chromium
                        # servono solo per --lighthouse / --screen-reader
 ```
 
+Per sapere **se** sono state installate (senza reinstallarle e senza lanciare una scansione):
+
+```bash
+node a11y-scan.mjs --check-deps --config ./targets/govway/targets.govway_console.json
+```
+
+Elenca modulo per modulo versione installata / `NON INSTALLATO` e quali feature richiede questa
+esecuzione (CLI + config). Se una feature richiesta non ha i moduli, **la scansione si ferma subito
+con exit code 2** invece di produrre punteggi vuoti.
+
 ## Uso rapido
 
 ```bash
@@ -60,12 +70,13 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--fail-on <sev>` | `serious` | Gate axe: fallisci se violazioni ≥ gravità (`critical\|serious\|moderate\|minor\|none`) |
 | `--fail-on-nameless` | off | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
-| `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). Con `disableStorageReset`+`extraHeaders` l'audit LH **condivide la sessione**, quindi valuta le pagine autenticate |
+| `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve i **cookie di sessione** del context di scansione (header `Cookie`) e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate |
 | `--min-score <0..1>` | — | Gate Lighthouse (implica `--lighthouse`) |
 | `--crawl <n>` / `--crawl-depth <d>` | `0` / `2` | Dopo il login, scopre e scansiona fino a n pagine (BFS) oltre quelle in config |
 | `--no-flows` | off | Non eseguire i flows scriptati |
 | `--no-lighthouse` / `--no-screen-reader` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
 | `--insecure` | on | Ignora errori certificato HTTPS |
+| `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
 > **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `failOn`,
