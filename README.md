@@ -76,13 +76,14 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--min-score <0..1>` | — | Gate Lighthouse (implica `--lighthouse`) |
 | `--crawl <n>` / `--crawl-depth <d>` | `0` / `2` | Dopo il login, scopre e scansiona fino a n pagine (BFS) oltre quelle in config |
 | `--no-flows` | off | Non eseguire i flows scriptati |
+| `--false-positives <f>` | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati: le occorrenze corrispondenti escono da "Da verificare" e finiscono in una sezione propria del report. **Solo `incomplete`, mai violazioni.** Vedi [`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md) |
 | `--no-lighthouse` / `--no-screen-reader` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
 | `--insecure` | on | Ignora errori certificato HTTPS |
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
 > **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `failOn`,
-> `failOnNameless`, `minScore`, `noFlows`, `insecure` si possono dichiarare nel file di config, nel
+> `failOnNameless`, `minScore`, `noFlows`, `insecure`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
 > [`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md).
@@ -174,7 +175,7 @@ Esempio completo annotato: **[`examples/targets/targets.example.json`](examples/
 
 | File | Uso |
 |------|-----|
-| `summary.json` | riepilogo per-pagina: `counts`, `incomplete`, `lhScore`, `namelessInteractive`, `srStops`/`srRoleOnly`; totali `totals`/`incompleteTotal`/`namelessTotal`/`srRoleOnlyTotal` |
+| `summary.json` | riepilogo per-pagina: `counts`, `incomplete`, `lhScore`, `namelessInteractive`, `srStops`/`srRoleOnly`; totali `totals`/`incompleteTotal`/`falsePositivesTotal`/`namelessTotal`/`srRoleOnlyTotal`; elenco `falsePositives` con motivazione, verifica e occorrenze coperte |
 | `report.html` | report leggibile (violazioni + "da verificare" + a11y-tree + **trascrizione screen reader**) |
 | `axe-results.json` | risultati axe grezzi: `violations` **e** `incomplete` (+ `axTree`, `sr`) |
 | `aria-tree/*.yaml` | **albero ARIA per vista** (Chromium `ariaSnapshot`): evidenza per la revisione manuale di ordine di lettura, ruoli e struttura |
@@ -218,6 +219,7 @@ il file su cui Sonar aggancia (approssimativamente) le issue.
 - **[`docs/GUIDA-livelli-di-verifica.md`](docs/GUIDA-livelli-di-verifica.md)** — i quattro livelli (axe, accessibility tree, virtual screen reader, Lighthouse): cosa verificano, cosa non coprono, gate, costi, quale configurazione per quale scenario.
 - **[`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md)** — esecuzione: parametri obbligatori e tutti i flag CLI (valori, default).
 - **[`docs/GUIDA-config.md`](docs/GUIDA-config.md)** — riferimento completo della config (`defaults`, target, login, pages, flows, step incl. `scanMenu`/`recurse`).
+- **[`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md)** — il registro dei falsi positivi: quando una occorrenza "da verificare" è già stata esaminata, come registrarla con motivazione e prova, perché non si applica alle violazioni.
 - **[`docs/GUIDA-nuova-app.md`](docs/GUIDA-nuova-app.md)** — guida passo-passo per aggiungere una nuova app.
 - **[`docs/config-schema.annotato.yaml`](docs/config-schema.annotato.yaml)** — struttura della config commentata.
 

@@ -25,6 +25,8 @@ defaults:
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---
   noFlows: false              # non eseguire i flows
+  falsePositives: null        # file .json o directory con i falsi positivi dichiarati (solo 'incomplete');
+                              # percorso relativo alla dir del config, o assoluto. Vedi GUIDA-falsi-positivi.md
   insecure: true              # ignora errori certificato HTTPS
 
 # --- Un target = una console/app da scansionare ------------------------------

@@ -1,3 +1,13 @@
+2026-09-01  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y] 
+	Registro dei falsi positivi: nuova opzione "--false-positives <file|dir>" e chiave
+	"falsePositives" nel config, con cui dichiarare le occorrenze gia' esaminate. Si applica ai
+	soli "incomplete", mai alle violazioni. Le occorrenze derogate escono da "Da verificare" ed
+	entrano in una sezione propria del report con motivazione, verifica, autore e scadenza; i
+	campi "reason" e "verification" sono obbligatori. Nuovo documento docs/GUIDA-falsi-positivi.md
+	e primo registro per la govwayConsole.
+
 2026-08-27  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y] 

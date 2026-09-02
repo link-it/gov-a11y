@@ -1,0 +1,36 @@
+{
+  "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi. Si applica SOLO agli incomplete, mai alle violazioni. Ogni voce richiede 'reason' (perche' non e' un difetto) e 'verification' (come lo si e' accertato): una deroga senza prova e' un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, cosi' la misura viene rifatta periodicamente. Riferito da targets.govway_console.json -> console.falsePositives.",
+
+  "falsePositives": [
+    {
+      "id": "icon-font-non-e-testo",
+      "rule": "color-contrast",
+      "cause": "nonBmp",
+      "selector": "i.material-icons, i.material-symbols-outlined, .material-icons > span[aria-hidden='true']",
+      "reason": "Glifi di icon-font, non testo: axe stesso lo dichiara ('Il contenuto dell'elemento contiene solo caratteri non di testo') e non applica la regola sul contrasto del testo. Il criterio realmente applicabile e' WCAG 1.4.11 Non-text Contrast, soglia 3:1, che axe non verifica sugli icon-font.",
+      "verification": "Misurati in pagina i colori effettivamente resi (2026-09-01): #46464e su #ffffff = 9.35:1; #46464e su #f6f6fc = 8.68:1; #ffffff su #46464e = 9.35:1. Da due a tre volte la soglia di 3:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
+    },
+    {
+      "id": "select-sotto-overlay-trasparente",
+      "rule": "color-contrast",
+      "cause": "bgOverlap",
+      "selector": "select.inputLinkLong, input.tt-hint",
+      "reason": "Il plugin 'jquery.searchabledropdown' sovrappone al select un DIV#<id>_overlay con background-color rgba(0,0,0,0): axe vede un elemento sopra al testo e rinuncia a determinare lo sfondo, ma quell'overlay non dipinge nulla. Lo sfondo effettivo e' quello dichiarato sul select stesso.",
+      "verification": "Misurato in pagina (2026-09-01) su tutti i 19 select della vista piu' affollata: testo rgb(60,60,68) su sfondo rgb(255,255,255) dichiarato sul select = 10.93:1, contro una soglia di 4.5:1. Nessuna immagine di sfondo negli antenati, opacita' 1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
+    },
+    {
+      "id": "piastrelle-riepilogo-non-sono-link-in-un-testo",
+      "rule": "link-in-text-block",
+      "cause": "bgOverlap",
+      "selector": "a.riepilogo-links-button",
+      "reason": "La regola intercetta i collegamenti annegati in un blocco di testo, dove il solo colore non basta a distinguerli. Queste sono invece le piastrelle isolate del riepilogo di una API, dentro un contenitore flex: non hanno testo attorno con cui essere confuse. Il motivo dichiarato da axe e' comunque 'bgOverlap', cioe' sfondo non determinabile.",
+      "verification": "Esaminate tutte le occorrenze (2026-09-01): appartengono a un'unica vista, il riepilogo di una API, e sono tutte '.riepilogo-links-button' entro '.riepilogo-links' (display:flex).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
+    }
+  ]
+}

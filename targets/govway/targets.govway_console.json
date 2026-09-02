@@ -11,6 +11,7 @@
   "console": {
     "name": "govwayConsole",
     "enabled": true,
+    "falsePositives": "falsePositives.govway_console.json",
     "loginPath": "/govwayConsole/",
     "user": "amministratore",
     "login": {

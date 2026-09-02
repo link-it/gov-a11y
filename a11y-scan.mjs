@@ -43,8 +43,8 @@
 
 import { chromium } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { dirname, resolve, isAbsolute, join, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
@@ -90,6 +90,9 @@ if (args.help || args.h) {
   --screen-reader     Esegui il virtual screen reader (annunci) su ogni vista (richiede optional deps)
   --no-flows          Non eseguire i flows di navigazione scriptata (pagine di dettaglio)
   --no-incomplete     Nascondi la colonna/sezione "Da verificare" (incomplete axe) dal report HTML
+  --false-positives <f>  File .json (o directory di .json) con i falsi positivi dichiarati: le occorrenze
+                      corrispondenti escono da "Da verificare" e finiscono in una sezione propria del report.
+                      Si applica SOLO agli 'incomplete', mai alle violazioni. Vedi docs/GUIDA-falsi-positivi.md
   --no-lighthouse     Disabilita Lighthouse anche se attivo in config (precedenza sulla config)
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
@@ -154,7 +157,14 @@ let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefine
 let DO_LH = !!resolveParam(CLI_LH, null, 'lighthouse', false) || MIN_SCORE !== null;
 
 // Riassegna i parametri per-target (CLI > target > defaults > built-in). Chiamata a inizio di ogni target.
+// Falsi positivi dichiarati: per-target, risolti come gli altri parametri.
+let FALSE_POSITIVES = [];
+const FALSE_POSITIVES_USATI = [];   // tutte le voci caricate, per il riepilogo nel report
+
 function applyTargetParams(target) {
+  const fpCli = args['false-positives'];
+  const fpSpec = resolveParam(fpCli, target, 'falsePositives', null);
+  FALSE_POSITIVES = loadFalsePositives(fpSpec, fpCli !== undefined ? process.cwd() : dirname(CONFIG));
   CRAWL = parseInt(resolveParam(CLI_CRAWL, target, 'crawl', 0), 10) || 0;
   CRAWL_DEPTH = parseInt(resolveParam(args['crawl-depth'], target, 'crawlDepth', 2), 10) || 2;
   TAGS = String(resolveParam(args.tags, target, 'tags', 'wcag2a,wcag2aa,wcag21a,wcag21aa')).split(',').map(s => s.trim());
@@ -280,6 +290,105 @@ function checkDeps() {
 
 const SEVERITY_ORDER = { critical: 4, serious: 3, moderate: 2, minor: 1, none: 0 };
 const FAIL_THRESHOLD = SEVERITY_ORDER[FAIL_ON] ?? 3;
+
+/* -------------------------- falsi positivi ------------------------------- */
+/* Registro delle occorrenze gia' esaminate e riconosciute come falsi positivi. Si applica SOLO
+   agli 'incomplete' — le occorrenze che axe non ha saputo decidere — e MAI alle violazioni: una
+   violazione derogata e' il modo in cui questi registri degenerano in un posto dove si nascondono
+   i problemi. Le occorrenze derogate non spariscono: escono da "Da verificare" ed entrano in una
+   sezione propria del report, con la motivazione e la verifica che le giustificano, cosi' che un
+   revisore possa contestarle. */
+
+/* 'esplicito' distingue il file indicato per nome — dove un contenuto sbagliato e' un errore da
+   segnalare — dai file trovati dentro una directory, dove un JSON che non e' un registro
+   semplicemente non lo e' (nella stessa cartella risiedono anche i file di target). */
+function leggiFileFalsiPositivi(file, esplicito) {
+  let dati;
+  try { dati = JSON.parse(readFileSync(file, 'utf8')); }
+  catch (e) { console.warn(`  [falsi positivi] ${file}: file illeggibile o JSON non valido (${e.message}) — ignorato`); return []; }
+  const voci = Array.isArray(dati) ? dati : (Array.isArray(dati.falsePositives) ? dati.falsePositives : null);
+  if (!voci) {
+    if (esplicito) console.warn(`  [falsi positivi] ${file}: manca l'array "falsePositives" — ignorato`);
+    return [];
+  }
+  const out = [];
+  for (const v of voci) {
+    if (!v || typeof v !== 'object') continue;
+    const mancanti = ['id', 'rule', 'reason', 'verification'].filter(k => !v[k] || !String(v[k]).trim());
+    if (mancanti.length) {
+      console.warn(`  [falsi positivi] voce "${v && v.id || '(senza id)'}" priva di ${mancanti.join(', ')} — ignorata`);
+      continue;   // 'reason' e 'verification' sono obbligatori: una deroga senza prova e' un'opinione
+    }
+    out.push({ ...v, file: basename(file), matches: 0 });
+  }
+  return out;
+}
+
+/* Accetta un file .json o una directory di .json. I percorsi relativi si risolvono rispetto alla
+   directory corrente se il valore arriva da riga di comando — come '--config' e '--out' — e
+   rispetto alla directory del config se arriva dal file di configurazione, dove accanto risiede. */
+function loadFalsePositives(spec, base) {
+  if (!spec) return [];
+  const percorso = isAbsolute(String(spec)) ? String(spec) : resolve(base || dirname(CONFIG), String(spec));
+  if (!existsSync(percorso)) { console.warn(`  [falsi positivi] percorso inesistente: ${percorso} — ignorato`); return []; }
+  const dir = statSync(percorso).isDirectory();
+  const files = dir
+    ? readdirSync(percorso).filter(f => f.endsWith('.json')).sort().map(f => join(percorso, f))
+    : [percorso];
+  const daFile = new Map();
+  const voci = [];
+  for (const f of files) {
+    const v = leggiFileFalsiPositivi(f, !dir);
+    if (v.length) { daFile.set(basename(f), v.length); voci.push(...v); }
+  }
+  const oggi = new Date();
+  for (const v of voci) {
+    v.expired = !!(v.expires && new Date(v.expires) < oggi);
+    if (v.expired) console.warn(`  [falsi positivi] "${v.id}" scaduta il ${v.expires}: le occorrenze tornano fra quelle da verificare`);
+  }
+  if (voci.length) console.log(`  [falsi positivi] ${voci.length} voci caricate da ${[...daFile.keys()].join(', ')}`);
+  else if (dir) console.warn(`  [falsi positivi] nessun registro trovato in ${percorso}`);
+  FALSE_POSITIVES_USATI.push(...voci);
+  return voci;
+}
+
+/* Separa gli 'incomplete' in due liste: quelli ancora da verificare e quelli coperti da una voce
+   del registro. Il confronto del selettore avviene NELLA PAGINA con Element.matches, perche' e'
+   l'unico modo esatto: axe restituisce un percorso CSS, non l'elemento, e riconoscere una famiglia
+   dal frammento HTML sarebbe un'approssimazione. */
+async function separaFalsiPositivi(page, incomplete, url) {
+  if (!FALSE_POSITIVES.length || !incomplete || !incomplete.length) return { incomplete: incomplete || [], derogati: [] };
+  const attive = FALSE_POSITIVES.filter(v => !v.expired);
+  if (!attive.length) return { incomplete, derogati: [] };
+
+  const rimasti = [];
+  const derogati = [];
+  for (const v of incomplete) {
+    const nodiRimasti = [];
+    for (const n of v.nodes) {
+      const causa = (n.any || []).concat(n.all || [], n.none || [])
+        .map(c => (c.data || {}).messageKey).find(Boolean) || null;
+      let voce = null;
+      for (const fp of attive) {
+        if (fp.rule !== v.id) continue;
+        if (fp.cause && fp.cause !== causa) continue;
+        if (fp.urlPattern && !new RegExp(fp.urlPattern).test(url)) continue;
+        if (fp.selector) {
+          const bersaglio = Array.isArray(n.target) ? n.target[n.target.length - 1] : n.target;
+          const ok = await page.evaluate(([sel, tgt]) => {
+            try { const el = document.querySelector(tgt); return !!(el && el.matches(sel)); } catch { return false; }
+          }, [fp.selector, String(bersaglio)]).catch(() => false);
+          if (!ok) continue;
+        }
+        voce = fp; break;
+      }
+      if (voce) { voce.matches++; derogati.push({ rule: v.id, cause: causa, id: voce.id, target: n.target, html: n.html }); }
+      else nodiRimasti.push(n);
+    }
+    if (nodiRimasti.length) rimasti.push({ ...v, nodes: nodiRimasti });
+  }
+  return { incomplete: rimasti, derogati };
+}
 
 /* ----------------------------- helpers ---------------------------------- */
 function loadTargets() {
@@ -609,15 +718,19 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
   let sr = null;
   if (DO_SR) sr = await runScreenReader(page);
+  // Le occorrenze coperte dal registro dei falsi positivi escono da 'incomplete' e vengono
+  // conservate a parte: restano nel report, ma non fra le cose ancora da verificare.
+  const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete: r.incomplete, lhScore, axTree, ariaSnapshot, sr,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, axTree, ariaSnapshot, sr,
   });
   const counts = summarizeImpacts(r.violations);
-  const incN = (r.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
+  const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
+  const fpN = derogati.length;
   const nm = axTree.nameless.length ? `  a11y-tree: ${axTree.nameless.length} elem. interattivi senza nome` : '';
   const srN = sr ? `  SR: ${sr.stops} annunci${sr.roleOnly.length ? `, ${sr.roleOnly.length} solo-ruolo` : ''}` : '';
-  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${srN}`);
+  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${srN}`);
 }
 
 function slug(s) { return String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
@@ -1299,7 +1412,7 @@ function axRoleClass(label) {
 function writeSummaryAndHtml(results, ariaFiles = {}) {
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, incompleteTotal: 0, srRoleOnlyTotal: 0, lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
@@ -1307,6 +1420,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.namelessTotal += nameless;
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     summary.incompleteTotal += incNodes;
+    summary.falsePositivesTotal += (pr.falsePositives || []).length;
     const srRoleOnly = pr.sr ? pr.sr.roleOnly.length : 0;
     summary.srRoleOnlyTotal += srRoleOnly;
     summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, namelessInteractive: nameless, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, ariaTree: ariaFiles[results.indexOf(pr)] || null });
@@ -1314,6 +1428,12 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     perTarget[pr.targetName] = perTarget[pr.targetName] || [];
     perTarget[pr.targetName].push(pr);
   }
+  // le deroghe finiscono anche nel riepilogo, con il conteggio delle occorrenze coperte
+  summary.falsePositives = FALSE_POSITIVES_USATI.map(v => ({
+    id: v.id, rule: v.rule, cause: v.cause || null, selector: v.selector || null,
+    reason: v.reason, verification: v.verification, author: v.author || null,
+    expires: v.expires || null, expired: !!v.expired, matches: v.matches,
+  }));
   writeFileSync(resolve(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
 
   const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
@@ -1418,7 +1538,26 @@ ul.axtree li{margin:.05rem 0}.axtree details{border:0;background:none;padding:0;
 <body><h1>${esc(app)} — Report Accessibilita' WCAG 2.1 AA</h1>
 <p>Base: <code>${esc(BASE)}</code> — tag: <code>${esc(TAGS.join(', '))}</code> — gate: <code>fail-on=${esc(FAIL_ON)}${MIN_SCORE != null ? `, min-score=${MIN_SCORE}` : ''}</code></p>
 <p>Totali occorrenze axe: <span class="crit">critical ${summary.totals.critical}</span>, <span class="ser">serious ${summary.totals.serious}</span>, moderate ${summary.totals.moderate}, minor ${summary.totals.minor}
-${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
+${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''}${summary.falsePositivesTotal ? ` — <span class="mod">falsi positivi dichiarati: ${summary.falsePositivesTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
+
+${FALSE_POSITIVES_USATI.length ? `<div class="disclaimer">
+<h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse da "Da verificare"</h2>
+<p>Occorrenze <b>incomplete</b> gia' esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
+elencate qui con la motivazione e la verifica che le giustificano, cosi' da poter essere contestate.
+Le violazioni non sono mai derogabili.</p>
+<table><tr><th>Voce</th><th>Regola / causa</th><th>Occorrenze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
+${FALSE_POSITIVES_USATI.map(v => `<tr${v.expired ? ' style="opacity:.55"' : ''}><td><code>${esc(v.id)}</code></td>
+<td><code>${esc(v.rule)}</code>${v.cause ? ` / <code>${esc(v.cause)}</code>` : ''}</td>
+<td>${v.expired ? '<b>scaduta</b>' : v.matches}</td><td>${esc(v.reason)}</td><td>${esc(v.verification)}</td>
+<td>${esc(v.author || '-')}</td><td>${esc(v.expires || 'nessuna')}</td></tr>`).join('\n')}</table>
+${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).length ? `<p><b>Senza riscontro:</b> le voci
+${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
+non hanno corrisposto ad alcuna occorrenza. Se la scansione e' completa la deroga non serve piu' e va rimossa;
+se e' parziale (poche pagine, <code>--only</code>, crawl ridotto) puo' semplicemente non essere stata attraversata.</p>` : ''}
+${FALSE_POSITIVES_USATI.filter(v => v.expired).length ? `<p><b>Scadute:</b> le occorrenze coperte da
+${FALSE_POSITIVES_USATI.filter(v => v.expired).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
+sono tornate fra quelle da verificare: la misura va rifatta e la scadenza rinnovata.</p>` : ''}
+</div>` : ''}
 
 <div class="disclaimer">
 <h2>⚠️ Copertura e limiti dell'automazione</h2>

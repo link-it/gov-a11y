@@ -45,7 +45,9 @@ di un flusso.
 - `violations` — problemi accertati, con gravità `critical|serious|moderate|minor`;
 - `incomplete` — casi che axe non riesce a decidere da solo e che richiedono verifica umana
   (tipicamente il contrasto su sfondi calcolati o gradienti). Sono la colonna "Da verificare" del
-  report HTML, nascondibile con `--no-incomplete`.
+  report HTML, nascondibile con `--no-incomplete`. Le occorrenze gia' esaminate e riconosciute come
+  falsi positivi si possono registrare, con la prova che le giustifica, così che "da verificare"
+  continui a significare *ancora da verificare*: vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md).
 
 **Gate**: `--fail-on <gravità>` (default `serious`) fa fallire la run se esistono violazioni di
 gravità pari o superiore. È il gate principale, quello adatto a bloccare una pipeline.
