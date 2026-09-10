@@ -44,12 +44,26 @@
       {
         "name": "servizio-flat-dettaglio",
         "start": "/pagamento-servizio",
-        "skipIfMissing": ".service-item",
+        "skipIfMissing": ".service-box, .service-item",
         "sourceHint": "src/app/features/pagamento/dettaglio-servizio",
-        "$note": "Nessun raggruppamento: i servizi sono elencati direttamente in landing. Apre il primo servizio e scansiona la vetrina di dettaglio. Salta quando la landing mostra le card categoria (in quel caso gira 'servizio-tipologia-dettaglio').",
+        "$note": "Nessun raggruppamento (tipologie e assessorati vuoti -> hasGrouping=false, es. tenant italset): i servizi sono elencati direttamente in landing come 'Sono presenti N servizi'. Il sotto-modo flat e' 'card' di DEFAULT (elemento .service-box) oppure 'list' se ui.layout.flatViewGrid=false (elemento .service-item): il selettore copre entrambi. Apre il primo servizio e scansiona il dettaglio. Salta quando la landing mostra le card categoria (allora gira 'servizio-tipologia-dettaglio').",
         "steps": [
-          { "click": ".service-item", "wait": "domcontentloaded", "delayMs": 2500, "desc": "apri il primo servizio della lista (vetrina dettaglio)" },
+          { "click": ".service-box, .service-item", "wait": "domcontentloaded", "delayMs": 2500, "desc": "apri il primo servizio della lista flat (card o list) -> vetrina dettaglio" },
           { "scan": "servizio-dettaglio" }
+        ]
+      },
+      {
+        "name": "dominio-scelta-servizi",
+        "start": "/pagamento-servizio",
+        "skipIfMissing": "app-domain-selector",
+        "sourceHint": "src/app/core/layout/domain-selector",
+        "$note": "Solo installazioni MULTI-DOMINIO. Se ci sono piu' domini e nessuno e' attivo, la landing mostra la PAGINA DI SCELTA ente (app-domain-selector, dropdown app-floating-select 'Seleziona l'ente creditore') al posto del contenuto: le pages la scansionano gia' cosi'. Questo flow SELEZIONA il primo ente dal dropdown (nessun idDominio cablato), scansiona la vista servizi del dominio -che include l'header con il DROPDOWN CAMBIO-DOMINIO (app-dropdown-menu) al posto del logo statico- poi apre il primo servizio e scansiona il dettaglio. Copre cosi' i due elementi propri del multi-dominio. La selezione dal dropdown vive in memoria (non persiste al reload): per questo si seleziona in-contesto nel flow, senza re-goto; l'attesa e' su 'main'. Il click sul servizio usa '.service-box, .service-item' (flat card di default / flat list); se un tenant multi-dominio avesse tipologie configurate servirebbe prima un click su .quadro-card. In alternativa, per fissare il dominio su TUTTE le pages, l'app supporta ?id_ec=<idDominio> (persistito in sessionStorage). Su single-dominio il selettore non c'e' -> flow saltato via skipIfMissing.",
+        "steps": [
+          { "click": "app-domain-selector button[role='combobox']", "wait": "[role='listbox']", "delayMs": 500, "desc": "apri il dropdown di scelta ente" },
+          { "click": "[role='listbox'] button", "wait": "main", "delayMs": 2500, "desc": "scegli il primo ente creditore -> carica i servizi del dominio" },
+          { "scan": "dominio-servizi" },
+          { "click": ".service-box, .service-item", "wait": "domcontentloaded", "delayMs": 2500, "desc": "apri il primo servizio del dominio -> vetrina dettaglio" },
+          { "scan": "dominio-servizio-dettaglio" }
         ]
       }
     ]
