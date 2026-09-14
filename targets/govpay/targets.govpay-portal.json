@@ -1,0 +1,71 @@
+{
+  "$app": "GovPay Portal",
+  "$comment": "GovPay Portal (Angular 21 SPA, portale di pagamento lato CITTADINO). Dev: 'npm start' (ng serve) -> http://localhost:4300, proxy verso https://lab.link.it (proxy.config.json). Demo pubblica: https://demo.govcloud.it/govpay-portal/. Rotte da src/app/app.routes.ts. navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle. NB: l'app ha piu' temi/tenant (assets/config, assets-italset, assets-sicilia): il config di default e' assets/config/app-config.json.",
+
+  "defaults": {
+    "screenReader": true,
+    "lighthouse": true
+  },
+  "govpayPortal": {
+    "name": "govpay-portal",
+    "enabled": true,
+    "loginPath": "/",
+    "contextPath": "/",
+    "sourceHint": "src/app",
+
+    "$auth": "Il target scansiona la PARTE PUBBLICA, che NON richiede autenticazione (pagamento avvisi/servizi, carrello): nessun blocco 'login' ne' credenziali. Le due rotte autenticate (/riepilogo, /archivio) sono dietro authGuard con login IAM/SPID INTERATTIVO (redirect verso l'IdP): non coperte di default. Da non-autenticati rimbalzano su /pagamento-servizio (il dedup-su-redirect del tool le salta). Per coprirle servira' un login interattivo -> vedi $todoAuth.",
+    "$todoAuth": "Per scansionare /riepilogo e /archivio servono le sessioni autenticate. Tre strade quando servira': (1) storageState Playwright pre-autenticato; (2) in dev, le SPID dev-headers dell'app (assets/config/app-config.json: api.useSpidDevHeaders + auth.spid) via extraHTTPHeaders; (3) un flow che pilota il form dell'IdP IAM/Keycloak (auth.iam.loginUrl). Credenziali SEMPRE da env/secret CI (A11Y_GOVPAYPORTAL_USER/PASS), mai nel config.",
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 2500,
+
+    "$pages": "Viste pubbliche GET-navigabili. '/' reindirizza a /pagamento-servizio. /dettaglio-servizio/:id NON e' qui: riceve il servizio via state di navigazione -> raggiungibile solo cliccando una card (vedi flows). /esito-pagamento e /test-* esclusi (richiedono contesto di pagamento PSP / sono rotte di sviluppo).",
+    "pages": [
+      { "name": "pagamento-servizio", "path": "/pagamento-servizio" },
+      { "name": "bollettino",         "path": "/bollettino" },
+      { "name": "carrello",           "path": "/carrello" }
+    ],
+
+    "$flows": "In /pagamento-servizio con raggruppamento attivo (i tipi pendenza si raggruppano in tipologie/assessorati) la landing mostra le CARD delle categorie (componente pay-quadro -> .quadro-card); cliccandone una si apre IN-PAGINA la lista servizi della categoria (.service-item). Il click su un servizio (onServizioSelect) lo passa nello state di navigazione e naviga a /dettaglio-servizio/:id -> raggiungibile solo cliccando, non via URL. Senza raggruppamento i servizi sono elencati direttamente in landing. I due flow sono mutuamente esclusivi via skipIfMissing: 'tipologia' parte se ci sono le card categoria, 'flat' se i servizi sono gia' in lista. Con i dati di mock attivi (assets/config/app-config.json: api.useMockApi=true) gira 'tipologia'.",
+    "flows": [
+      {
+        "name": "servizio-tipologia-dettaglio",
+        "start": "/pagamento-servizio",
+        "skipIfMissing": ".quadro-card",
+        "sourceHint": "src/app/features/pagamento/servizio",
+        "$note": "Raggruppamento attivo (tipologie/assessorati): apre la prima categoria, scansiona la lista servizi della categoria, poi apre il primo servizio e scansiona la vetrina di dettaglio. Il primo 'wait' e' sul selettore .service-item perche' il click sulla categoria e' un cambio di stato in-pagina (nessuna navigazione).",
+        "steps": [
+          { "click": ".quadro-card", "wait": ".service-item", "delayMs": 1500, "desc": "apri la prima tipologia -> lista servizi della categoria" },
+          { "scan": "tipologia-servizi" },
+          { "click": ".service-item", "wait": "domcontentloaded", "delayMs": 2500, "desc": "apri il primo servizio -> vetrina dettaglio" },
+          { "scan": "servizio-dettaglio" }
+        ]
+      },
+      {
+        "name": "servizio-flat-dettaglio",
+        "start": "/pagamento-servizio",
+        "skipIfMissing": ".service-box, .service-item",
+        "sourceHint": "src/app/features/pagamento/dettaglio-servizio",
+        "$note": "Nessun raggruppamento (tipologie e assessorati vuoti -> hasGrouping=false, es. tenant italset): i servizi sono elencati direttamente in landing come 'Sono presenti N servizi'. Il sotto-modo flat e' 'card' di DEFAULT (elemento .service-box) oppure 'list' se ui.layout.flatViewGrid=false (elemento .service-item): il selettore copre entrambi. Apre il primo servizio e scansiona il dettaglio. Salta quando la landing mostra le card categoria (allora gira 'servizio-tipologia-dettaglio').",
+        "steps": [
+          { "click": ".service-box, .service-item", "wait": "domcontentloaded", "delayMs": 2500, "desc": "apri il primo servizio della lista flat (card o list) -> vetrina dettaglio" },
+          { "scan": "servizio-dettaglio" }
+        ]
+      },
+      {
+        "name": "dominio-scelta-servizi",
+        "start": "/pagamento-servizio",
+        "skipIfMissing": "app-domain-selector",
+        "sourceHint": "src/app/core/layout/domain-selector",
+        "$note": "Solo installazioni MULTI-DOMINIO. Se ci sono piu' domini e nessuno e' attivo, la landing mostra la PAGINA DI SCELTA ente (app-domain-selector, dropdown app-floating-select 'Seleziona l'ente creditore') al posto del contenuto: le pages la scansionano gia' cosi'. Questo flow SELEZIONA il primo ente dal dropdown (nessun idDominio cablato), scansiona la vista servizi del dominio -che include l'header con il DROPDOWN CAMBIO-DOMINIO (app-dropdown-menu) al posto del logo statico- poi apre il primo servizio e scansiona il dettaglio. Copre cosi' i due elementi propri del multi-dominio. La selezione dal dropdown vive in memoria (non persiste al reload): per questo si seleziona in-contesto nel flow, senza re-goto; l'attesa e' su 'main'. Il click sul servizio usa '.service-box, .service-item' (flat card di default / flat list); se un tenant multi-dominio avesse tipologie configurate servirebbe prima un click su .quadro-card. In alternativa, per fissare il dominio su TUTTE le pages, l'app supporta ?id_ec=<idDominio> (persistito in sessionStorage). Su single-dominio il selettore non c'e' -> flow saltato via skipIfMissing.",
+        "steps": [
+          { "click": "app-domain-selector button[role='combobox']", "wait": "[role='listbox']", "delayMs": 500, "desc": "apri il dropdown di scelta ente" },
+          { "click": "[role='listbox'] button", "wait": "main", "delayMs": 2500, "desc": "scegli il primo ente creditore -> carica i servizi del dominio" },
+          { "scan": "dominio-servizi" },
+          { "click": ".service-box, .service-item", "wait": "domcontentloaded", "delayMs": 2500, "desc": "apri il primo servizio del dominio -> vetrina dettaglio" },
+          { "scan": "dominio-servizio-dettaglio" }
+        ]
+      }
+    ]
+  }
+}
