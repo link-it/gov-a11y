@@ -140,13 +140,48 @@ Se un flow non ha step `scan`/`scanTabs`/`scanCharts`, scansiona lo **stato fina
 | Chiave | Descrizione |
 |---|---|
 | `grid` | URL della griglia con le icone-report |
-| `icon` | selettore delle icone da cliccare |
-| `generate` | selettore del pulsante "genera report" |
-| `label` | selettore del testo-tipo dentro l'icona (per l'etichetta) |
+| `icon` | **obbligatorio**: selettore delle icone da cliccare |
+| `generate` | **obbligatorio**: selettore del pulsante "genera report" |
+| `label` | selettore del testo-tipo dentro l'icona (per l'etichetta); default `span` |
+| `field` | come si riconoscono i campi del form e come se ne aprono le opzioni (vedi sotto). Obbligatorio **solo** se si dichiarano assi da iterare |
+| `productAxes` | assi **incrociati fra loro**: pattern confrontati con etichetta e valore del campo, oppure il token `required` che designa ogni campo obbligatorio |
+| `linearAxes` | assi variati **una voce alla volta**, con gli altri campi al valore predefinito: per ciò che cambia i dati ma non l'impaginazione (incrociarlo moltiplicherebbe il tempo senza produrre strutture nuove) |
+| `maxViews` | tetto di viste generate dallo step; default 400 |
 | `limit` | opzionale: scansiona solo i primi N report (campionamento in sviluppo) |
-| `dimensionField` | pattern (per contenuto) che identifica una select "dimensioni" da iterare |
-| `dimensionSkip` | pattern delle opzioni-dimensione da saltare |
-| `dimensionOption` | selettore delle voci nella lista della combobox dimensioni |
+| `dimensionField`, `dimensionSkip`, `dimensionOption` | nomi precedenti, un solo asse incrociato; `dimensionOption` equivale a `field.option` |
+
+I campi del form si scoprono **a runtime** da etichetta, valore corrente e obbligatorietà: nulla è
+cablato. Il blocco `field` dice soltanto *come sono fatti* i campi nell'applicazione in prova —
+dipende dalla libreria di componenti (comboBox di una libreria, `select` nativa, widget proprietario),
+non da questo strumento, e per questo non ha valori predefiniti.
+
+| Chiave di `field` | Descrizione |
+|---|---|
+| `selector` | selettore dei campi del form da variare |
+| `idSuffix` | parte finale dell'id da togliere per ottenere la **radice** dell'id del campo |
+| `toggle` | selettore del comando che apre l'elenco delle opzioni; `#{base}` = radice dell'id |
+| `list` | selettore del contenitore delle opzioni; `#{base}` = radice dell'id |
+| `option` | selettore della singola opzione dentro `list` |
+| `group` | opzionale: blocco che racchiude etichetta e campo (per leggere l'etichetta) |
+| `label` | opzionale: selettore dell'etichetta dentro `group`; default `label` |
+| `requiredMarker` | opzionale: selettore del marcatore di obbligatorietà dentro `group` (es. l'asterisco) |
+
+```jsonc
+"field": {
+  "selector": "input[id$=comboboxField]",   // comboBox RichFaces
+  "idSuffix": "comboboxField",
+  "group": "div.prop",
+  "requiredMarker": "label em",
+  "toggle": "##{base}comboboxButton",       // '#' del selettore + segnaposto '#{base}'
+  "list":   "##{base}list",
+  "option": ".rich-combobox-item"
+}
+```
+
+Senza assi da iterare (`productAxes` e `linearAxes` assenti) non c'è nulla da scoprire nel form: lo
+step apre ogni report e lo scansiona, e `field` non serve. Se invece gli assi ci sono e manca una
+chiave obbligatoria, lo step viene **saltato** con un avviso che la nomina: meglio una lacuna
+dichiarata che un selettore di un'altra applicazione usato come ripiego.
 
 #### Config di `scanMenu`
 

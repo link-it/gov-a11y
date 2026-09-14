@@ -100,13 +100,25 @@ console:
             ] }                                                  # opz. per menu: skip
         - { scanCharts: {                                       # enumera icone-report e le genera
               grid: "/path/griglia.jsf",
-              icon: "a.tipologia-button",
-              generate: "#generaReport",
+              icon: "a.tipologia-button",                       # obbligatorio
+              generate: "#generaReport",                        # obbligatorio
               label: "span.tipologia-button-text",
               limit: 5,                                          # opzionale: primi N (dev)
-              dimensionField: "dimensioni",                     # select da iterare (per contenuto)
-              dimensionSkip: "personalizzato",                  # opzioni da saltare
-              dimensionOption: ".rich-combobox-item"            # selettore voci lista combobox
+              # obbligatorio: come sono fatti i campi del form nell'applicazione in prova.
+              # Dipende dalla libreria di componenti, non dallo strumento: nessun valore
+              # predefinito. '#{base}' e' la radice dell'id del campo (id meno 'idSuffix').
+              field: {
+                selector: "input[id$=comboboxField]",
+                idSuffix: "comboboxField",
+                group: "div.prop",                              # blocco etichetta + campo
+                requiredMarker: "label em",                     # marcatore di obbligatorieta'
+                toggle: "##{base}comboboxButton",               # apre l'elenco delle opzioni
+                list: "##{base}list",                           # contenitore delle opzioni
+                option: ".rich-combobox-item"                   # singola opzione
+              },
+              productAxes: ["dimensioni", "required"],          # assi incrociati fra loro
+              linearAxes: ["Visualizza per"],                   # assi variati uno alla volta
+              maxViews: 300                                     # tetto di viste per lo step
             } }
         # modificatori comuni per ogni step:
         #   delayMs, timeoutMs, optional (true = non interrompe), desc, sourceHint

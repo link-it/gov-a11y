@@ -10,6 +10,7 @@
   },
   "monitor": {
     "name": "govwayMonitor",
+    "falsePositives": "falsePositives.govway_monitor.json",
     "enabled": true,
     "loginPath": "/govwayMonitor/",
     "user": "operatore",
@@ -135,7 +136,7 @@
         "start": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf",
         "skipIfMissing": "fieldset legend",
         "sourceHint": "tools/web_interfaces/monitor/deploy/pages/stat/pages/form/analisiStatistica.xhtml",
-        "$note": "Analisi Statistica: la griglia analisiStatistica.jsf espone 33 report (11 sezioni x 3 tipi: Line/Bar/Pie chart, Tabella). Lo step scanCharts li enumera DINAMICAMENTE e per ognuno ri-naviga alla griglia, clicca l'icona (a.tipologia-button, etichetta dal fieldset legend + span), clicca #generaReport e scansiona il report reale (grafico SVG o dataTable). Copre TUTTE le statistiche senza cablarle. Inoltre, se il form presenta la select 'dimensioni' (Bar chart e Tabella delle distribuzioni per-X), enumera le sue opzioni a runtime e genera+scansiona il report per OGNUNA: ogni variante compare come flow:stat-tutte/<sezione>-<tipo>/<opzione>. dimensionSkip='personalizzato' esclude la variante 'personalizzato' (aprirebbe una select 'Seleziona Informazione 3D' non compilata, stato non valido; il suo layout non aggiunge strutture a11y nuove rispetto alle altre): restano 2-dimensioni e 3-dimensioni (include la data). Valori semi-cablati (per CONTENUTO, non per id/label di posizione): dimensionField='dimensioni' (individua la select) e dimensionSkip='personalizzato' (variante da saltare). I filtri hanno default validi, non serve compilarli. NB: con le dimensioni il totale sale (~69 report) -> run piu' lungo; usa scanCharts.limit per campionare in sviluppo.",
+        "$note": "Analisi Statistica: la griglia espone i report (sezioni x tipo di grafico). Lo step scanCharts li enumera DINAMICAMENTE e per ognuno ri-naviga, clicca l'icona, compila le varianti e scansiona il report reale. Le varianti non sono cablate: i campi del form si scoprono a runtime da etichetta, valore corrente e obbligatorieta' (il marcatore '*'). 'productAxes' elenca gli assi da incrociare fra loro — qui la select delle dimensioni e ogni campo obbligatorio, cioe' 'Tipo Identificazione' per Applicativo e 'Claim' per Token; 'linearAxes' quelli variati un'opzione alla volta con gli altri al predefinito — qui 'Visualizza per', che cambia il dato rappresentato (transazioni, banda, tempo) ma non l'impaginazione, e incrociarlo triplicherebbe il tempo senza produrre strutture nuove. Scegliendo '3-dimensioni (personalizzato)' compare il campo obbligatorio 'Informazione 3D': i nuovi obbligatori vengono riempiti con la prima opzione utile. L'opzione '--' dei campi obbligatori viene mantenuta perche' genera la pagina d'errore, anch'essa una vista da verificare, ma non viene incrociata con gli altri assi. 'maxViews' limita l'esplosione combinatoria.",
         "steps": [
           {
             "scanCharts": {
@@ -143,8 +144,25 @@
               "icon": "a.tipologia-button",
               "generate": "#generaReport",
               "label": "span.tipologia-button-text",
-              "dimensionField": "dimensioni",
-              "dimensionSkip": "personalizzato"
+              "productAxes": [
+                "dimensioni",
+                "required"
+              ],
+              "linearAxes": [
+                "Visualizza per"
+              ],
+              "maxViews": 300,
+              "field": {
+                "$comment": "Come si riconosce un campo del form e come se ne aprono le opzioni. Qui sono i selettori della comboBox RichFaces usata dalle console GovWay; '#{base}' e' la radice dell'id del campo, cioe' il suo id senza 'idSuffix'.",
+                "selector": "input[id$=comboboxField]",
+                "idSuffix": "comboboxField",
+                "group": "div.prop",
+                "label": "label",
+                "requiredMarker": "label em",
+                "toggle": "##{base}comboboxButton",
+                "list": "##{base}list",
+                "option": ".rich-combobox-item"
+              }
             },
             "wait": "networkidle",
             "delayMs": 2500

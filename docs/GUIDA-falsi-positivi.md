@@ -29,6 +29,11 @@ Nel riepilogo compaiono come voce distinta:
 Totali occorrenze axe: critical 0, serious 0 — da verificare (incomplete): 0 — falsi positivi dichiarati: 29
 ```
 
+In tabella compaiono però solo le voci che hanno **effettivamente** corrisposto a qualcosa. Quelle a
+zero occorrenze sono nominate a parte, sotto «Senza riscontro»: o la scansione è completa, e allora la
+deroga non serve più e va rimossa dal registro, oppure è parziale e quelle pagine non sono state
+attraversate. In entrambi i casi è un'informazione da leggere, non una riga da scorrere.
+
 ## Il file
 
 Un `.json` accanto al file di config, riferito dal target:
@@ -98,7 +103,10 @@ scadenza vale per sempre, ed è raramente ciò che si vuole: il codice cambia.
 4. **Tieni il selettore stretto.** Una deroga su una regola intera è pericolosa: il conteggio degli
    `incomplete` è anche un *segnale*. In un caso reale `target-size` è passato da 2 a 80 occorrenze
    e quello era un difetto appena introdotto: con una deroga larga sarebbe passato inosservato.
-5. **Scrivi la verifica**, con data e numeri.
+5. **Scrivi la verifica**, con data e numeri. Una volta sola: quando la misura si rifà, si
+   **riscrive** quella riga, non se ne accoda un'altra. Il campo dice *com'è stato accertato*, non
+   la storia di chi l'ha accertato quante volte; annotazioni di lavorazione («da rimuovere dopo il
+   deploy», «riverificato il…») appartengono al registro delle attività, non alla deroga.
 
 ## Igiene del file
 

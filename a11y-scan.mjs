@@ -352,6 +352,21 @@ function loadFalsePositives(spec, base) {
   return voci;
 }
 
+/* Confronta il selettore di una voce del registro con il nodo indicato da axe. Distingue
+   quattro esiti: 'si', 'no', 'assente' — l'elemento non e' nel documento in questo istante —
+   ed 'errore', quando la valutazione stessa non e' riuscita (pagina in navigazione, contesto
+   distrutto). Trattare 'assente' ed 'errore' come 'no' fa figurare fra le occorrenze da
+   verificare nodi che una voce del registro copre: sono esiti diversi e vanno distinti. */
+async function provaSelettore(page, selettore, bersaglio) {
+  return page.evaluate(([sel, tgt]) => {
+    try {
+      const el = document.querySelector(tgt);
+      if (!el) return 'assente';
+      return el.matches(sel) ? 'si' : 'no';
+    } catch { return 'no'; }
+  }, [selettore, String(bersaglio)]).catch(() => 'errore');
+}
+
 /* Separa gli 'incomplete' in due liste: quelli ancora da verificare e quelli coperti da una voce
    del registro. Il confronto del selettore avviene NELLA PAGINA con Element.matches, perche' e'
    l'unico modo esatto: axe restituisce un percorso CSS, non l'elemento, e riconoscere una famiglia
@@ -363,22 +378,35 @@ async function separaFalsiPositivi(page, incomplete, url) {
 
   const rimasti = [];
   const derogati = [];
+  let errori = 0;    // valutazioni non riuscite: se sono molte, il confronto non e' avvenuto
+  let assenti = 0;   // elementi non piu' nel documento quando si e' arrivati a confrontarli
   for (const v of incomplete) {
     const nodiRimasti = [];
     for (const n of v.nodes) {
       const causa = (n.any || []).concat(n.all || [], n.none || [])
         .map(c => (c.data || {}).messageKey).find(Boolean) || null;
       let voce = null;
+      let riprovato = false;
       for (const fp of attive) {
         if (fp.rule !== v.id) continue;
         if (fp.cause && fp.cause !== causa) continue;
         if (fp.urlPattern && !new RegExp(fp.urlPattern).test(url)) continue;
         if (fp.selector) {
           const bersaglio = Array.isArray(n.target) ? n.target[n.target.length - 1] : n.target;
-          const ok = await page.evaluate(([sel, tgt]) => {
-            try { const el = document.querySelector(tgt); return !!(el && el.matches(sel)); } catch { return false; }
-          }, [fp.selector, String(bersaglio)]).catch(() => false);
-          if (!ok) continue;
+          let esito = await provaSelettore(page, fp.selector, bersaglio);
+          /* ne' 'assente' ne' 'errore' dicono che la voce non copra il nodo: in
+             un'applicazione a ridisegno parziale il documento puo' essere in trasformazione
+             fra l'analisi e questo confronto. Un solo nuovo tentativo per nodo, atteso che la
+             pagina si sia posata; poi si rinuncia, ma l'errore viene contato. */
+          if ((esito === 'assente' || esito === 'errore') && !riprovato) {
+            riprovato = true;
+            await page.waitForLoadState('domcontentloaded').catch(() => {});
+            await page.waitForTimeout(300);
+            esito = await provaSelettore(page, fp.selector, bersaglio);
+          }
+          if (esito === 'errore') errori++;
+          else if (esito === 'assente') assenti++;
+          if (esito !== 'si') continue;
         }
         voce = fp; break;
       }
@@ -386,6 +414,18 @@ async function separaFalsiPositivi(page, incomplete, url) {
       else nodiRimasti.push(n);
     }
     if (nodiRimasti.length) rimasti.push({ ...v, nodes: nodiRimasti });
+  }
+  /* Un errore isolato e' fisiologico; molti significano che su questa vista il registro non
+     e' stato applicato, e le occorrenze figurano fra quelle da verificare senza esserlo.
+     Meglio dirlo che lasciare all'occhio di chi legge il report il compito di accorgersene. */
+  if (errori > 0) {
+    console.warn(`    [falsi positivi] ${errori} confronti non riusciti su ${url}: le occorrenze corrispondenti restano fra quelle da verificare`);
+  }
+  /* Elemento sparito fra l'analisi e il confronto: succede nelle applicazioni a ridisegno
+     parziale. Va detto, perche' l'occorrenza figura come da verificare senza che si sia
+     potuto stabilire se una voce del registro la copra. */
+  if (assenti > 0) {
+    console.warn(`    [falsi positivi] ${assenti} elementi non piu' presenti al confronto su ${url}: le occorrenze corrispondenti restano fra quelle da verificare`);
   }
   return { incomplete: rimasti, derogati };
 }
@@ -711,6 +751,16 @@ async function runScreenReader(page) {
 async function recordScan(browser, page, target, name, pageResults, sourceHint) {
   const url = page.url();
   const r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+  // Le occorrenze coperte dal registro dei falsi positivi escono da 'incomplete' e vengono
+  // conservate a parte: restano nel report, ma non fra le cose ancora da verificare.
+  //
+  // SUBITO dopo l'analisi, e prima di ogni altra cosa: il confronto avviene nella pagina, e
+  // deve trovare il DOM che axe ha esaminato. Stava in fondo, dopo Lighthouse, l'albero ARIA
+  // e la simulazione dello screen reader: decine di secondi durante i quali un'applicazione a
+  // ridisegno parziale sostituisce interi rami, e gli elementi da confrontare sparivano. Su
+  // una vista di govwayMonitor questo bastava a far figurare 38 occorrenze fra quelle da
+  // verificare, pur essendo coperte dal registro su tutte le altre viste.
+  const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   let lhScore = null;
   if (DO_LH) lhScore = await runLighthouse(browser, url, target, await lhExtraHeaders(page, target));
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
@@ -718,9 +768,6 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
   let sr = null;
   if (DO_SR) sr = await runScreenReader(page);
-  // Le occorrenze coperte dal registro dei falsi positivi escono da 'incomplete' e vengono
-  // conservate a parte: restano nel report, ma non fra le cose ancora da verificare.
-  const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
     name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, axTree, ariaSnapshot, sr,
@@ -844,26 +891,106 @@ async function runFlows(browser, target, pageResults) {
           scanned = true;
           continue;
         }
-        // Step 'scanCharts': enumera DINAMICAMENTE tutte le icone-report di una griglia (es. Analisi
-        // Statistica: 33 tra sezioni x tipi grafico), e per ognuna: ri-naviga, clicca l'icona, genera
-        // il report e scansiona. Copre TUTTE le statistiche senza cablarle. Se il form presenta una
-        // select "dimensioni" (individuata via dimensionField, l'UNICO valore cablato), enumera le sue
-        // opzioni a runtime e genera+scansiona il report per ognuna (es. 2-dimensioni e 3-dimensioni).
+        /* Step 'scanCharts': enumera DINAMICAMENTE le icone-report di una griglia (es. Analisi
+           Statistica) e per ognuna genera+scansiona il report. Le varianti del form non sono cablate:
+           i campi si scoprono a runtime leggendo etichetta, valore corrente e obbligatorieta' (il
+           marcatore '*' nell'etichetta). Gli assi di iterazione si dichiarano in 'productAxes' (incrociati
+           fra loro) e 'linearAxes' (variati uno alla volta, gli altri al valore predefinito): incrociare
+           un asse che cambia solo i dati rappresentati moltiplica il tempo senza produrre strutture nuove.
+           Un asse e' un pattern confrontato con etichetta e valore del campo, oppure il token 'required'
+           che designa ogni campo obbligatorio. Dopo ogni selezione i campi vengono ri-scoperti, perche'
+           una scelta puo' farne comparire di nuovi (es. 'Informazione 3D' dopo '3-dimensioni
+           personalizzato'): i nuovi obbligatori vengono riempiti con la loro prima opzione utile.
+           L'opzione 'non selezionato' di un campo obbligatorio (tipicamente '--') viene mantenuta, perche'
+           genera la pagina d'errore, che e' a sua volta una vista da verificare; non viene pero' incrociata
+           con gli altri assi, che produrrebbero pagine d'errore identiche. */
         if (step.scanCharts !== undefined) {
           const cfg = step.scanCharts || {};
           const grid = BASE + (cfg.grid || flow.start);
-          const iconSel = cfg.icon || 'a.tipologia-button';
-          const genSel = cfg.generate || '#generaReport';
-          const labelSel = cfg.label || 'span';
-          const dimRe = cfg.dimensionField || 'dimensioni';   // pattern per riconoscere la select dimensioni
-          const optSel = cfg.dimensionOption || '.rich-combobox-item';   // selettore delle opzioni nella lista combobox
-          const dimSkip = cfg.dimensionSkip ? new RegExp(cfg.dimensionSkip, 'i') : null;   // opzioni dimensione da saltare (es. varianti che richiedono config aggiuntiva)
           const to = step.timeoutMs || 8000;
+          const maxViews = cfg.maxViews || 400;
+          const NON_SELEZIONATO = /^\s*-+\s*$/;   // opzione 'non selezionato' dei campi obbligatori
+
+          /* Nessun selettore dell'applicazione in prova risiede qui: sono tutti dichiarati nel
+             target, perche' dipendono dalla libreria di componenti usata (una comboBox RichFaces,
+             una select nativa, un widget proprietario) e non da questo strumento. Il campo 'field'
+             descrive come si riconosce un campo del form e come se ne aprono le opzioni; nei
+             modelli 'toggle' e 'list' il segnaposto '#{base}' e' la radice dell'id del campo. */
+          const iconSel = cfg.icon;
+          const genSel = cfg.generate;
+          const labelSel = cfg.label || 'span';
+          const campo = cfg.field || {};
+          const optSel = campo.option || cfg.dimensionOption;   // 'dimensionOption': nome precedente
+          // assi: retrocompatibilita' con dimensionField/dimensionSkip (un solo asse incrociato)
+          const productAxes = cfg.productAxes || (cfg.dimensionField ? [cfg.dimensionField] : []);
+          const linearAxes = cfg.linearAxes || [];
+          const skipRe = cfg.dimensionSkip ? new RegExp(cfg.dimensionSkip, 'i') : null;
+          /* Senza assi da iterare non c'e' nulla da scoprire nel form: il passo apre ogni report
+             e lo scansiona, e il blocco 'field' non serve. */
+          const conAssi = productAxes.length > 0 || linearAxes.length > 0;
+
+          const mancanti = [];
+          if (!iconSel) mancanti.push('icon');
+          if (!genSel) mancanti.push('generate');
+          if (conAssi) {
+            if (!campo.selector) mancanti.push('field.selector');
+            if (!campo.idSuffix) mancanti.push('field.idSuffix');
+            if (!campo.toggle) mancanti.push('field.toggle');
+            if (!campo.list) mancanti.push('field.list');
+            if (!optSel) mancanti.push('field.option');
+          }
+          if (mancanti.length) {
+            console.warn(`    scanCharts: configurazione incompleta, manca ${mancanti.join(', ')} — passo saltato`);
+            continue;
+          }
+          const conBase = (modello, base) => String(modello).split('#{base}').join(base);
+
           const openChart = async (ci) => {
             await page.goto(grid, { waitUntil: 'networkidle' });
             await page.locator(iconSel).nth(ci).click({ timeout: to });
             await page.waitForSelector(genSel, { timeout: to });
           };
+          /* Campi visibili del form, con quanto serve a riconoscerli. */
+          const campiForm = () => page.$$eval(campo.selector, (els, c) => els.map(i => {
+            const gruppo = c.group ? i.closest(c.group) : null;
+            const etichetta = gruppo && c.label && gruppo.querySelector(c.label) ? gruppo.querySelector(c.label).textContent : '';
+            return {
+              base: i.id.replace(new RegExp(c.idSuffix + '$'), ''),
+              label: (etichetta || '').trim().replace(/\s+/g, ' '),
+              value: i.value || '',
+              required: !!(gruppo && c.requiredMarker && gruppo.querySelector(c.requiredMarker)),
+              visible: i.offsetParent !== null
+            };
+          }).filter(f => f.visible), { group: campo.group || null, label: campo.label || 'label', idSuffix: campo.idSuffix, requiredMarker: campo.requiredMarker || null }).catch(() => []);
+          const combaciaAsse = (c, asse) =>
+            asse === 'required' ? c.required : new RegExp(asse, 'i').test(`${c.label} ${c.value}`);
+          const opzioniDi = async (base) => {
+            await page.click(conBase(campo.toggle, base)).catch(() => {});
+            await page.waitForTimeout(300);
+            let opts = await page.$$eval(`${conBase(campo.list, base)} ${optSel}`, els => els.map(e => (e.textContent || '').trim()).filter(Boolean)).catch(() => []);
+            await page.keyboard.press('Escape').catch(() => {});
+            await page.waitForTimeout(120);
+            if (skipRe) opts = opts.filter(o => !skipRe.test(o));
+            return opts;
+          };
+          const scegli = async (base, valore) => {
+            await page.click(conBase(campo.toggle, base), { timeout: to });
+            await page.waitForTimeout(250);
+            await page.locator(`${conBase(campo.list, base)} ${optSel}`).filter({ hasText: valore }).first().click({ timeout: to });
+            await page.waitForTimeout(400);
+          };
+          /* Riempie con la prima opzione utile i campi obbligatori comparsi dopo una scelta. */
+          const completaObbligatoriNuovi = async (giaVisti) => {
+            const campi = await campiForm();
+            for (const c of campi) {
+              if (!c.required || giaVisti.has(c.base)) continue;
+              const opts = (await opzioniDi(c.base)).filter(o => !NON_SELEZIONATO.test(o));
+              if (!opts.length) continue;
+              await scegli(c.base, opts[0]).catch(() => {});
+              giaVisti.add(c.base);
+            }
+          };
+
           await page.goto(grid, { waitUntil: 'networkidle' });
           const items = await page.$$eval(iconSel, (els, ls) => els.map(a => {
             const fs = a.closest('fieldset');
@@ -873,48 +1000,82 @@ async function runFlows(browser, target, pageResults) {
           }), labelSel);
           if (!items.length) { console.warn(`    scanCharts: nessuna icona trovata con '${iconSel}'`); continue; }
           const limit = cfg.limit ? Math.min(cfg.limit, items.length) : items.length;
-          console.log(`    scanCharts: ${items.length} report${cfg.limit ? ` (limitati a ${limit})` : ''}`);
-          for (let ci = 0; ci < limit; ci++) {
+          console.log(`    scanCharts: ${items.length} report${cfg.limit ? ` (limitati a ${limit})` : ''}, assi incrociati [${productAxes.join(', ')}], assi lineari [${linearAxes.join(', ') || '-'}]`);
+
+          let viste = 0;
+          for (let ci = 0; ci < limit && viste < maxViews; ci++) {
             const baseLabel = `${slug(items[ci].section)}-${slug(items[ci].type)}` || `chart${ci + 1}`;
-            // apri il form e rileva se c'e' la select dimensioni + le sue opzioni (dinamico)
-            let dimBase = null, variants = [null];
+            // scopre gli assi presenti su QUESTO report
+            let assiP = [], assiL = [];
             try {
               await openChart(ci);
-              const fieldId = await page.$$eval('input[id$=comboboxField]',
-                (els, pat) => { const re = new RegExp(pat, 'i'); const f = els.find(i => re.test(i.value || '')); return f ? f.id : null; }, dimRe);
-              if (fieldId) {
-                dimBase = fieldId.replace(/comboboxField$/, '');
-                await page.click(`#${dimBase}comboboxButton`).catch(() => {});
-                await page.waitForTimeout(300);
-                let opts = await page.$$eval(`#${dimBase}list ${optSel}`, els => els.map(e => (e.textContent || '').trim()).filter(Boolean));
-                if (dimSkip) opts = opts.filter(o => !dimSkip.test(o));   // scarta le opzioni da saltare
-                if (opts.length) variants = opts; else dimBase = null;
+              const campi = conAssi ? await campiForm() : [];
+              const usati = new Set();
+              for (const asse of productAxes) {
+                for (const c of campi) {
+                  if (usati.has(c.base) || !combaciaAsse(c, asse)) continue;
+                  const opts = await opzioniDi(c.base);
+                  if (opts.length > 1) { assiP.push({ base: c.base, opts }); usati.add(c.base); }
+                }
+              }
+              for (const asse of linearAxes) {
+                for (const c of campi) {
+                  if (usati.has(c.base) || !combaciaAsse(c, asse)) continue;
+                  const opts = await opzioniDi(c.base);
+                  if (opts.length > 1) { assiL.push({ base: c.base, opts }); usati.add(c.base); }
+                }
               }
             } catch (e) { console.warn(`    report '${baseLabel}' non aperto: ${e.message}`); continue; }
-            // genera+scansiona il report per ogni variante dimensionale (o una volta sola se assente)
-            for (const v of variants) {
-              const label = v ? `${baseLabel}/${slug(v)}` : baseLabel;
+
+            /* Combinazioni: prodotto degli assi incrociati; una combinazione che sceglie 'non
+               selezionato' su un campo obbligatorio si ferma li', per non ripetere la stessa
+               pagina d'errore per ogni valore degli altri assi. */
+            let combinazioni = [[]];
+            for (const asse of assiP) {
+              const prossime = [];
+              for (const parziale of combinazioni) {
+                if (parziale.some(sc => NON_SELEZIONATO.test(sc.valore))) { prossime.push(parziale); continue; }
+                for (const o of asse.opts) prossime.push(parziale.concat([{ base: asse.base, valore: o }]));
+              }
+              combinazioni = prossime;
+            }
+            // deduplica le combinazioni che si fermano sul 'non selezionato'
+            const viste_ = new Set();
+            combinazioni = combinazioni.filter(c => { const k = c.map(x => x.base + '=' + x.valore).join('|'); if (viste_.has(k)) return false; viste_.add(k); return true; });
+            // assi lineari: solo le opzioni oltre la prima, con gli altri assi al predefinito
+            for (const asse of assiL) {
+              for (const o of asse.opts.slice(1)) combinazioni.push([{ base: asse.base, valore: o }]);
+            }
+            if (!combinazioni.length) combinazioni = [[]];
+
+            for (const comb of combinazioni) {
+              if (viste >= maxViews) { console.warn(`    scanCharts: raggiunto maxViews=${maxViews}, viste successive non scansionate`); break; }
+              const label = comb.length ? `${baseLabel}/${comb.map(c => slug(c.valore)).join('_')}` : baseLabel;
               try {
-                if (dimBase) {   // stato fresco + selezione opzione dimensione
-                  await openChart(ci);
-                  await page.click(`#${dimBase}comboboxButton`);
-                  await page.waitForTimeout(250);
-                  await page.locator(`#${dimBase}list ${optSel}`).filter({ hasText: v }).first().click({ timeout: to });
-                  await page.waitForTimeout(250);
+                if (comb.length) {
+                  await openChart(ci);   // stato fresco
+                  const giaVisti = new Set(comb.map(c => c.base));
+                  for (const sc of comb) {
+                    await scegli(sc.base, sc.valore);
+                    await completaObbligatoriNuovi(giaVisti);   // es. 'Informazione 3D'
+                  }
                 }
                 await page.click(genSel);
                 await applyWait(page, step);
               } catch (e) { console.warn(`    report '${label}' non generato: ${e.message}`); continue; }
               await recordScan(browser, page, target, `flow:${flow.name}/${label}`, pageResults, step.sourceHint || flow.sourceHint);
               scanned = true;
+              viste++;
             }
           }
           continue;
         }
-        // Step 'scanTabs': scopre DINAMICAMENTE i tab presenti (selettore, default .rich-tab-header),
-        // clicca ognuno e lo scansiona. Robusto ai record con tab diversi/nuovi.
+        // Step 'scanTabs': scopre DINAMICAMENTE i tab presenti, clicca ognuno e lo scansiona.
+        // Robusto ai record con tab diversi/nuovi. Il selettore dipende dalla libreria di
+        // componenti dell'applicazione e va quindi dichiarato nel target.
         if (step.scanTabs !== undefined) {
-          const sel = typeof step.scanTabs === 'string' && step.scanTabs ? step.scanTabs : '.rich-tab-header';
+          const sel = typeof step.scanTabs === 'string' ? step.scanTabs.trim() : '';
+          if (!sel) { console.warn('    scanTabs: manca il selettore dei tab — passo saltato'); continue; }
           const labels = await page.$$eval(sel, els => els.map(e => {
             const c = e.cloneNode(true);
             c.querySelectorAll('script,style').forEach(s => s.remove());   // escludi JS inline dal testo del tab
@@ -1546,14 +1707,15 @@ ${FALSE_POSITIVES_USATI.length ? `<div class="disclaimer">
 elencate qui con la motivazione e la verifica che le giustificano, cosi' da poter essere contestate.
 Le violazioni non sono mai derogabili.</p>
 <table><tr><th>Voce</th><th>Regola / causa</th><th>Occorrenze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
-${FALSE_POSITIVES_USATI.map(v => `<tr${v.expired ? ' style="opacity:.55"' : ''}><td><code>${esc(v.id)}</code></td>
+${FALSE_POSITIVES_USATI.filter(v => v.matches > 0 || v.expired).map(v => `<tr${v.expired ? ' style="opacity:.55"' : ''}><td><code>${esc(v.id)}</code></td>
 <td><code>${esc(v.rule)}</code>${v.cause ? ` / <code>${esc(v.cause)}</code>` : ''}</td>
 <td>${v.expired ? '<b>scaduta</b>' : v.matches}</td><td>${esc(v.reason)}</td><td>${esc(v.verification)}</td>
 <td>${esc(v.author || '-')}</td><td>${esc(v.expires || 'nessuna')}</td></tr>`).join('\n')}</table>
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).length ? `<p><b>Senza riscontro:</b> le voci
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
-non hanno corrisposto ad alcuna occorrenza. Se la scansione e' completa la deroga non serve piu' e va rimossa;
-se e' parziale (poche pagine, <code>--only</code>, crawl ridotto) puo' semplicemente non essere stata attraversata.</p>` : ''}
+non hanno corrisposto ad alcuna occorrenza e non compaiono quindi in tabella. Se la scansione e' completa
+la deroga non serve piu' e va rimossa; se e' parziale (poche pagine, <code>--only</code>, crawl ridotto) puo'
+semplicemente non essere stata attraversata.</p>` : ''}
 ${FALSE_POSITIVES_USATI.filter(v => v.expired).length ? `<p><b>Scadute:</b> le occorrenze coperte da
 ${FALSE_POSITIVES_USATI.filter(v => v.expired).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
 sono tornate fra quelle da verificare: la misura va rifatta e la scadenza rinnovata.</p>` : ''}

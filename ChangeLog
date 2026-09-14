@@ -1,53 +1,63 @@
+2026-09-10  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Step "scanCharts": i report non sono più cablati nel target ma scoperti a runtime dai campi del form (etichetta, valore corrente, obbligatorieta').
+	Le varianti si generano incrociando gli assi di "productAxes" e variando una voce alla volta quelli di "linearAxes"; nuovo limite "maxViews".
+	Nessun selettore di un'applicazione specifica resta nel codice: quelli cablati o usati come valore predefinito sono ora dichiarati nel target,
+	nel nuovo blocco "scanCharts.field" (selector, idSuffix, toggle, list, option; facoltativi group, label, requiredMarker).
+	Se una chiave obbligatoria manca, il passo viene saltato con un avviso che la nomina; il blocco serve solo se si dichiarano assi da iterare.
+	Anche "scanTabs" esige ora il selettore.
+	Registro dei falsi positivi: il confronto avviene subito dopo l'analisi di axe, e non più in coda a Lighthouse, albero ARIA e screen reader,
+	che lo separavano dal DOM esaminato. Il confronto del selettore distingue quattro esiti: combacia, non combacia, elemento assente, valutazione non riuscita;
+	riprova negli ultimi due. Se non riesce, un avviso nomina la vista e
+	quante occorrenze restano da verificare senza che si sia potuto stabilire se una voce del registro le copra.
+	Nel report le voci che non hanno corrisposto ad alcuna occorrenza non compaiono più in tabella:
+	restano nominate nella nota "Senza riscontro", che dice cosa farne.
+
 2026-09-01  Andrea Poli <andrea.poli@link.it>
 
-	* [gov-a11y] 
-	Registro dei falsi positivi: nuova opzione "--false-positives <file|dir>" e chiave
-	"falsePositives" nel config, con cui dichiarare le occorrenze gia' esaminate. Si applica ai
-	soli "incomplete", mai alle violazioni. Le occorrenze derogate escono da "Da verificare" ed
-	entrano in una sezione propria del report con motivazione, verifica, autore e scadenza; i
-	campi "reason" e "verification" sono obbligatori. Nuovo documento docs/GUIDA-falsi-positivi.md
-	e primo registro per la govwayConsole.
+	* [gov-a11y]
+	Registro dei falsi positivi: nuova opzione "--false-positives <file|dir>" e chiave "falsePositives" nel config,
+	con cui dichiarare le occorrenze gia' esaminate. Si applica ai soli "incomplete", mai alle violazioni.
+	Le occorrenze derogate escono da "Da verificare" ed entrano in una sezione propria del report con motivazione, verifica, autore e scadenza;
+	i campi "reason" e "verification" sono obbligatori.
+	Nuovo documento docs/GUIDA-falsi-positivi.md e primo registro per la govwayConsole.
 
 2026-08-27  Andrea Poli <andrea.poli@link.it>
 
-	* [gov-a11y] 
-	Gate --min-score: le viste senza punteggio Lighthouse ora fanno fallire il gate (prima
-	venivano ignorate, quindi con tutti gli audit in errore il gate risultava superato).
-	Opzione "--check-deps": un config non leggibile e' un errore (exit 2), non piu' un esito
-	positivo con "nessun target caricato".
-	Nuovo documento docs/GUIDA-livelli-di-verifica.md: i quattro livelli di verifica (axe-core,
-	accessibility tree, virtual screen reader, Lighthouse), cosa coprono e cosa no, gate, costi
-	e configurazione consigliata per scenario. In docs/GUIDA-esecuzione.md, nuova sezione sul
-	perche' il punteggio Lighthouse non e' un criterio di conformita' ne' un buon quality gate.
+	* [gov-a11y]
+	Gate --min-score: le viste senza punteggio Lighthouse ora fanno fallire il gate
+	(prima venivano ignorate, quindi con tutti gli audit in errore il gate risultava superato).
+	Opzione "--check-deps": un config non leggibile è un errore (exit 2), non più un esito positivo con "nessun target caricato".
+	Nuovo documento docs/GUIDA-livelli-di-verifica.md: i quattro livelli di verifica (axe-core, accessibility tree, virtual screen reader, Lighthouse),
+	cosa coprono e cosa no, gate, costi e configurazione consigliata per scenario.
+	In docs/GUIDA-esecuzione.md, nuova sezione sul perchè il punteggio Lighthouse non è un criterio di conformita' nè un buon quality gate.
 
 2026-08-27  Andrea Poli <andrea.poli@link.it>
 
-	* [gov-a11y] 
-	Dipendenze opzionali: nuova opzione "--check-deps" che verifica (senza scansionare) se i
-	moduli di Lighthouse e del virtual screen reader sono installati e quali feature richiede
-	la configurazione corrente. Se una feature richiesta non e' installata la scansione ora si
-	interrompe con errore (exit 2) prima di aprire il browser, invece di proseguire con
-	punteggi/annunci vuoti. Aggiunto a fine run il riepilogo degli audit Lighthouse falliti,
-	per distinguere "modulo assente" da "modulo presente ma audit in errore".
-	Corretto Lighthouse su pagine autenticate: la tab aperta via CDP vive nel context di
-	default del browser e non condivideva i cookie di sessione della scansione (audit sulla
-	pagina di login o su un errore applicativo, quindi senza punteggio); i cookie del context
-	corrente vengono ora passati come header Cookie. Gli audit che completano con
-	lhr.runtimeError (ERRORED_DOCUMENT_REQUEST, NO_FCP, ...) non sono piu' silenziosi: prima
-	davano lhScore: null senza alcun messaggio. summary.json riporta "lighthouseEnabled".
+	* [gov-a11y]
+	Dipendenze opzionali: nuova opzione "--check-deps" che verifica (senza scansionare) se i moduli di Lighthouse e del virtual screen reader
+	sono installati e quali feature richiede la configurazione corrente.
+	Se una feature richiesta non è installata la scansione ora si interrompe con errore (exit 2) prima di aprire il browser,
+	invece di proseguire con punteggi/annunci vuoti.
+	Aggiunto a fine run il riepilogo degli audit Lighthouse falliti, per distinguere "modulo assente" da "modulo presente ma audit in errore".
+	Corretto Lighthouse su pagine autenticate: la tab aperta via CDP vive nel context di default del browser e
+	non condivideva i cookie di sessione della scansione (audit sulla pagina di login o su un errore applicativo, quindi senza punteggio);
+	i cookie del context corrente vengono ora passati come header Cookie.
+	Gli audit che completano con lhr.runtimeError (ERRORED_DOCUMENT_REQUEST, NO_FCP, ...) non sono più silenziosi:
+	prima davano lhScore: null senza alcun messaggio. summary.json riporta "lighthouseEnabled".
 
 2026-08-03  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
-	* [gov-a11y] 
-	Report HTML: nuova opzione "--no-incomplete" (anche via defaults.showIncomplete)
-	per nascondere la colonna/sezione degli "incompleti" axe, e vista grafica navigabile
-	dell'albero ARIA. Aggiunto il flusso di navigazione per GovCat (adesioni e servizi) con
-	supporto alle liste asincrone delle SPA.
+	* [gov-a11y]
+	Report HTML: nuova opzione "--no-incomplete" (anche via defaults.showIncomplete) per nascondere la colonna/sezione degli "incompleti" axe,
+	e vista grafica navigabile dell'albero ARIA.
+	Aggiunto il flusso di navigazione per GovCat (adesioni e servizi) con supporto alle liste asincrone delle SPA.
 
 2026-08-03  Alfonso Tatarelli <a.tatarelli@gmail.com>, Andrea Poli <andreapoli80@gmail.com>
 
-	* [gov-a11y] 
+	* [gov-a11y]
 	Prima versione.
 	Scanner di accessibilità WCAG 2.x per le console web dei progetti Link.it, esterno e black-box
-	(Playwright + axe-core; virtual screen reader e Lighthouse opzionali). Config-driven e
-	multi-progetto, con report per CI e quality gate. Licenza GPL-3.0-only.
+	(Playwright + axe-core; virtual screen reader e Lighthouse opzionali).
+	Config-driven e	multi-progetto, con report per CI e quality gate. Licenza GPL-3.0-only.

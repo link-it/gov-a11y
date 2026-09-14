@@ -145,7 +145,18 @@
               "generate": "#generaReport",
               "label": "span.tipologia-button-text",
               "dimensionField": "dimensioni",
-              "dimensionSkip": "personalizzato"
+              "dimensionSkip": "personalizzato",
+              "field": {
+                "$comment": "Come si riconosce un campo del form e come se ne aprono le opzioni. Qui sono i selettori della comboBox RichFaces usata dalle console GovWay; '#{base}' e' la radice dell'id del campo, cioe' il suo id senza 'idSuffix'.",
+                "selector": "input[id$=comboboxField]",
+                "idSuffix": "comboboxField",
+                "group": "div.prop",
+                "label": "label",
+                "requiredMarker": "label em",
+                "toggle": "##{base}comboboxButton",
+                "list": "##{base}list",
+                "option": ".rich-combobox-item"
+              }
             },
             "wait": "networkidle",
             "delayMs": 2500
