@@ -35,7 +35,8 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `mouseOnlyIgnore` | selettore CSS | — | Esclusioni dal controllo precedente, dichiarate dall'applicazione (es. contenitori con gestione delegata che non sono comandi) |
 | `mouseOnlyMax` | intero | `40` | Quanti elementi elencare per vista nel report (il conteggio resta completo) |
 | `failOn` | stringa | `serious` | Gate axe (`critical`\|`serious`\|`moderate`\|`minor`\|`none`) — **globale** |
-| `failOnNameless` | booleano | `false` | Gate: fallisce se elementi interattivi senza nome — **globale** |
+| `failOnNameless` | booleano | `true` | Gate: fallisce se elementi interattivi senza nome — **globale**. Attivo di suo: un comando annunciato col solo ruolo è inservibile a chi non vede lo schermo. Si spegne con `false` |
+| `failOnScreenReader` | booleano | `false` | Gate: fallisce se il virtual screen reader produce annunci col solo ruolo — **globale**. Richiede `screenReader` |
 | `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
@@ -43,7 +44,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 
-> `failOn`, `failOnNameless`, `failOnMouseOnly`, `minScore`, `showIncomplete` sono **globali**: il gate è complessivo e il
+> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnScreenReader`, `minScore`, `showIncomplete` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
 
 ## Oggetto target

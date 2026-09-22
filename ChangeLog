@@ -1,6 +1,22 @@
 2026-09-22  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]
+	Nuovo gate del livello 3, "failOnScreenReader": fallisce se il virtual screen reader produce annunci col solo
+	ruolo, cioè elementi letti senza nome. È booleano come gli altri gate di quel tipo: il conteggio degli annunci
+	non è un punteggio, quindi una soglia numerica sarebbe arbitraria — il numero giusto è zero. Predefinito spento,
+	perché il livello 3 richiede moduli aggiuntivi e si sovrappone in buona parte a "failOnNameless"; se richiesto
+	senza lo screen reader attivo, un avviso lo segnala invece di lasciar credere che il gate stia valutando qualcosa.
+	Il gate "failOnNameless" è adesso ATTIVO per impostazione predefinita, come quello della tastiera: un comando che
+	uno screen reader annuncia col solo ruolo è inservibile a chi non vede lo schermo. Si spegne con
+	"failOnNameless": false.
+	I flag "--no-lighthouse" e "--no-screen-reader" hanno adesso la precedenza sui gate del livello che spengono:
+	"minScore" non riaccende piu' l'audit di Lighthouse — una scansione rapida durava quanto una completa per la
+	sola presenza della soglia nel config — e i due gate corrispondenti non vengono valutati, invece di far fallire
+	l'esecuzione per un livello che si e' scelto di non eseguire.
+
+2026-09-22  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
 	Il gate dei comandi utilizzabili col solo mouse ("failOnMouseOnly") è adesso ATTIVO per impostazione
 	predefinita: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo, e in
 	un'interfaccia grafica non dovrebbe passare in silenzio. Si spegne con "failOnMouseOnly": false.

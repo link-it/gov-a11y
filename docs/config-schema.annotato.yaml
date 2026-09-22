@@ -24,7 +24,8 @@ defaults:
   mouseOnlyMax: 40            # quanti elencarne per vista nel report (il conteggio resta completo)
   # --- gate (GLOBALI: qui, non per-target) ---
   failOn: "serious"           # critical | serious | moderate | minor | none
-  failOnNameless: false       # fallisce se elementi interattivi senza nome accessibile
+  failOnNameless: true        # fallisce se elementi interattivi senza nome accessibile (PREDEFINITO: true)
+  failOnScreenReader: false   # fallisce se il virtual screen reader annuncia elementi col solo ruolo
   failOnMouseOnly: true       # fallisce se esistono comandi utilizzabili col solo mouse (PREDEFINITO: true)
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---

@@ -71,7 +71,8 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--user` / `--pass` | `amministratore` / `123456` | Credenziali fallback globali (form login) |
 | `--tags <list>` | `wcag2a,wcag2aa,wcag21a,wcag21aa` | Tag WCAG di axe |
 | `--fail-on <sev>` | `serious` | Gate axe: fallisci se violazioni ≥ gravità (`critical\|serious\|moderate\|minor\|none`) |
-| `--fail-on-nameless` | off | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile |
+| `--fail-on-nameless` | **on** | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile. Si disattiva con `"failOnNameless": false` nel config |
+| `--fail-on-screen-reader` | off | **Gate livello 3**: fallisci se il virtual screen reader produce annunci col solo ruolo |
 | `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
 | `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |

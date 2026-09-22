@@ -84,7 +84,10 @@ if (args.help || args.h) {
   --crawl-depth <d>   Profondita' di navigazione del crawl (BFS). Default 2
   --tags <list>       Tag WCAG axe (default wcag2a,wcag2aa,wcag21a,wcag21aa)
   --fail-on <sev>     Gate axe: fallisci se esistono violazioni >= gravita'. critical|serious|moderate|minor|none (default serious)
-  --fail-on-nameless  Gate a11y-tree: fallisci se esistono elementi interattivi senza nome accessibile (screen-reader)
+  --fail-on-nameless  Gate a11y-tree, ATTIVO per impostazione predefinita: fallisci se esistono elementi
+                      interattivi senza nome accessibile. Si spegne con "failOnNameless": false nel config
+  --fail-on-screen-reader  Gate del virtual screen reader: fallisci se esistono annunci col solo ruolo
+                      (elementi letti senza nome). Richiede --screen-reader
   --fail-on-mouse-only  Gate tastiera, ATTIVO per impostazione predefinita: fallisci se esistono comandi
                       utilizzabili col solo mouse (gestore del clic su un elemento non raggiungibile
                       da tastiera). Si spegne con "failOnMouseOnly": false nel config
@@ -109,7 +112,7 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, minScore, noFlows, insecure.
+  failOnMouseOnly, failOnScreenReader, minScore, noFlows, insecure.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -147,11 +150,18 @@ const CLI_CRAWL = args['no-crawl'] ? 0 : args.crawl;             // --no-crawl d
 
 // Parametri di GATE: globali (la valutazione del gate è complessiva). CLI > defaults > built-in.
 const FAIL_ON = String(resolveParam(args['fail-on'], null, 'failOn', 'serious')).toLowerCase();
-const FAIL_ON_NAMELESS = !!resolveParam(args['fail-on-nameless'], null, 'failOnNameless', false);
+// Predefinito ATTIVO, come il gate della tastiera: un comando che lo screen reader annuncia col
+// solo ruolo ("pulsante") e' inservibile a chi non vede lo schermo. Si spegne con
+// "failOnNameless": false nel config.
+const FAIL_ON_NAMELESS = !!resolveParam(args['fail-on-nameless'], null, 'failOnNameless', true);
 // Predefinito ATTIVO: un comando che risponde al clic ma non alla tastiera e' un difetto
 // oggettivo, e in un'interfaccia grafica non dovrebbe passare in silenzio. Si spegne con
 // "failOnMouseOnly": false nel config.
 const FAIL_ON_MOUSE_ONLY = !!resolveParam(args['fail-on-mouse-only'], null, 'failOnMouseOnly', true);
+// Gate del livello 3: fallisce se il virtual screen reader annuncia elementi col solo ruolo.
+// Predefinito SPENTO, perche' il livello 3 e' opzionale (moduli aggiuntivi) e si sovrappone in
+// buona parte a 'failOnNameless', che misura la stessa famiglia dall'albero di accessibilita'.
+const FAIL_ON_SCREEN_READER = !!resolveParam(args['fail-on-screen-reader'], null, 'failOnScreenReader', false);
 const CLI_MOUSE_ONLY = args['no-mouse-only'] ? false : (args['mouse-only'] ? true : undefined);
 let DO_MOUSE_ONLY = true;        // risolti per-target da applyTargetParams
 let MOUSE_ONLY_IGNORE = null;    // selettore CSS dichiarato dall'applicazione nel target
@@ -167,7 +177,9 @@ let TAGS = String(resolveParam(args.tags, null, 'tags', 'wcag2a,wcag2aa,wcag21a,
 let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
-let DO_LH = !!resolveParam(CLI_LH, null, 'lighthouse', false) || MIN_SCORE !== null;
+/* '--no-lighthouse' vince su 'minScore': senza questa precedenza la sola presenza della soglia nel
+   config riaccenderebbe l'audit, e una scansione rapida in CI durerebbe quanto una completa. */
+let DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, null, 'lighthouse', false) || MIN_SCORE !== null);
 
 // Riassegna i parametri per-target (CLI > target > defaults > built-in). Chiamata a inizio di ogni target.
 // Falsi positivi dichiarati: per-target, risolti come gli altri parametri.
@@ -184,7 +196,7 @@ function applyTargetParams(target) {
   DO_SR = !!resolveParam(CLI_SR, target, 'screenReader', false);
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
-  DO_LH = !!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null;
+  DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null);
   /* Controllo dei comandi utilizzabili col solo mouse: attivo salvo diversa indicazione.
      Le eccezioni sono un fatto dell'APPLICAZIONE, non dello strumento: si dichiarano nel
      target con 'mouseOnlyIgnore' (selettore CSS), non si cablano qui. */
@@ -1676,7 +1688,7 @@ function axRoleClass(label) {
 function writeSummaryAndHtml(results, ariaFiles = {}) {
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
@@ -1874,7 +1886,9 @@ function evaluateGate(results, summary) {
         .reduce((m, v) => m + v.nodes.length, 0), 0);
     if (blocking > 0) reasons.push(`${blocking} occorrenze axe di gravita' >= ${FAIL_ON}`);
   }
-  if (MIN_SCORE != null) {
+  /* Un livello disattivato di proposito da riga di comando non e' valutabile: il suo gate si salta,
+     altrimenti la scansione rapida fallirebbe per un audit che si e' scelto di non eseguire. */
+  if (MIN_SCORE != null && CLI_LH !== false) {
     for (const l of summary.lighthouse) {
       if (l.score < MIN_SCORE) reasons.push(`Lighthouse ${(l.score * 100).toFixed(0)}% < soglia ${(MIN_SCORE * 100).toFixed(0)}% su ${l.url}`);
     }
@@ -1888,6 +1902,12 @@ function evaluateGate(results, summary) {
   }
   if (FAIL_ON_MOUSE_ONLY && summary.mouseOnlyTotal > 0) {
     reasons.push(`${summary.mouseOnlyTotal} comandi utilizzabili col solo mouse (non raggiungibili da tastiera)`);
+  }
+  if (FAIL_ON_SCREEN_READER && !DO_SR && CLI_SR !== false) {
+    console.warn("\u26a0 'failOnScreenReader' richiesto ma il virtual screen reader e' disattivato: il gate non ha nulla da valutare.");
+  }
+  if (FAIL_ON_SCREEN_READER && summary.srRoleOnlyTotal > 0) {
+    reasons.push(`${summary.srRoleOnlyTotal} annunci col solo ruolo del virtual screen reader (elementi letti senza nome)`);
   }
   if (FAIL_ON_NAMELESS && summary.namelessTotal > 0) {
     reasons.push(`${summary.namelessTotal} elementi interattivi senza nome accessibile (a11y-tree)`);

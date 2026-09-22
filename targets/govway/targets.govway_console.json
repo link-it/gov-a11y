@@ -10,7 +10,8 @@
     "failOnMouseOnly": true,
     "failOnNameless": true,
     "minScore": 0.98,
-    "failOn": "minor"
+    "failOn": "minor",
+    "failOnScreenReader": true
   },
   "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env A11Y_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env A11Y_MONITOR_USER/PASS, A11Y_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
   "console": {
