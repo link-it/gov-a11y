@@ -31,15 +31,19 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `crawlDepth` | intero | `2` | Profondità BFS del crawl |
 | `screenReader` | booleano | `false` | Esegue il virtual screen reader su ogni vista |
 | `lighthouse` | booleano | `false` | Calcola il punteggio Lighthouse (lento) |
+| `mouseOnly` | booleano | `true` | Cerca i comandi con un gestore del clic **non raggiungibili da tastiera** |
+| `mouseOnlyIgnore` | selettore CSS | — | Esclusioni dal controllo precedente, dichiarate dall'applicazione (es. contenitori con gestione delegata che non sono comandi) |
+| `mouseOnlyMax` | intero | `40` | Quanti elementi elencare per vista nel report (il conteggio resta completo) |
 | `failOn` | stringa | `serious` | Gate axe (`critical`\|`serious`\|`moderate`\|`minor`\|`none`) — **globale** |
 | `failOnNameless` | booleano | `false` | Gate: fallisce se elementi interattivi senza nome — **globale** |
+| `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
 | `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Si applica **solo** agli `incomplete`. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 
-> `failOn`, `failOnNameless`, `minScore`, `showIncomplete` sono **globali**: il gate è complessivo e il
+> `failOn`, `failOnNameless`, `failOnMouseOnly`, `minScore`, `showIncomplete` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
 
 ## Oggetto target

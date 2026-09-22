@@ -6,7 +6,12 @@
     "crawl": 1500,
     "crawlDepth": 10,
     "screenReader": true,
-    "lighthouse": true
+    "lighthouse": true,
+    "mouseOnly": true,
+    "failOnMouseOnly": true,
+    "failOnNameless": true,
+    "minScore": 0.98,
+    "failOn": "minor"
   },
   "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env A11Y_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env A11Y_MONITOR_USER/PASS, A11Y_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
   "monitor": {
@@ -162,8 +167,94 @@
             "delayMs": 2500
           }
         ]
+      },
+      {
+        "name": "eventi-filtro-date",
+        "$note": "Il calendario (rich:calendar) esiste solo con 'Periodo = Personalizzato': senza questo passo i selettori di data non vengono mai esaminati. Il pannello viene poi aperto, per scansionarlo da dentro.",
+        "start": "/govwayMonitor/eventi/pages/list/eventi.jsf",
+        "skipIfMissing": "#periodoCombocomboboxButton",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/eventi/pages/list/eventi.xhtml",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 600,
+            "desc": "apri l'elenco dei periodi"
+          },
+          {
+            "clickText": "Personalizzato",
+            "exact": true,
+            "wait": "networkidle",
+            "delayMs": 2500,
+            "desc": "scegli 'Personalizzato': compaiono Data Inizio e Data Fine"
+          },
+          {
+            "click": "img[id$='dataInizioCalendarPopupButton']",
+            "delayMs": 1200,
+            "desc": "apri il calendario di Data Inizio"
+          }
+        ]
+      },
+      {
+        "name": "transazioni-filtro-date",
+        "$note": "Stesso filtro temporale sulla ricerca transazioni: il componente e' lo stesso, ma la vista e i campi attorno no.",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#periodoCombocomboboxButton",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/includes/searchForm.xhtml",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 600,
+            "desc": "apri l'elenco dei periodi"
+          },
+          {
+            "clickText": "Personalizzato",
+            "exact": true,
+            "wait": "networkidle",
+            "delayMs": 2500,
+            "desc": "scegli 'Personalizzato': compaiono Data Inizio e Data Fine"
+          },
+          {
+            "click": "img[id$='dataInizioCalendarPopupButton']",
+            "delayMs": 1200,
+            "desc": "apri il calendario di Data Inizio"
+          }
+        ]
+      },
+      {
+        "name": "statistiche-filtro-date",
+        "$note": "Sui report statistici il filtro temporale compare solo dopo aver scelto un tipo di report (la prima piastrella della griglia).",
+        "start": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf",
+        "skipIfMissing": ".tipologia-button-div a",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/stat/includes/searchFormStatistiche.xhtml",
+        "steps": [
+          {
+            "click": ".tipologia-button-div a",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "scegli il primo report della griglia: compare il filtro temporale"
+          },
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 600,
+            "desc": "apri l'elenco dei periodi"
+          },
+          {
+            "clickText": "Personalizzato",
+            "exact": true,
+            "wait": "networkidle",
+            "delayMs": 2500,
+            "desc": "scegli 'Personalizzato': compaiono Data Inizio e Data Fine"
+          },
+          {
+            "click": "img[id$='dataInizioCalendarPopupButton']",
+            "delayMs": 1200,
+            "desc": "apri il calendario di Data Inizio"
+          }
+        ]
       }
-    ]
+    ],
+    "$mouseOnlyNote": "Eccezioni dichiarate dall'applicazione: gli strati interattivi dei grafici c3 (voci di legenda, che accendono e spengono le serie, e i rettangoli invisibili che intercettano il puntatore) e le tabelle di ombreggiatura dei menu RichFaces ('..._shifted'), che sono decorative e riproducono l'ombra del pannello. Nei grafici il contenuto e' gia' disponibile in forma testuale ('role=img' con la descrizione completa). DECISIONE DA RIVEDERE se la legenda dovesse diventare l'unico modo per filtrare i dati.",
+    "mouseOnlyIgnore": ".c3-legend-item, .c3-event-rect, .c3-chart-arc path, table[id$='_shifted']"
   },
   "console": {
     "name": "govwayConsole",
@@ -219,7 +310,23 @@
             "delayMs": 400
           }
         ]
+      },
+      {
+        "name": "auditing-filtro-date",
+        "$note": "Il pannello del datepicker (jQuery UI) e' nel DOM ma nascosto: si apre dando il fuoco al campo, altrimenti axe lo salta e non viene mai esaminato.",
+        "start": "/govwayConsole/auditing.do",
+        "skipIfMissing": "input[name='datainizio']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/addElement.jsp",
+        "steps": [
+          {
+            "click": "input[name='datainizio']",
+            "delayMs": 900,
+            "desc": "apri il calendario dando il fuoco al campo"
+          }
+        ]
       }
-    ]
+    ],
+    "mouseOnlyIgnore": ".ui-widget-overlay",
+    "$mouseOnlyNote": "Eccezione dichiarata dall'applicazione: il velo delle finestre modali. Il clic sul velo chiude la finestra, ma e' una scorciatoia del mouse: da tastiera la stessa cosa si fa con Esc, verificato, e il velo non e' un comando che porti una funzione propria."
   }
 }

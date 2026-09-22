@@ -12,6 +12,7 @@ Un **unico tool**, **config per-app**: si usa su più webapp (GovCat, GovPay, Go
 |---|---|---|
 | **1. axe (regole WCAG)** | Linux CI | axe-core con tag WCAG configurabili |
 | **2. Accessibility-tree assertions** | Linux CI, stesso flow Playwright | `ariaSnapshot` di Chromium → elementi interattivi **senza nome accessibile** (gate opz. `--fail-on-nameless`) |
+| **2b. Comandi solo-mouse** | Linux CI, stesso flow Playwright | `addEventListener` strumentato → elementi con un **gestore del clic non raggiungibili da tastiera** (gate `--fail-on-mouse-only`, **attivo di default**) |
 | **3. Virtual screen reader** | Linux CI (dep in più) | `@guidepup/virtual-screen-reader` → **trascrizione degli annunci** per vista, con cross-check degli annunci "solo-ruolo" |
 | 4. NVDA/VoiceOver reali | runner Win/macOS | fuori da questo tool (guidepup reale) |
 | 5. SR manuale (umano) | desktop | necessario a campione per conformità AgID |
@@ -71,6 +72,8 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--tags <list>` | `wcag2a,wcag2aa,wcag21a,wcag21aa` | Tag WCAG di axe |
 | `--fail-on <sev>` | `serious` | Gate axe: fallisci se violazioni ≥ gravità (`critical\|serious\|moderate\|minor\|none`) |
 | `--fail-on-nameless` | off | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile |
+| `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
+| `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
 | `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve i **cookie di sessione** del context di scansione (header `Cookie`) e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate |
 | `--min-score <0..1>` | — | Gate Lighthouse (implica `--lighthouse`) |

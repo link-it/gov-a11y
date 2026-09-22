@@ -1,3 +1,33 @@
+2026-09-22  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Il gate dei comandi utilizzabili col solo mouse ("failOnMouseOnly") è adesso ATTIVO per impostazione
+	predefinita: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo, e in
+	un'interfaccia grafica non dovrebbe passare in silenzio. Si spegne con "failOnMouseOnly": false.
+	Il controllo non segnala più le voci di un widget composito, cioè gli elementi con un "role" e
+	"tabindex=-1": chi li scrive dichiara di gestire il fuoco da sé (roving tabindex), com'è giusto per
+	le celle di un calendario o le voci di un menu; che i tasti facciano poi la cosa giusta resta una
+	verifica manuale. Senza questa distinzione le 42 celle di un calendario accessibile risultavano
+	altrettanti comandi irraggiungibili.
+
+2026-09-21  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Nuovo controllo dei comandi utilizzabili col solo mouse: axe non ha una regola per l'operabilità da tastiera
+	e l'albero ARIA vede solo ciò che dichiara un ruolo, quindi un <div> o una <td> con un gestore del clic e
+	nessun "tabindex" sfugge a entrambi pur essendo inservibile senza mouse (WCAG 2.1.1).
+	L'informazione mancante si prende alla fonte: "addEventListener" viene strumentato prima degli script di
+	pagina e annota gli elementi che ricevono un gestore del clic; si segnalano quelli non raggiungibili da
+	tastiera. Per non produrre rumore restano fuori gli elementi già focalizzabili, quelli dentro un comando,
+	i contenitori che racchiudono un elemento focalizzabile (gestione delegata), i nascosti e gli "aria-hidden".
+	Il conteggio compare nel riepilogo, in una colonna della tabella per pagina e in una sezione di dettaglio
+	che elenca gli elementi; nuovo gate "--fail-on-mouse-only" e chiave "failOnMouseOnly".
+	Le eccezioni sono un fatto dell'applicazione e si dichiarano nel target ("mouseOnlyIgnore", selettore CSS),
+	insieme all'attivazione ("mouseOnly") e al numero di elementi elencati per vista ("mouseOnlyMax"):
+	nel codice non resta nulla di specifico. Il controllo si disattiva da riga di comando con "--no-mouse-only".
+	La nota sulla copertura dice ora che l'automazione vede i comandi irraggiungibili ma non se i tasti attesi
+	facciano la cosa giusta, né l'ordine di focus reale: quella resta una verifica manuale.
+
 2026-09-10  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

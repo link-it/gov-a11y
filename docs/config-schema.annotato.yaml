@@ -19,9 +19,13 @@ defaults:
   crawlDepth: 2               # profondità BFS del crawl
   screenReader: false         # esegue il virtual screen reader su ogni vista
   lighthouse: false           # calcola il punteggio Lighthouse (lento)
+  mouseOnly: true             # segnala i comandi con gestore del clic non raggiungibili da tastiera
+  mouseOnlyIgnore: null       # selettore CSS con le eccezioni dell'APPLICAZIONE (niente di specifico nel tool)
+  mouseOnlyMax: 40            # quanti elencarne per vista nel report (il conteggio resta completo)
   # --- gate (GLOBALI: qui, non per-target) ---
   failOn: "serious"           # critical | serious | moderate | minor | none
   failOnNameless: false       # fallisce se elementi interattivi senza nome accessibile
+  failOnMouseOnly: true       # fallisce se esistono comandi utilizzabili col solo mouse (PREDEFINITO: true)
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---
   noFlows: false              # non eseguire i flows

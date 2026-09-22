@@ -85,6 +85,9 @@ if (args.help || args.h) {
   --tags <list>       Tag WCAG axe (default wcag2a,wcag2aa,wcag21a,wcag21aa)
   --fail-on <sev>     Gate axe: fallisci se esistono violazioni >= gravita'. critical|serious|moderate|minor|none (default serious)
   --fail-on-nameless  Gate a11y-tree: fallisci se esistono elementi interattivi senza nome accessibile (screen-reader)
+  --fail-on-mouse-only  Gate tastiera, ATTIVO per impostazione predefinita: fallisci se esistono comandi
+                      utilizzabili col solo mouse (gestore del clic su un elemento non raggiungibile
+                      da tastiera). Si spegne con "failOnMouseOnly": false nel config
   --lighthouse        Calcola anche il punteggio Lighthouse Accessibility (richiede optional deps)
   --min-score <0..1>  Gate Lighthouse: fallisci se un punteggio scende sotto la soglia (es. 0.90). Implica --lighthouse
   --screen-reader     Esegui il virtual screen reader (annunci) su ogni vista (richiede optional deps)
@@ -95,6 +98,7 @@ if (args.help || args.h) {
                       Si applica SOLO agli 'incomplete', mai alle violazioni. Vedi docs/GUIDA-falsi-positivi.md
   --no-lighthouse     Disabilita Lighthouse anche se attivo in config (precedenza sulla config)
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
+  --no-mouse-only     Disabilita il controllo dei comandi utilizzabili col solo mouse
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
   --insecure          Ignora errori certificato HTTPS (default true)
   --check-deps        Verifica (senza scansionare) se le dipendenze opzionali richieste sono installate
@@ -104,7 +108,8 @@ if (args.help || args.h) {
 
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
-  lighthouse, screenReader, failOn, failOnNameless, minScore, noFlows, insecure.
+  lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
+  failOnMouseOnly, minScore, noFlows, insecure.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -143,6 +148,14 @@ const CLI_CRAWL = args['no-crawl'] ? 0 : args.crawl;             // --no-crawl d
 // Parametri di GATE: globali (la valutazione del gate è complessiva). CLI > defaults > built-in.
 const FAIL_ON = String(resolveParam(args['fail-on'], null, 'failOn', 'serious')).toLowerCase();
 const FAIL_ON_NAMELESS = !!resolveParam(args['fail-on-nameless'], null, 'failOnNameless', false);
+// Predefinito ATTIVO: un comando che risponde al clic ma non alla tastiera e' un difetto
+// oggettivo, e in un'interfaccia grafica non dovrebbe passare in silenzio. Si spegne con
+// "failOnMouseOnly": false nel config.
+const FAIL_ON_MOUSE_ONLY = !!resolveParam(args['fail-on-mouse-only'], null, 'failOnMouseOnly', true);
+const CLI_MOUSE_ONLY = args['no-mouse-only'] ? false : (args['mouse-only'] ? true : undefined);
+let DO_MOUSE_ONLY = true;        // risolti per-target da applyTargetParams
+let MOUSE_ONLY_IGNORE = null;    // selettore CSS dichiarato dall'applicazione nel target
+let MOUSE_ONLY_MAX = 40;
 const MIN_SCORE = (() => { const v = resolveParam(args['min-score'], null, 'minScore', null); return (v === null || v === undefined) ? null : parseFloat(v); })();
 // Report HTML (globale: il report è aggregato su tutti i target -> no override per-target). CLI --no-incomplete > defaults.showIncomplete > built-in.
 const SHOW_INCOMPLETE = resolveParam(CLI_INCOMPLETE, null, 'showIncomplete', true) !== false;
@@ -172,6 +185,12 @@ function applyTargetParams(target) {
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
   DO_LH = !!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null;
+  /* Controllo dei comandi utilizzabili col solo mouse: attivo salvo diversa indicazione.
+     Le eccezioni sono un fatto dell'APPLICAZIONE, non dello strumento: si dichiarano nel
+     target con 'mouseOnlyIgnore' (selettore CSS), non si cablano qui. */
+  DO_MOUSE_ONLY = resolveParam(CLI_MOUSE_ONLY, target, 'mouseOnly', true) !== false;
+  MOUSE_ONLY_IGNORE = resolveParam(undefined, target, 'mouseOnlyIgnore', null);
+  MOUSE_ONLY_MAX = parseInt(resolveParam(undefined, target, 'mouseOnlyMax', 40), 10) || 40;
 }
 
 /* --------------------- dipendenze opzionali (preflight) ------------------ */
@@ -634,6 +653,84 @@ async function analyzeAxTree(page) {
   return { nodes, nameless, snapshot: snap };
 }
 
+/* ----------------- comandi utilizzabili col solo mouse ------------------ */
+// axe non puo' sapere se un widget risponde alla tastiera: nessuna regola statica lo verifica,
+// e l'albero ARIA vede solo cio' che DICHIARA un ruolo. Un <div> o una <td> con un gestore del
+// clic e nessun 'tabindex' e' invisibile a entrambi, ma per chi non usa il mouse semplicemente
+// non esiste (WCAG 2.1.1).
+//
+// Qui l'informazione che manca la si prende alla fonte: si strumenta 'addEventListener' PRIMA
+// che girino gli script della pagina e si annota quali elementi ricevono un gestore del clic.
+// Poi si segnala chi, fra questi, non e' raggiungibile da tastiera.
+//
+// Per non produrre rumore si escludono: gli elementi gia' focalizzabili, quelli dentro un
+// comando focalizzabile, quelli che CONTENGONO un elemento focalizzabile (i contenitori con
+// gestione delegata: form, tabelle, pannelli), i nascosti, quelli fuori dall'albero di
+// accessibilita' ('aria-hidden') e le voci di un widget composito, cioe' con un 'role' e
+// 'tabindex=-1': li' il fuoco lo governa il widget (roving tabindex).
+const SELETTORE_FOCALIZZABILE = 'a[href],button,input,select,textarea,summary,[contenteditable],[tabindex]:not([tabindex="-1"])';
+
+const INIT_SOLO_MOUSE = `(() => {
+  const originale = EventTarget.prototype.addEventListener;
+  window.__gwConClic = new Set();
+  EventTarget.prototype.addEventListener = function (tipo, fn, opzioni) {
+    try {
+      if ((tipo === 'click' || tipo === 'mousedown') && this instanceof Element) window.__gwConClic.add(this);
+    } catch (e) { /* target non ispezionabile: si prosegue */ }
+    return originale.call(this, tipo, fn, opzioni);
+  };
+})()`;
+
+async function analyzeMouseOnly(page, opzioni) {
+  const { ignora = null, massimo = 40 } = opzioni || {};
+  try {
+    return await page.evaluate(({ focalizzabile, massimo, ignora }) => {
+      const visibile = (e) => {
+        if (!e.isConnected) return false;
+        const r = e.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) return false;
+        const s = getComputedStyle(e);
+        return s.visibility !== 'hidden' && s.display !== 'none' && s.opacity !== '0';
+      };
+      const descrivi = (e) => ({
+        tag: e.tagName.toLowerCase(),
+        id: e.id || null,
+        classe: (e.getAttribute('class') || '').split(/\s+/).filter(Boolean).slice(0, 2).join(' ') || null,
+        role: e.getAttribute('role') || null,
+        testo: (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || null,
+      });
+      const candidati = [];
+      const esamina = (e) => {
+        if (!(e instanceof Element) || !visibile(e)) return;
+        if (e.matches(focalizzabile) || e.tabIndex >= 0) return;          // gia' raggiungibile
+        if (e.closest('[aria-hidden="true"]')) return;                    // fuori dall'albero
+        /* Voce di un widget composito: chi scrive 'role' insieme a 'tabindex=-1' dichiara di
+           gestire il fuoco da se' (roving tabindex), com'e' giusto per le celle di un calendario
+           o le voci di un menu. Che i tasti facciano poi la cosa giusta e' verifica manuale;
+           qui non e' un comando dimenticato. */
+        if (e.getAttribute('role') && e.getAttribute('tabindex') === '-1') return;
+        if (e.closest(focalizzabile)) return;                             // dentro un comando
+        if (e.querySelector(focalizzabile)) return;                       // contenitore con delega
+        if (ignora) { try { if (e.matches(ignora) || e.closest(ignora)) return; } catch (x) { /* selettore non valido: si ignora l'esclusione */ } }
+        candidati.push(descrivi(e));
+      };
+      (window.__gwConClic || new Set()).forEach(esamina);
+      document.querySelectorAll('[onclick]').forEach(esamina);            // gestori come attributo
+      /* dedup: lo stesso elemento puo' aver ricevuto piu' gestori */
+      const visti = new Set();
+      const unici = candidati.filter((c) => {
+        const k = JSON.stringify(c);
+        if (visti.has(k)) return false;
+        visti.add(k);
+        return true;
+      });
+      return { totale: unici.length, elementi: unici.slice(0, massimo) };
+    }, { focalizzabile: SELETTORE_FOCALIZZABILE, massimo, ignora });
+  } catch {
+    return { totale: 0, elementi: [] };   // pagina chiusa o contesto non valutabile
+  }
+}
+
 /* -------------------- virtual screen reader (opzionale) ----------------- */
 // Livello 3 dei test SR: un virtual screen reader (guidepup) percorre l'accessibility tree
 // della vista e produce gli ANNUNCI reali (es. "button, Salva"). Un elemento interattivo privo
@@ -766,18 +863,20 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
   // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
+  const soloMouse = DO_MOUSE_ONLY ? await analyzeMouseOnly(page, { ignora: MOUSE_ONLY_IGNORE, massimo: MOUSE_ONLY_MAX }) : { totale: 0, elementi: [] };
   let sr = null;
   if (DO_SR) sr = await runScreenReader(page);
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, axTree, ariaSnapshot, sr,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, axTree, soloMouse, ariaSnapshot, sr,
   });
   const counts = summarizeImpacts(r.violations);
   const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
   const fpN = derogati.length;
   const nm = axTree.nameless.length ? `  a11y-tree: ${axTree.nameless.length} elem. interattivi senza nome` : '';
+  const mo = soloMouse.totale ? `  solo-mouse: ${soloMouse.totale} comandi non raggiungibili da tastiera` : '';
   const srN = sr ? `  SR: ${sr.stops} annunci${sr.roleOnly.length ? `, ${sr.roleOnly.length} solo-ruolo` : ''}` : '';
-  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${srN}`);
+  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${mo}${srN}`);
 }
 
 function slug(s) { return String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
@@ -867,6 +966,7 @@ async function runFlows(browser, target, pageResults) {
   for (const flow of target.flows) {
     console.log(`  flow: ${flow.name}`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
+    if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     const page = await ctx.newPage();
     try {
       await login(page, target);
@@ -1286,6 +1386,7 @@ async function scan() {
     applyTargetParams(target);   // risolve tags/crawl/lighthouse/screen-reader/... per QUESTO target
     console.log(`\n== ${target.name} (${BASE}${target.loginPath}) ==`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
+    if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     const page = await ctx.newPage();
 
     const logged = await login(page, target);
@@ -1528,9 +1629,11 @@ const COVERAGE = {
   automated: "L'automazione (axe-core + accessibility tree + virtual screen reader) copre solo "
     + "una parte dei criteri WCAG 2.1 AA (indicativamente ~30–40%): es. contrasto colore, testi "
     + "alternativi e label mancanti, attributo lang, ruoli/nomi ARIA, ordine degli heading, "
-    + "struttura dell'albero di accessibilità.",
+    + "struttura dell'albero di accessibilità, comandi utilizzabili col solo mouse.",
   manualRequired: [
-    "Navigazione da tastiera e ordine di focus reale.",
+    "Navigazione da tastiera: l'automazione segnala i comandi con un gestore del clic non "
+      + "raggiungibili da tastiera, ma non se i tasti attesi facciano poi la cosa giusta, "
+      + "ne' l'ordine di focus reale.",
     "Test con screen reader reale (fedeltà d'uso, verbosità, senso degli annunci).",
     "Qualità del testo alternativo e delle label (l'automazione vede se mancano, non se hanno senso).",
   ],
@@ -1573,18 +1676,20 @@ function axRoleClass(label) {
 function writeSummaryAndHtml(results, ariaFiles = {}) {
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
     const nameless = pr.axTree ? pr.axTree.nameless.length : 0;
     summary.namelessTotal += nameless;
+    const soloMouse = pr.soloMouse ? pr.soloMouse.totale : 0;
+    summary.mouseOnlyTotal += soloMouse;
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     summary.incompleteTotal += incNodes;
     summary.falsePositivesTotal += (pr.falsePositives || []).length;
     const srRoleOnly = pr.sr ? pr.sr.roleOnly.length : 0;
     summary.srRoleOnlyTotal += srRoleOnly;
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, namelessInteractive: nameless, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, ariaTree: ariaFiles[results.indexOf(pr)] || null });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
     perTarget[pr.targetName] = perTarget[pr.targetName] || [];
     perTarget[pr.targetName].push(pr);
@@ -1604,12 +1709,14 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   const rows = results.map((pr, i) => {
     const c = summarizeImpacts(pr.violations);
     const nameless = pr.axTree ? pr.axTree.nameless.length : 0;
+    const soloMouse = pr.soloMouse ? pr.soloMouse.totale : 0;
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     return `<tr><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a></td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
       <td>${pr.lhScore != null ? (pr.lhScore * 100).toFixed(0) + '%' : '-'}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
-      <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td></tr>`;
+      <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td>
+      <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td></tr>`;
   }).join('\n');
 
   // Riepilogo aggregato per REGOLA WCAG (cosa correggere, per priorita')
@@ -1652,6 +1759,18 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       axBlock = `<details><summary><span class="ser">a11y-tree</span> ${nameless.length} elementi interattivi <b>senza nome accessibile</b> (${roleSummary})
         <small>— lo screen reader li annuncia col solo ruolo</small></summary><ul class="nodes">${items}</ul></details>`;
     }
+    let moBlock = '';
+    const soloMouse = pr.soloMouse || { totale: 0, elementi: [] };
+    if (soloMouse.totale) {
+      const voci = soloMouse.elementi.map(e => {
+        const segno = e.id ? `#${e.id}` : (e.classe ? `.${e.classe.split(' ').join('.')}` : '');
+        return `<li><code>${esc(e.tag + segno)}</code>${e.role ? ` <small>role=${esc(e.role)}</small>` : ''}${e.testo ? ` — <small>${esc(e.testo)}</small>` : ''}</li>`;
+      }).join('\n');
+      const omessi = soloMouse.totale > soloMouse.elementi.length ?
+        `<li><small>… e altri ${soloMouse.totale - soloMouse.elementi.length}: alzare 'mouseOnlyMax' nel target per vederli tutti</small></li>` : '';
+      moBlock = `<details><summary><span class="ser">solo mouse</span> ${soloMouse.totale} comandi con un gestore del clic <b>non raggiungibili da tastiera</b>
+        <small>— chi non usa il mouse non puo' attivarli (WCAG 2.1.1)</small></summary><ul class="nodes">${voci}${omessi}</ul></details>`;
+    }
     let incBlock = '';
     const incomplete = pr.incomplete || [];
     if (SHOW_INCOMPLETE && incomplete.length) {
@@ -1665,7 +1784,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       const lines = pr.sr.phrases.map(p => `<li class="${SR_ROLE_ONLY.test(p.trim()) ? 'ser' : ''}">${esc(p)}</li>`).join('\n');
       srBlock = `<details><summary><span class="mod">screen reader</span> ${roMark}${pr.sr.stops} annunci del virtual screen reader (trascrizione)</summary><ol class="nodes">${lines}</ol></details>`;
     }
-    if (!pr.violations.length && !axBlock && !incBlock && !srBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${axTreeBlock}`;
+    if (!pr.violations.length && !axBlock && !moBlock && !incBlock && !srBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${axTreeBlock}`;
     const vs = pr.violations
       .sort((a, b) => SEVERITY_ORDER[b.impact] - SEVERITY_ORDER[a.impact])
       .map(v => {
@@ -1677,7 +1796,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
           <a href="${esc(v.helpUrl)}" target="_blank">↗</a></summary>
           <ul class="nodes">${nodes}</ul></details>`;
       }).join('\n');
-    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${axTreeBlock}${axBlock}${incBlock}${srBlock}${vs}`;
+    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${axTreeBlock}${axBlock}${moBlock}${incBlock}${srBlock}${vs}`;
   }).join('\n');
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(app)} — Accessibility Report</title>
@@ -1699,7 +1818,7 @@ ul.axtree li{margin:.05rem 0}.axtree details{border:0;background:none;padding:0;
 <body><h1>${esc(app)} — Report Accessibilita' WCAG 2.1 AA</h1>
 <p>Base: <code>${esc(BASE)}</code> — tag: <code>${esc(TAGS.join(', '))}</code> — gate: <code>fail-on=${esc(FAIL_ON)}${MIN_SCORE != null ? `, min-score=${MIN_SCORE}` : ''}</code></p>
 <p>Totali occorrenze axe: <span class="crit">critical ${summary.totals.critical}</span>, <span class="ser">serious ${summary.totals.serious}</span>, moderate ${summary.totals.moderate}, minor ${summary.totals.minor}
-${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''}${summary.falsePositivesTotal ? ` — <span class="mod">falsi positivi dichiarati: ${summary.falsePositivesTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
+${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''}${summary.falsePositivesTotal ? ` — <span class="mod">falsi positivi dichiarati: ${summary.falsePositivesTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_MOUSE_ONLY ? ` — <span class="ser">solo mouse: ${summary.mouseOnlyTotal} comandi non raggiungibili da tastiera</span>` : ''}${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
 
 ${FALSE_POSITIVES_USATI.length ? `<div class="disclaimer">
 <h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse da "Da verificare"</h2>
@@ -1730,7 +1849,7 @@ sono tornate fra quelle da verificare: la misura va rifatta e la scadenza rinnov
 </div>
 
 <table><caption>Riepilogo per pagina (clicca la pagina per il dettaglio)</caption>
-<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th></tr>
+<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th><th>Solo mouse<br><small>(tastiera)</small></th></tr>
 ${rows}
 </table>
 
@@ -1767,6 +1886,9 @@ function evaluateGate(results, summary) {
       reasons.push(`${senzaPunteggio} viste senza punteggio Lighthouse: soglia --min-score non verificabile (vedi i warning [lighthouse] nel log)`);
     }
   }
+  if (FAIL_ON_MOUSE_ONLY && summary.mouseOnlyTotal > 0) {
+    reasons.push(`${summary.mouseOnlyTotal} comandi utilizzabili col solo mouse (non raggiungibili da tastiera)`);
+  }
   if (FAIL_ON_NAMELESS && summary.namelessTotal > 0) {
     reasons.push(`${summary.namelessTotal} elementi interattivi senza nome accessibile (a11y-tree)`);
   }
@@ -1775,7 +1897,7 @@ function evaluateGate(results, summary) {
 
 // Esportate per test/riuso programmatico (vedi test/); l'auto-run resta sotto IS_MAIN.
 export {
-  analyzeAxTree, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
+  analyzeAxTree, analyzeMouseOnly, INIT_SOLO_MOUSE, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
   // pure / helper
   parseArgs, resolveParam, credsFor, loadTargets,
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,

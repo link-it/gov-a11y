@@ -5,7 +5,12 @@
     "crawl": 1500,
     "crawlDepth": 10,
     "screenReader": true,
-    "lighthouse": true
+    "lighthouse": true,
+    "mouseOnly": true,
+    "failOnMouseOnly": true,
+    "failOnNameless": true,
+    "minScore": 0.98,
+    "failOn": "minor"
   },
   "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env A11Y_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env A11Y_MONITOR_USER/PASS, A11Y_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
   "console": {
@@ -63,7 +68,23 @@
             "delayMs": 400
           }
         ]
+      },
+      {
+        "name": "auditing-filtro-date",
+        "$note": "Il pannello del datepicker (jQuery UI) e' nel DOM ma nascosto: si apre dando il fuoco al campo, altrimenti axe lo salta e non viene mai esaminato.",
+        "start": "/govwayConsole/auditing.do",
+        "skipIfMissing": "input[name='datainizio']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/addElement.jsp",
+        "steps": [
+          {
+            "click": "input[name='datainizio']",
+            "delayMs": 900,
+            "desc": "apri il calendario dando il fuoco al campo"
+          }
+        ]
       }
-    ]
+    ],
+    "mouseOnlyIgnore": ".ui-widget-overlay",
+    "$mouseOnlyNote": "Eccezione dichiarata dall'applicazione: il velo delle finestre modali. Il clic sul velo chiude la finestra, ma e' una scorciatoia del mouse: da tastiera la stessa cosa si fa con Esc, verificato, e il velo non e' un comando che porti una funzione propria."
   }
 }
