@@ -3,6 +3,7 @@
   "$comment": "GovPay Portal (Angular 21 SPA, portale di pagamento lato CITTADINO). Dev: 'npm start' (ng serve) -> http://localhost:4300, proxy verso https://lab.link.it (proxy.config.json). Demo pubblica: https://demo.govcloud.it/govpay-portal/. Rotte da src/app/app.routes.ts. navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle. NB: l'app ha piu' temi/tenant (assets/config, assets-italset, assets-sicilia): il config di default e' assets/config/app-config.json.",
 
   "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true
   },

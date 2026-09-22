@@ -3,6 +3,7 @@
   "$comment": "GovPay Console (Angular SPA). Dev: 'npm run start' -> http://localhost:4200 (oppure 'npm run start:port' -> :5300). Rotte da projects/govpay-console/src/app/app.routes.ts e dai *.routes.ts dei feature. AUTH: l'app usa OAuth2/SPID/IAM (assets/config/app-config.json, blocco 'Auth', rotta app 'auth/login') -> adatta il blocco auth all'ambiente che testi: header/bypass di test (piu' semplice) OPPURE login a form IAM/Keycloak. Le credenziali NON vanno qui: usa i secret CI (env A11Y_GOVPAYCONSOLE_USER/PASS) o i flag --user/--pass.",
 
   "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true
   },
