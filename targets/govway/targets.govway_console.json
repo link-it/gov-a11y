@@ -1,7 +1,7 @@
 {
   "$app": "GovWay",
   "defaults": {
-    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa",
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "crawl": 1500,
     "crawlDepth": 10,
     "screenReader": true,

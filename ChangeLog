@@ -1,6 +1,13 @@
 2026-09-22  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]
+	Il predefinito dei tag passa da "wcag2a,wcag2aa,wcag21a,wcag21aa" a
+	"wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice". Le WCAG 2.2 sono la versione vigente e il livello AA
+	e' quello richiesto alle pubbliche amministrazioni: fermarsi alle 2.1 lasciava fuori criteri con difetti reali,
+	fra cui la dimensione minima dei bersagli. Chi non dichiara i tag ora li verifica senza doverlo sapere.
+	I tag di livello AAA restano esclusi.
+
+	* [gov-a11y]
 	Nuovo gate del livello 3, "failOnScreenReader": fallisce se il virtual screen reader produce annunci col solo
 	ruolo, cioè elementi letti senza nome. È booleano come gli altri gate di quel tipo: il conteggio degli annunci
 	non è un punteggio, quindi una soglia numerica sarebbe arbitraria — il numero giusto è zero. Predefinito spento,

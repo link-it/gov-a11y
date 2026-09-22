@@ -82,7 +82,8 @@ if (args.help || args.h) {
   --only <k>          Limita a un target (chiave del config)
   --crawl <n>         Dopo il login, scopre e scansiona fino a n pagine per target (default 0 = solo pagine in config)
   --crawl-depth <d>   Profondita' di navigazione del crawl (BFS). Default 2
-  --tags <list>       Tag WCAG axe (default wcag2a,wcag2aa,wcag21a,wcag21aa)
+  --tags <list>       Tag axe (default wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice: WCAG fino al livello
+                      AA delle 2.2, piu' le regole di buona pratica. I tag AAA restano esclusi)
   --fail-on <sev>     Gate axe: fallisci se esistono violazioni >= gravita'. critical|serious|moderate|minor|none (default serious)
   --fail-on-nameless  Gate a11y-tree, ATTIVO per impostazione predefinita: fallisci se esistono elementi
                       interattivi senza nome accessibile. Si spegne con "failOnNameless": false nel config
@@ -173,7 +174,14 @@ const SHOW_INCOMPLETE = resolveParam(CLI_INCOMPLETE, null, 'showIncomplete', tru
 // Parametri PER-TARGET: inizializzati al valore globale, riassegnati per ogni target da applyTargetParams().
 let CRAWL = parseInt(resolveParam(CLI_CRAWL, null, 'crawl', 0), 10) || 0;
 let CRAWL_DEPTH = parseInt(resolveParam(args['crawl-depth'], null, 'crawlDepth', 2), 10) || 2;
-let TAGS = String(resolveParam(args.tags, null, 'tags', 'wcag2a,wcag2aa,wcag21a,wcag21aa')).split(',').map(s => s.trim());
+/* Le WCAG 2.2 sono la versione vigente e il livello AA e' quello richiesto alle pubbliche
+   amministrazioni: fermarsi alle 2.1 lascerebbe fuori criteri con difetti reali, come la
+   dimensione minima dei bersagli. Le regole 'best-practice' non discendono da un criterio ma
+   intercettano difetti concreti — contenuto fuori da ogni regione, viste senza intestazione di
+   primo livello, attributi non ammessi. Le AAA restano escluse: sono un impegno diverso. */
+const TAG_PREDEFINITI = 'wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice';
+
+let TAGS = String(resolveParam(args.tags, null, 'tags', TAG_PREDEFINITI)).split(',').map(s => s.trim());
 let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
@@ -192,7 +200,7 @@ function applyTargetParams(target) {
   FALSE_POSITIVES = loadFalsePositives(fpSpec, fpCli !== undefined ? process.cwd() : dirname(CONFIG));
   CRAWL = parseInt(resolveParam(CLI_CRAWL, target, 'crawl', 0), 10) || 0;
   CRAWL_DEPTH = parseInt(resolveParam(args['crawl-depth'], target, 'crawlDepth', 2), 10) || 2;
-  TAGS = String(resolveParam(args.tags, target, 'tags', 'wcag2a,wcag2aa,wcag21a,wcag21aa')).split(',').map(s => s.trim());
+  TAGS = String(resolveParam(args.tags, target, 'tags', TAG_PREDEFINITI)).split(',').map(s => s.trim());
   DO_SR = !!resolveParam(CLI_SR, target, 'screenReader', false);
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));

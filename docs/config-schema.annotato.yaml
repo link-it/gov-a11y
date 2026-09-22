@@ -14,7 +14,7 @@ $comment: "note libere"       # qualsiasi chiave '$...' è ignorata
 
 # --- Parametri dichiarativi globali (tutti opzionali, hanno un default) -------
 defaults:
-  tags: "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa"  # regole WCAG axe (default: senza wcag22aa)
+  tags: "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice"  # WCAG fino ad AA delle 2.2 + buona pratica (predefinito); i tag AAA restano esclusi
   crawl: 0                    # pagine da scoprire dopo il login (0 = solo pages[])
   crawlDepth: 2               # profondità BFS del crawl
   screenReader: false         # esegue il virtual screen reader su ogni vista

@@ -2,7 +2,7 @@
   "$app": "GovWay",
   "$defaultsNote": "Parametri dichiarativi validi per tutti i target di questo file. La CLI ha sempre la precedenza (CLI > target > defaults > built-in). Qui: crawl attivo (utile sulla console link-based; sul monitor RichFaces troverà poco ma non nuoce), screen-reader e Lighthouse su entrambi i target. tags include wcag22aa.",
   "defaults": {
-    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa",
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "crawl": 1500,
     "crawlDepth": 10,
     "screenReader": true,

@@ -26,7 +26,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 
 | Chiave | Tipo | Default | Descrizione |
 |---|---|---|---|
-| `tags` | stringa csv | `wcag2a,wcag2aa,wcag21a,wcag21aa` | Tag WCAG axe da applicare |
+| `tags` | stringa csv | `wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice` | Tag axe da applicare: WCAG fino al livello AA delle 2.2, più le regole di buona pratica. I tag AAA sono esclusi di proposito |
 | `crawl` | intero | `0` | Pagine da scoprire/scansionare dopo il login (0 = solo `pages[]`) |
 | `crawlDepth` | intero | `2` | Profondità BFS del crawl |
 | `screenReader` | booleano | `false` | Esegue il virtual screen reader su ogni vista |

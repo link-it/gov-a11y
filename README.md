@@ -69,7 +69,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--out <dir>` | `./report` | Directory dei report |
 | `--only <key>` | tutti | Limita a un target (chiave nel config) |
 | `--user` / `--pass` | `amministratore` / `123456` | Credenziali fallback globali (form login) |
-| `--tags <list>` | `wcag2a,wcag2aa,wcag21a,wcag21aa` | Tag WCAG di axe |
+| `--tags <list>` | `wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice` | Tag di axe: WCAG fino al livello AA delle 2.2, più `best-practice`. I tag AAA sono esclusi |
 | `--fail-on <sev>` | `serious` | Gate axe: fallisci se violazioni ≥ gravità (`critical\|serious\|moderate\|minor\|none`) |
 | `--fail-on-nameless` | **on** | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile. Si disattiva con `"failOnNameless": false` nel config |
 | `--fail-on-screen-reader` | off | **Gate livello 3**: fallisci se il virtual screen reader produce annunci col solo ruolo |
