@@ -2,7 +2,7 @@
   "$app": "GovCat",
   "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'); la select-org e' SEMPRE presente -> postLogin. navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle.",
   "defaults": {
-    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa",
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
     "showIncomplete": false
