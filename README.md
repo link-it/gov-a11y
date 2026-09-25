@@ -82,19 +82,20 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--no-flows` | off | Non eseguire i flows scriptati |
 | `--false-positives <f>` | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati: le occorrenze corrispondenti escono da "Da verificare" e finiscono in una sezione propria del report. **Solo `incomplete`, mai violazioni.** Vedi [`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md) |
 | `--no-lighthouse` / `--no-screen-reader` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
+| `--product-version <v>` | — | Versione del prodotto in prova (anche env `A11Y_PRODUCT_VERSION`): dichiarativa, compare nel report e in `summary.json` |
 | `--insecure` | on | Ignora errori certificato HTTPS |
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
 > **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `failOn`,
-> `failOnNameless`, `minScore`, `noFlows`, `insecure`, `falsePositives` si possono dichiarare nel file di config, nel
+> `failOnNameless`, `minScore`, `noFlows`, `insecure`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
 > [`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md).
 
 ### Variabili d'ambiente
-`A11Y_BASE_URL`, `A11Y_USER`, `A11Y_PASS`, e per-target `A11Y_<TARGET>_USER` / `A11Y_<TARGET>_PASS`
-(es. `A11Y_GOVCAT_PASS`).
+`A11Y_BASE_URL`, `A11Y_USER`, `A11Y_PASS`, `A11Y_PRODUCT_VERSION`, e per-target
+`A11Y_<TARGET>_USER` / `A11Y_<TARGET>_PASS` (es. `A11Y_GOVCAT_PASS`).
 Le **credenziali vanno nei secret di CI**, non nel file di config.
 
 ## Config `targets.<app>.json`
@@ -196,7 +197,10 @@ dell'automazione), riportata in evidenza anche in `report.html`.
 
 > **Copertura e limiti**: l'automazione copre solo ~30–40% dei criteri WCAG. Il report dichiara
 > esplicitamente cosa resta ai test manuali (tastiera/focus, screen reader reale, qualità di
-> alt/label): è **evidenza** per la dichiarazione AgID, non una certificazione di conformità.
+> alt/label, zoom e riflusso, messaggi d'errore, contenuti multimediali): è **evidenza** per la
+> dichiarazione AgID, non una certificazione di conformità. La dichiarazione è **costruita
+> sull'esecuzione**: elenca i livelli davvero attivi e le versioni WCAG dei tag usati, quindi
+> spegnere un livello cambia il testo, non lo rende falso.
 
 ## Integrare nella CI di un'app (modello consigliato)
 

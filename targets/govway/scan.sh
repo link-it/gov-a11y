@@ -34,7 +34,7 @@ COMPLETA=0
 
 uso() {
   cat <<'FINE'
-Uso: scan.sh [--full] [--base URL] [--out PREFISSO]
+Uso: scan.sh [--full] [--base URL] [--out PREFISSO] [--product-version VERSIONE]
 
   --full          Scansione COMPLETA: attiva anche Lighthouse e lo screen reader virtuale,
                   i due componenti lenti (circa un'ora per console). Da usare al rilascio.
@@ -43,6 +43,9 @@ Uso: scan.sh [--full] [--base URL] [--out PREFISSO]
   --base URL      Indirizzo delle console (default: $A11Y_BASE_URL o http://localhost:8080)
   --out PREFISSO  Prefisso delle directory dei report (default: report)
                   -> <PREFISSO>-monitor/ e <PREFISSO>-console/
+  --product-version VERSIONE
+                  Versione di GovWay in prova, riportata nei due report (anche da
+                  variabile d'ambiente A11Y_PRODUCT_VERSION)
   -h, --help      Questo messaggio
 
 Credenziali, dalle variabili d'ambiente (le password sono obbligatorie):
@@ -59,6 +62,7 @@ while [ $# -gt 0 ]; do
     --full)      COMPLETA=1; shift ;;
     --base)      BASE="${2:-}"; shift 2 ;;
     --out)       PREFISSO="${2:-}"; shift 2 ;;
+    --product-version) A11Y_PRODUCT_VERSION="${2:-}"; export A11Y_PRODUCT_VERSION; shift 2 ;;
     -h|--help)   uso; exit 0 ;;
     *)           echo "Opzione sconosciuta: $1" >&2; uso >&2; exit 2 ;;
   esac
@@ -84,6 +88,7 @@ done
 
 echo "=== gov-a11y — GovWay: scansione $MODO"
 echo "    base: $BASE    report: ${PREFISSO}-monitor/ e ${PREFISSO}-console/"
+[ -n "${A11Y_PRODUCT_VERSION:-}" ] && echo "    versione in prova: $A11Y_PRODUCT_VERSION"
 echo
 
 echo "=== Verifica delle dipendenze"

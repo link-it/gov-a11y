@@ -33,6 +33,8 @@ defaults:
   falsePositives: null        # file .json o directory con i falsi positivi dichiarati (solo 'incomplete');
                               # percorso relativo alla dir del config, o assoluto. Vedi GUIDA-falsi-positivi.md
   insecure: true              # ignora errori certificato HTTPS
+  productVersion: null        # versione del prodotto in prova, riportata nel report (GLOBALE);
+                              # anche da CLI --product-version o env A11Y_PRODUCT_VERSION
 
 # --- Un target = una console/app da scansionare ------------------------------
 # La chiave ('console') è il suo identificativo (usato da --only e per le env

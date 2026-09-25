@@ -43,8 +43,9 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Si applica **solo** agli `incomplete`. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
+| `productVersion` | stringa | — | Versione del prodotto in prova, riportata nel report e in `summary.json` — **globale** (equiv. CLI `--product-version`, env `A11Y_PRODUCT_VERSION`). Dichiarativa: nessuno strumento esterno può dedurla |
 
-> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnScreenReader`, `minScore`, `showIncomplete` sono **globali**: il gate è complessivo e il
+> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
 
 ## Oggetto target

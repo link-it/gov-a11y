@@ -104,6 +104,8 @@ if (args.help || args.h) {
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
   --no-mouse-only     Disabilita il controllo dei comandi utilizzabili col solo mouse
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
+  --product-version <v>  Versione del prodotto in prova (o env A11Y_PRODUCT_VERSION). Dichiarativa:
+                      compare nel report e in summary.json, cosi' l'esito e' riferibile a una versione
   --insecure          Ignora errori certificato HTTPS (default true)
   --check-deps        Verifica (senza scansionare) se le dipendenze opzionali richieste sono installate
   --help              Questo aiuto
@@ -113,7 +115,7 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnScreenReader, minScore, noFlows, insecure.
+  failOnMouseOnly, failOnScreenReader, minScore, noFlows, insecure, productVersion.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -164,7 +166,7 @@ const FAIL_ON_MOUSE_ONLY = !!resolveParam(args['fail-on-mouse-only'], null, 'fai
 // buona parte a 'failOnNameless', che misura la stessa famiglia dall'albero di accessibilita'.
 const FAIL_ON_SCREEN_READER = !!resolveParam(args['fail-on-screen-reader'], null, 'failOnScreenReader', false);
 const CLI_MOUSE_ONLY = args['no-mouse-only'] ? false : (args['mouse-only'] ? true : undefined);
-let DO_MOUSE_ONLY = true;        // risolti per-target da applyTargetParams
+let DO_MOUSE_ONLY = resolveParam(CLI_MOUSE_ONLY, null, 'mouseOnly', true) !== false;   // risolti per-target da applyTargetParams
 let MOUSE_ONLY_IGNORE = null;    // selettore CSS dichiarato dall'applicazione nel target
 let MOUSE_ONLY_MAX = 40;
 const MIN_SCORE = (() => { const v = resolveParam(args['min-score'], null, 'minScore', null); return (v === null || v === undefined) ? null : parseFloat(v); })();
@@ -182,6 +184,16 @@ let CRAWL_DEPTH = parseInt(resolveParam(args['crawl-depth'], null, 'crawlDepth',
 const TAG_PREDEFINITI = 'wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice';
 
 let TAGS = String(resolveParam(args.tags, null, 'tags', TAG_PREDEFINITI)).split(',').map(s => s.trim());
+/* I tag sono per-target: il report e' aggregato, quindi tiene memoria di TUTTI quelli usati.
+   Da qui si ricava che cosa dichiarare di aver verificato, invece di scriverlo a mano. */
+const TAG_USATI = new Set(TAGS);
+/* Versione del prodotto in prova: nessuno strumento esterno puo' dedurla, la dichiara chi lancia
+   la scansione. Serve a rendere il report citabile come evidenza: dice a COSA si riferisce l'esito. */
+const PRODUCT_VERSION = (() => {
+  const cli = typeof args['product-version'] === 'string' ? args['product-version'] : undefined;
+  const v = resolveParam(cli, null, 'productVersion', process.env.A11Y_PRODUCT_VERSION || null);
+  return v ? String(v).trim() : null;
+})();
 let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
@@ -201,6 +213,7 @@ function applyTargetParams(target) {
   CRAWL = parseInt(resolveParam(CLI_CRAWL, target, 'crawl', 0), 10) || 0;
   CRAWL_DEPTH = parseInt(resolveParam(args['crawl-depth'], target, 'crawlDepth', 2), 10) || 2;
   TAGS = String(resolveParam(args.tags, target, 'tags', TAG_PREDEFINITI)).split(',').map(s => s.trim());
+  TAGS.forEach(t => TAG_USATI.add(t));
   DO_SR = !!resolveParam(CLI_SR, target, 'screenReader', false);
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
@@ -1389,7 +1402,9 @@ async function scan() {
   if (!targets.length) { console.error('Nessun target abilitato.'); process.exit(2); }
 
   // Lighthouse può essere abilitato per-target: la porta di debug serve se ANCHE UN SOLO target lo usa.
-  const anyLh = MIN_SCORE !== null || featureRequested(CLI_LH, 'lighthouse', targets);
+  // '--no-lighthouse' vince anche qui: senza questa precedenza la sola soglia nel config lo terrebbe
+  // acceso per il preflight e lo farebbe dichiarare come eseguito nel report.
+  const anyLh = CLI_LH === false ? false : (MIN_SCORE !== null || featureRequested(CLI_LH, 'lighthouse', targets));
   const anySr = featureRequested(CLI_SR, 'screenReader', targets);
   // Prerequisiti PRIMA di aprire il browser: se una feature richiesta non e' installata si esce
   // subito con errore, invece di scansionare tutto e produrre punteggi/annunci vuoti.
@@ -1478,9 +1493,10 @@ async function scan() {
   } else if (anyLh && _lhFail) {
     console.warn(`\n\u26a0 [lighthouse] punteggi calcolati: ${_lhOk}, falliti: ${_lhFail} (primo errore: ${_lhFirstErr})`);
   }
-  // Per la reportistica complessiva: SR risulta attivo se lo è stato per almeno un target.
+  // Per la reportistica complessiva: un livello risulta attivo se lo è stato per almeno un target.
   DO_SR = anySr;
   DO_LH = anyLh;
+  DO_MOUSE_ONLY = targets.some(t => resolveParam(CLI_MOUSE_ONLY, t, 'mouseOnly', true) !== false);
   return pageResults;
 }
 
@@ -1645,22 +1661,75 @@ function appLabel(results) {
 // Dichiarazione esplicita di COPERTURA E LIMITI dell'automazione (richiesta dalla specifica e
 // dalle linee guida AgID: l'automazione copre solo una parte di WCAG → evitare falsi sensi di
 // conformità). Inclusa in summary.json e in evidenza in report.html.
-const COVERAGE = {
-  automated: "L'automazione (axe-core + accessibility tree + virtual screen reader) copre solo "
-    + "una parte dei criteri WCAG 2.1 AA (indicativamente ~30–40%): es. contrasto colore, testi "
-    + "alternativi e label mancanti, attributo lang, ruoli/nomi ARIA, ordine degli heading, "
-    + "struttura dell'albero di accessibilità, comandi utilizzabili col solo mouse.",
-  manualRequired: [
-    "Navigazione da tastiera: l'automazione segnala i comandi con un gestore del clic non "
-      + "raggiungibili da tastiera, ma non se i tasti attesi facciano poi la cosa giusta, "
-      + "ne' l'ordine di focus reale.",
-    "Test con screen reader reale (fedeltà d'uso, verbosità, senso degli annunci).",
-    "Qualità del testo alternativo e delle label (l'automazione vede se mancano, non se hanno senso).",
-  ],
-  note: "Questo report è EVIDENZA a supporto della dichiarazione di accessibilità AgID, "
-    + "NON una certificazione di conformità: un esito automatico pulito non implica conformità WCAG.",
-};
+/* Versioni e livelli WCAG effettivamente verificati: i tag axe sono l'unica fonte di verita'
+   (un target puo' ridurli, e la riga di comando pure), quindi la dichiarazione si deriva da li'
+   e non resta indietro rispetto a cio' che gira davvero. */
+function wcagVerificato(tags) {
+  const versioni = [], livelli = new Set();
+  for (const t of tags) {
+    const m = String(t).toLowerCase().match(/^wcag(\d+)(a{1,3})$/);
+    if (!m) continue;
+    const v = m[1] === '2' ? '2.0' : `${m[1][0]}.${m[1].slice(1)}`;
+    if (!versioni.includes(v)) versioni.push(v);
+    livelli.add(m[2].toUpperCase());
+  }
+  versioni.sort();
+  const liv = ['A', 'AA', 'AAA'].filter(l => livelli.has(l));
+  return {
+    versioni, livelli: liv,
+    // forma breve per il titolo: "WCAG 2.2 AA"
+    breve: versioni.length ? `WCAG ${versioni[versioni.length - 1]} ${liv[liv.length - 1] || 'A'}` : 'accessibilità',
+    // forma estesa per la dichiarazione: "criteri WCAG 2.0, 2.1 e 2.2 di livello A e AA"
+    esteso: versioni.length
+      ? `criteri WCAG ${elenco(versioni)} di livello ${elenco(liv)}`
+      : 'criteri WCAG',
+  };
+}
+function elenco(v) { return v.length > 1 ? `${v.slice(0, -1).join(', ')} e ${v[v.length - 1]}` : (v[0] || ''); }
 
+/* Copertura dichiarata nel report: si costruisce sui livelli DAVVERO attivi nella scansione.
+   Dichiarare una verifica non eseguita (o tacere di una eseguita) renderebbe il report inutile
+   come evidenza a supporto della dichiarazione di accessibilita'. */
+function buildCoverage() {
+  const wcag = wcagVerificato(TAG_USATI);
+  const strumenti = ['axe-core', 'albero di accessibilità'];
+  if (DO_SR) strumenti.push('screen reader virtuale');
+  if (DO_MOUSE_ONLY) strumenti.push('rilevazione dei comandi utilizzabili col solo mouse');
+  if (DO_LH) strumenti.push('Lighthouse');
+  const esempi = ['contrasto colore', 'testi alternativi e label mancanti', 'attributo lang',
+    'ruoli/nomi ARIA', 'ordine degli heading', "struttura dell'albero di accessibilità"];
+  if ([...TAG_USATI].some(t => /^wcag22/.test(String(t).toLowerCase()))) esempi.push('dimensione minima dei bersagli');
+  if (DO_MOUSE_ONLY) esempi.push('comandi utilizzabili col solo mouse');
+  if ([...TAG_USATI].includes('best-practice')) esempi.push('regole di buona pratica (fuori dai criteri WCAG)');
+
+  const manualRequired = [
+    DO_MOUSE_ONLY
+      ? "Navigazione da tastiera: l'automazione segnala i comandi con un gestore del clic non "
+        + 'raggiungibili da tastiera, ma non se i tasti attesi facciano poi la cosa giusta, '
+        + "né l'ordine di focus reale."
+      : 'Navigazione da tastiera: in questa scansione il controllo dei comandi utilizzabili col solo '
+        + 'mouse non è attivo, quindi raggiungibilità dei comandi, ordine di focus e '
+        + 'comportamento dei tasti vanno verificati a mano.',
+    DO_SR
+      ? "Test con screen reader reale (fedeltà d'uso, verbosità, senso degli annunci): quello "
+        + "virtuale verifica che cosa viene annunciato, non com'è usare l'applicazione."
+      : 'Test con screen reader: in questa scansione non è stato eseguito alcun controllo sugli '
+        + 'annunci, né virtuale né reale.',
+    "Qualità del testo alternativo e delle label (l'automazione vede se mancano, non se hanno senso).",
+    'Ingrandimento e riflusso del contenuto: zoom al 200% e 400%, orientamento, spaziatura del testo.',
+    "Comprensibilità di istruzioni, messaggi d'errore e suggerimenti di correzione nei moduli.",
+    'Contenuti multimediali, se presenti: sottotitoli, trascrizioni, audiodescrizioni.',
+  ];
+
+  return {
+    automated: `L'automazione (${strumenti.join(', ')}) copre solo una parte dei ${wcag.esteso} `
+      + `(indicativamente ~30–40%): es. ${esempi.join(', ')}.`,
+    manualRequired,
+    note: 'Questo report è EVIDENZA a supporto della dichiarazione di accessibilità AgID, '
+      + "NON una certificazione di conformità: un esito automatico pulito non implica conformità WCAG.",
+    wcag: { versioni: wcag.versioni, livelli: wcag.livelli, tags: [...TAG_USATI] },
+  };
+}
 // Landmark ARIA (per colorare la vista grafica dell'albero).
 const AX_LANDMARKS = new Set(['banner', 'navigation', 'main', 'complementary', 'contentinfo', 'region', 'search', 'form']);
 
@@ -1694,9 +1763,12 @@ function axRoleClass(label) {
 }
 
 function writeSummaryAndHtml(results, ariaFiles = {}) {
+  // La copertura dichiarata si costruisce ORA, quando si sa quali livelli hanno girato davvero.
+  const COVERAGE = buildCoverage();
+  const WCAG = wcagVerificato(TAG_USATI);
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', tags: TAGS, failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
@@ -1789,7 +1861,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       const omessi = soloMouse.totale > soloMouse.elementi.length ?
         `<li><small>… e altri ${soloMouse.totale - soloMouse.elementi.length}: alzare 'mouseOnlyMax' nel target per vederli tutti</small></li>` : '';
       moBlock = `<details><summary><span class="ser">solo mouse</span> ${soloMouse.totale} comandi con un gestore del clic <b>non raggiungibili da tastiera</b>
-        <small>— chi non usa il mouse non puo' attivarli (WCAG 2.1.1)</small></summary><ul class="nodes">${voci}${omessi}</ul></details>`;
+        <small>— chi non usa il mouse non può attivarli (WCAG 2.1.1)</small></summary><ul class="nodes">${voci}${omessi}</ul></details>`;
     }
     let incBlock = '';
     const incomplete = pr.incomplete || [];
@@ -1835,15 +1907,15 @@ ul.axtree{list-style:none;margin:.1rem 0;padding-left:1.1rem;border-left:1px dot
 ul.axtree li{margin:.05rem 0}.axtree details{border:0;background:none;padding:0;margin:0}.axtree summary{cursor:pointer}
 .axtree span{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .ax-land{color:#0a7;font-weight:600}.ax-head{color:#06c;font-weight:700}.ax-nameless{color:#b00;font-weight:700}.ax-muted{color:#999}</style></head>
-<body><h1>${esc(app)} — Report Accessibilita' WCAG 2.1 AA</h1>
-<p>Base: <code>${esc(BASE)}</code> — tag: <code>${esc(TAGS.join(', '))}</code> — gate: <code>fail-on=${esc(FAIL_ON)}${MIN_SCORE != null ? `, min-score=${MIN_SCORE}` : ''}</code></p>
+<body><h1>${esc(app)} — Report Accessibilità ${esc(WCAG.breve)}</h1>
+<p>Base: <code>${esc(BASE)}</code>${PRODUCT_VERSION ? ` — versione in prova: <code>${esc(PRODUCT_VERSION)}</code>` : ''} — tag: <code>${esc(TAGS.join(', '))}</code> — gate: <code>fail-on=${esc(FAIL_ON)}${MIN_SCORE != null && DO_LH ? `, min-score=${MIN_SCORE}` : ''}</code></p>
 <p>Totali occorrenze axe: <span class="crit">critical ${summary.totals.critical}</span>, <span class="ser">serious ${summary.totals.serious}</span>, moderate ${summary.totals.moderate}, minor ${summary.totals.minor}
 ${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''}${summary.falsePositivesTotal ? ` — <span class="mod">falsi positivi dichiarati: ${summary.falsePositivesTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_MOUSE_ONLY ? ` — <span class="ser">solo mouse: ${summary.mouseOnlyTotal} comandi non raggiungibili da tastiera</span>` : ''}${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
 
 ${FALSE_POSITIVES_USATI.length ? `<div class="disclaimer">
 <h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse da "Da verificare"</h2>
-<p>Occorrenze <b>incomplete</b> gia' esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
-elencate qui con la motivazione e la verifica che le giustificano, cosi' da poter essere contestate.
+<p>Occorrenze <b>incomplete</b> già esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
+elencate qui con la motivazione e la verifica che le giustificano, così da poter essere contestate.
 Le violazioni non sono mai derogabili.</p>
 <table><tr><th>Voce</th><th>Regola / causa</th><th>Occorrenze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
 ${FALSE_POSITIVES_USATI.filter(v => v.matches > 0 || v.expired).map(v => `<tr${v.expired ? ' style="opacity:.55"' : ''}><td><code>${esc(v.id)}</code></td>
@@ -1852,8 +1924,8 @@ ${FALSE_POSITIVES_USATI.filter(v => v.matches > 0 || v.expired).map(v => `<tr${v
 <td>${esc(v.author || '-')}</td><td>${esc(v.expires || 'nessuna')}</td></tr>`).join('\n')}</table>
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).length ? `<p><b>Senza riscontro:</b> le voci
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
-non hanno corrisposto ad alcuna occorrenza e non compaiono quindi in tabella. Se la scansione e' completa
-la deroga non serve piu' e va rimossa; se e' parziale (poche pagine, <code>--only</code>, crawl ridotto) puo'
+non hanno corrisposto ad alcuna occorrenza e non compaiono quindi in tabella. Se la scansione è completa
+la deroga non serve più e va rimossa; se è parziale (poche pagine, <code>--only</code>, crawl ridotto) può
 semplicemente non essere stata attraversata.</p>` : ''}
 ${FALSE_POSITIVES_USATI.filter(v => v.expired).length ? `<p><b>Scadute:</b> le occorrenze coperte da
 ${FALSE_POSITIVES_USATI.filter(v => v.expired).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
@@ -1873,8 +1945,8 @@ sono tornate fra quelle da verificare: la misura va rifatta e la scadenza rinnov
 ${rows}
 </table>
 
-<table><caption>Riepilogo per regola WCAG — cosa correggere (ordinato per gravita' e diffusione)</caption>
-<tr><th>Regola axe</th><th>Gravita'</th><th>Descrizione</th><th>Occorrenze</th><th>Pagine</th><th>WCAG</th><th>Rif.</th></tr>
+<table><caption>Riepilogo per regola WCAG — cosa correggere (ordinato per gravità e diffusione)</caption>
+<tr><th>Regola axe</th><th>Gravità</th><th>Descrizione</th><th>Occorrenze</th><th>Pagine</th><th>WCAG</th><th>Rif.</th></tr>
 ${ruleRows}
 </table>
 
@@ -1929,7 +2001,7 @@ export {
   // pure / helper
   parseArgs, resolveParam, credsFor, loadTargets,
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
-  summarizeImpacts, fmtCounts, xmlEscape, appLabel,
+  summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
   // browser
   harvestLinks, recordScan, runStep, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhExtraHeaders,
   // reporters + gate

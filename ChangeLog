@@ -1,3 +1,32 @@
+2026-09-25  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	La dichiarazione di copertura e limiti riportata nel report non è più un testo fisso: viene costruita
+	sull'esecuzione appena conclusa. Elenca i livelli davvero attivi (axe, albero di accessibilità, screen reader
+	virtuale, comandi utilizzabili col solo mouse, Lighthouse) e ricava versioni e livelli WCAG dai tag axe usati,
+	invece di dichiarare "WCAG 2.1 AA" anche quando si verificano le 2.2. Un livello spento non viene più dichiarato
+	come eseguito: passa fra le verifiche manuali, con la formula che dice che in quella scansione non è stato fatto.
+	Per lo stesso motivo il titolo del report segue i tag. L'elenco delle verifiche manuali comprende adesso anche
+	ingrandimento e riflusso del contenuto, comprensibilità di istruzioni e messaggi d'errore nei moduli, e
+	contenuti multimediali: erano fuori da un elenco che accompagna la dichiarazione di accessibilità.
+
+	* [gov-a11y]
+	Nuovo parametro "productVersion" (CLI "--product-version", env A11Y_PRODUCT_VERSION): la versione del prodotto
+	in prova compare nell'intestazione del report e in summary.json. È dichiarativa, perché uno strumento esterno
+	non può dedurla, e serve a rendere l'esito riferibile a una versione precisa quando il report viene citato come
+	evidenza.
+
+	* [gov-a11y]
+	"--no-lighthouse" non spegneva del tutto l'audit quando il config dichiarava "minScore": la verifica dei
+	prerequisiti ne pretendeva ancora i moduli e il riepilogo lo dava per eseguito. La precedenza del flag vale
+	adesso anche sull'aggregato usato dal preflight e dal report, e la soglia non compare piu' fra i gate quando
+	Lighthouse non gira, perche' non viene valutata.
+
+	* [gov-a11y]
+	I testi del report HTML usano le lettere accentate al posto dell'apostrofo (accessibilità, gravità, è, più,
+	perché): il report lo legge una persona, e va allegato alla dichiarazione di accessibilità. Corretti allo
+	stesso modo i testi dei falsi positivi dichiarati per le console GovWay, che nel report compaiono per intero.
+
 2026-09-22  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

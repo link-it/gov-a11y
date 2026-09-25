@@ -105,6 +105,19 @@ const summary = M.writeSummaryAndHtml(RESULTS, ariaFiles);
 check(existsSync(join(OUT, 'summary.json')) && existsSync(join(OUT, 'report.html')), 'summary.json + report.html creati');
 check(summary.totals.serious === 1 && summary.namelessTotal === 1, 'summary: totali violazioni + nameless');
 
+console.log('— copertura dichiarata (costruita sull\'esecuzione)');
+// Il test gira con --no-lighthouse --no-screen-reader: la dichiarazione deve dirlo.
+const cov = M.buildCoverage();
+check(!/Lighthouse/.test(cov.automated), 'livello spento non dichiarato (Lighthouse)');
+check(!/screen reader virtuale/.test(cov.automated), 'livello spento non dichiarato (screen reader)');
+check(/axe-core/.test(cov.automated) && /albero di accessibilit/.test(cov.automated), 'livelli sempre attivi dichiarati');
+check(cov.manualRequired.some(m => /screen reader/.test(m) && /non è stato eseguito/.test(m)), 'il livello spento passa fra le verifiche manuali');
+check(cov.manualRequired.length >= 6, 'verifiche manuali: tastiera, screen reader, alt/label, zoom, moduli, multimedia');
+eq(M.wcagVerificato(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).breve, 'WCAG 2.2 AA', 'etichetta WCAG dai tag');
+eq(M.wcagVerificato(['wcag2a', 'wcag2aa']).versioni, ['2.0'], 'versioni WCAG dai tag');
+check(summary.coverage && summary.coverage.wcag && Array.isArray(summary.coverage.wcag.versioni), 'summary.json porta la copertura con versioni/livelli');
+check('productVersion' in summary, 'summary.json porta la versione del prodotto (null se non dichiarata)');
+
 console.log('— evaluateGate');
 const reasons = M.evaluateGate(RESULTS, summary);
 check(Array.isArray(reasons) && reasons.length >= 1, 'gate fallisce con 1 serious (fail-on=serious di default)');

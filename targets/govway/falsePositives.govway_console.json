@@ -1,5 +1,5 @@
 {
-  "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi. Si applica SOLO agli incomplete, mai alle violazioni. Ogni voce richiede 'reason' (perche' non e' un difetto) e 'verification' (come lo si e' accertato): una deroga senza prova e' un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, cosi' la misura viene rifatta periodicamente. Riferito da targets.govway_console.json -> console.falsePositives.",
+  "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi. Si applica SOLO agli incomplete, mai alle violazioni. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato): una deroga senza prova è un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, così la misura viene rifatta periodicamente. Riferito da targets.govway_console.json -> console.falsePositives.",
 
   "falsePositives": [
     {
@@ -7,7 +7,7 @@
       "rule": "color-contrast",
       "cause": "nonBmp",
       "selector": "i.material-icons, i.material-symbols-outlined, .material-icons > span[aria-hidden='true']",
-      "reason": "Glifi di icon-font, non testo: axe stesso lo dichiara ('Il contenuto dell'elemento contiene solo caratteri non di testo') e non applica la regola sul contrasto del testo. Il criterio realmente applicabile e' WCAG 1.4.11 Non-text Contrast, soglia 3:1, che axe non verifica sugli icon-font. Sostituire il carattere a uso privato con il nome della legatura non e' una via percorribile: axe smetterebbe di riconoscerli come non-testo e li misurerebbe con la soglia di 4,5:1 invece del 3:1 che loro compete.",
+      "reason": "Glifi di icon-font, non testo: axe stesso lo dichiara ('Il contenuto dell'elemento contiene solo caratteri non di testo') e non applica la regola sul contrasto del testo. Il criterio realmente applicabile è WCAG 1.4.11 Non-text Contrast, soglia 3:1, che axe non verifica sugli icon-font. Sostituire il carattere a uso privato con il nome della legatura non è una via percorribile: axe smetterebbe di riconoscerli come non-testo e li misurerebbe con la soglia di 4,5:1 invece del 3:1 che loro compete.",
       "verification": "Misurati in pagina (2026-09-13) i colori effettivamente resi: #46464e su #ffffff = 9,35:1, #46464e su #f6f6fc = 8,68:1, #ffffff su #46464e = 9,35:1. Da due a tre volte la soglia di 3:1 che compete al contenuto non testuale.",
       "author": "andrea.poli@link.it",
       "expires": "2027-09-01"
@@ -17,7 +17,7 @@
       "rule": "color-contrast",
       "cause": "bgOverlap",
       "selector": "select.inputLinkLong, input.tt-hint",
-      "reason": "Testo di controlli di form per i quali axe non riesce a determinare lo sfondo ('bgOverlap'). Due casi: le select a selezione multipla (attributo 'size', su cui il componente di ricerca NON si applica e che quindi non hanno alcun elemento sovrapposto) e il campo suggerimento del completamento automatico ('input.tt-hint', in sola lettura e nascosto alle tecnologie assistive, che affianca il campo vero). In entrambi i casi il testo e' quello scuro del tema sul bianco della pagina.",
+      "reason": "Testo di controlli di form per i quali axe non riesce a determinare lo sfondo ('bgOverlap'). Due casi: le select a selezione multipla (attributo 'size', su cui il componente di ricerca NON si applica e che quindi non hanno alcun elemento sovrapposto) e il campo suggerimento del completamento automatico ('input.tt-hint', in sola lettura e nascosto alle tecnologie assistive, che affianca il campo vero). In entrambi i casi il testo è quello scuro del tema sul bianco della pagina.",
       "verification": "Misurato in pagina (2026-09-14) su 'configurazioneSistemaAdd.do': la select multipla '#select_1' ha testo #3c3c44 su #ffffff = 10,93:1 e nessun elemento sovrapposto (non esiste alcun '<id>_overlay'). Scansione completa della console dello stesso giorno, 323 viste: 5 occorrenze residue, tre 'input.tt-hint' e due select multiple.",
       "author": "andrea.poli@link.it",
       "expires": "2027-09-01"
@@ -27,8 +27,8 @@
       "rule": "link-in-text-block",
       "cause": "bgOverlap",
       "selector": "a.riepilogo-links-button",
-      "reason": "La regola intercetta i collegamenti annegati in un blocco di testo, dove il solo colore non basta a distinguerli. Queste sono invece le piastrelle isolate del riepilogo di una API, dentro un contenitore flex: non hanno testo attorno con cui essere confuse. Il motivo dichiarato da axe e' comunque 'bgOverlap', cioe' sfondo non determinabile.",
-      "verification": "Esaminate tutte le occorrenze (2026-09-13): appartengono a un'unica vista, il riepilogo di una API, quattro per pagina, tutte '.riepilogo-links-button' entro '.riepilogo-links' (display:flex), colore #46464e. L'unico testo del contenitore che non appartenga ai collegamenti e' uno '<script>' in linea: non esiste il blocco di testo da cui la regola vorrebbe distinguerle.",
+      "reason": "La regola intercetta i collegamenti annegati in un blocco di testo, dove il solo colore non basta a distinguerli. Queste sono invece le piastrelle isolate del riepilogo di una API, dentro un contenitore flex: non hanno testo attorno con cui essere confuse. Il motivo dichiarato da axe è comunque 'bgOverlap', cioè sfondo non determinabile.",
+      "verification": "Esaminate tutte le occorrenze (2026-09-13): appartengono a un'unica vista, il riepilogo di una API, quattro per pagina, tutte '.riepilogo-links-button' entro '.riepilogo-links' (display:flex), colore #46464e. L'unico testo del contenitore che non appartenga ai collegamenti è uno '<script>' in linea: non esiste il blocco di testo da cui la regola vorrebbe distinguerle.",
       "author": "andrea.poli@link.it",
       "expires": "2027-09-01"
     }
