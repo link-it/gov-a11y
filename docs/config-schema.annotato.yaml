@@ -93,6 +93,7 @@ console:
         - { clickText: "Testo", exact: true }                  # click per testo
         - { fill: { selector: "#campo", value: "x" } }         # compila campo
         - { wait: "networkidle" }                              # attesa load-state o selettore
+        - { waitQuietMs: 1000 }                                # attende che il DOM smetta di cambiare per 1 s
         - { scan: "etichetta" }                                # scansiona lo stato corrente
         - { scanTabs: ".rich-tab-header" }                     # scopre i tab e scansiona ognuno
         - { scanMenu: [                                         # naviga le voci di piu' menu (dinamico)
@@ -128,7 +129,7 @@ console:
               maxViews: 300                                     # tetto di viste per lo step
             } }
         # modificatori comuni per ogni step:
-        #   delayMs, timeoutMs, optional (true = non interrompe), desc, sourceHint
+        #   waitQuietMs, delayMs, timeoutMs, optional (true = non interrompe), desc, sourceHint
         #   se il flow non ha step scan*, scansiona lo stato finale
 
 # --- Altri target nello stesso file (facoltativo) ----------------------------

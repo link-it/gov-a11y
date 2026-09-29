@@ -31,6 +31,34 @@
       "verification": "Esaminate tutte le occorrenze (2026-09-13): appartengono a un'unica vista, il riepilogo di una API, quattro per pagina, tutte '.riepilogo-links-button' entro '.riepilogo-links' (display:flex), colore #46464e. L'unico testo del contenitore che non appartenga ai collegamenti è uno '<script>' in linea: non esiste il blocco di testo da cui la regola vorrebbe distinguerle.",
       "author": "andrea.poli@link.it",
       "expires": "2027-09-01"
+    },
+    {
+      "id": "campo-suggerimento-completamento-automatico-ruolo-presentation",
+      "rule": "aria-allowed-role",
+      "selector": "input.tt-hint",
+      "reason": "axe avverte che 'role=presentation' andrebbe rimosso «se l'elemento viene reso visibile». Non accade: è il campo suggerimento del completamento automatico, un clone del campo vero che la libreria typeahead crea in sola lettura, fuori dall'ordine di tabulazione e nascosto alle tecnologie assistive, e che resta tale per tutta la vita della pagina.",
+      "verification": "Verificato nel sorgente della libreria (tools/web_interfaces/lib/js/typeahead.bundle.js, creazione del campo suggerimento): il clone riceve 'readonly', tabindex '-1', aria-hidden 'true' e role 'presentation', e perde id, name, placeholder ed etichette; nessun ramo del codice rimuove quegli attributi. In pagina l'elemento non è raggiungibile da tastiera né compare nell'albero di accessibilità.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
+    },
+    {
+      "id": "campo-data-aria-controls-pannello-creato-dalla-libreria",
+      "rule": "aria-valid-attr-value",
+      "selector": "input.hasDatepicker[aria-controls='ui-datepicker-div']",
+      "reason": "In presenza di 'aria-haspopup' axe non riesce a stabilire se l'id riferito da 'aria-controls' esista, perché il pannello del calendario ('#ui-datepicker-div') lo crea jQuery UI al primo utilizzo e lo aggiunge al fondo della pagina. L'attributo è corretto e serve a legare il campo al pannello che apre.",
+      "verification": "Misurato in pagina (2026-09-28) sulla vista Auditing con il pannello aperto: '#ui-datepicker-div' esiste ed è reso (display 'block'), e il campo dichiara role 'combobox' con aria-controls 'ui-datepicker-div'.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
+    },
+    {
+      "id": "contrasto-non-determinabile-col-pannello-data-aperto",
+      "rule": "color-contrast",
+      "cause": "bgOverlap",
+      "selector": "p.note, input.inputLinkLong",
+      "reason": "Con il pannello del calendario aperto axe non riesce a determinare lo sfondo degli elementi che vi finiscono sotto ('bgOverlap'): la nota sul formato della data e i campi del filtro. Il pannello li copre solo mentre è aperto, e nelle altre viste gli stessi elementi superano la regola.",
+      "verification": "Misurati in pagina (2026-09-28) sulla vista Auditing, con il pannello aperto, i colori effettivamente resi: nota #616161 su #ffffff = 6,19:1; campi del filtro #3c3c44 su #ffffff = 10,93:1. Oltre la soglia di 4,5:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
     }
   ]
 }

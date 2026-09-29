@@ -170,6 +170,8 @@ let DO_MOUSE_ONLY = resolveParam(CLI_MOUSE_ONLY, null, 'mouseOnly', true) !== fa
 let MOUSE_ONLY_IGNORE = null;    // selettore CSS dichiarato dall'applicazione nel target
 let MOUSE_ONLY_MAX = 40;
 const MIN_SCORE = (() => { const v = resolveParam(args['min-score'], null, 'minScore', null); return (v === null || v === undefined) ? null : parseFloat(v); })();
+// Quanto si attende che la rete si posi prima di analizzare una vista (vedi recordScan).
+const RETE_A_RIPOSO_MS = 2000;
 // Report HTML (globale: il report è aggregato su tutti i target -> no override per-target). CLI --no-incomplete > defaults.showIncomplete > built-in.
 const SHOW_INCOMPLETE = resolveParam(CLI_INCOMPLETE, null, 'showIncomplete', true) !== false;
 
@@ -880,7 +882,33 @@ async function runScreenReader(page) {
 // Esegue axe (e Lighthouse / screen reader) sullo stato CORRENTE del DOM e registra il risultato.
 async function recordScan(browser, page, target, name, pageResults, sourceHint) {
   const url = page.url();
-  const r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+  /* axe fotografa il DOM com'e' in quel momento: con una richiesta ancora in volo puo'
+     trovare in pagina gli elementi transitori dell'attesa (maschere, indicatori di
+     caricamento), che nessuna vista mostra a riposo. Si lascia posare la rete, ma con un
+     limite breve: alcune applicazioni non raggiungono mai 'networkidle' (polling, connessioni
+     tenute aperte) e l'attesa predefinita costerebbe mezzo minuto per vista. */
+  /* Il documento corrente deve essere ARRIVATO: un invio di form che non passa per AJAX e' una
+     navigazione, e senza questa attesa axe puo' fotografare la pagina mentre sta ancora
+     caricando — senza titolo, senza 'main', senza intestazione, cioe' con la firma di una
+     pagina vuota che verrebbe scambiata per un difetto. Se e' gia' caricata torna subito. */
+  await page.waitForLoadState('load').catch(() => {});
+  await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
+  /* Fotografia COERENTE: se il documento viene sostituito mentre axe lo percorre — una
+     navigazione tardiva, un ridisegno che ricarica la vista — il risultato e' quello di una
+     pagina a meta', e si presenta con la firma inconfondibile della pagina vuota (senza
+     titolo, senza 'main', senza intestazione di primo livello). Si marca il documento prima
+     dell'analisi e si verifica dopo che sia ancora lo stesso: altrimenti si rifa'. */
+  let r = null;
+  for (let tentativo = 0; tentativo < 3; tentativo++) {
+    const marcatore = `gw-${Date.now()}-${tentativo}`;
+    await page.evaluate(m => { window.__gwMarcatore = m; }, marcatore).catch(() => {});
+    r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    const dopo = await page.evaluate(() => ({ marcatore: window.__gwMarcatore, stato: document.readyState })).catch(() => ({}));
+    if (dopo.marcatore === marcatore && dopo.stato === 'complete') break;
+    console.warn(`    [vista non ferma durante l'analisi] ${name}: rifaccio (tentativo ${tentativo + 2}/3)`);
+    await page.waitForLoadState('load').catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
+  }
   // Le occorrenze coperte dal registro dei falsi positivi escono da 'incomplete' e vengono
   // conservate a parte: restano nel report, ma non fra le cose ancora da verificare.
   //
@@ -975,10 +1003,29 @@ async function recurseFollow(browser, page, target, pageResults, flowName, opts,
 }
 
 // Applica l'attesa post-azione di uno step (load-state o comparsa selettore) + eventuale delay.
+/* Risolve quando il documento non cambia da 'quieteMs', oppure allo scadere di 'limiteMs'.
+   L'osservatore vive nella pagina: qui si aspetta solo la sua promessa. */
+async function attendiDomFermo(page, quieteMs, limiteMs) {
+  await page.evaluate(({ quieteMs, limiteMs }) => new Promise(fine => {
+    let attesa = setTimeout(chiudi, quieteMs);
+    const limite = setTimeout(chiudi, limiteMs);
+    const osservatore = new MutationObserver(() => { clearTimeout(attesa); attesa = setTimeout(chiudi, quieteMs); });
+    function chiudi() { clearTimeout(attesa); clearTimeout(limite); osservatore.disconnect(); fine(); }
+    osservatore.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  }), { quieteMs, limiteMs }).catch(() => { /* pagina in navigazione: si prosegue */ });
+}
+
 async function applyWait(page, step) {
   const to = step.timeoutMs || 8000;
   if (['networkidle', 'load', 'domcontentloaded'].includes(step.wait)) await page.waitForLoadState(step.wait).catch(() => {});
   else if (typeof step.wait === 'string') await page.waitForSelector(step.wait, { timeout: to });
+  /* Attesa che la vista smetta di cambiare. Dove il lavoro che resta e' tutto nel browser —
+     la rete e' gia' a riposo, ma il contenuto si sta ancora costruendo — analizzare adesso
+     significa fotografare uno stato di passaggio: elementi transitori dell'attesa, contenuto
+     non ancora disegnato, e un DOM che cambia perfino fra l'analisi e i confronti successivi.
+     Si osservano le modifiche al documento e si prosegue quando per un tratto non ne arrivano
+     piu'. Quanta quiete serve dipende dall'applicazione: si dichiara nel target. */
+  if (step.waitQuietMs) await attendiDomFermo(page, step.waitQuietMs, to);
   if (step.delayMs) await page.waitForTimeout(step.delayMs);
 }
 

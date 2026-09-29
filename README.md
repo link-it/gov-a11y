@@ -160,7 +160,8 @@ Ogni chiave di primo livello (che non inizia con `$`) è un **target**. Schema:
 ```
 
 **Step dei flow / postLogin**: `goto`, `fill:{selector,value}`, `clickText`(+`exact`),
-`click`, `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `delayMs`, `timeoutMs`,
+`click`, `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
+smetta di cambiare per quel tratto, es. un grafico disegnato da script), `delayMs`, `timeoutMs`,
 `optional` (non interrompe il flow), `scan`, `scanTabs`, `scanCharts`, `scanMenu`. Usa **selettori
 stabili** (id non generati, `title`, testo, classe), mai id JSF `j_idNN`.
 

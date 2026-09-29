@@ -1,3 +1,23 @@
+2026-09-29  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	La vista viene analizzata solo quando è ferma, e la fotografia è garantita coerente. Prima dell'analisi si attende
+	che il documento corrente sia arrivato e che la rete si posi (quest'ultima al più due secondi, perché le
+	applicazioni che tengono una connessione aperta non raggiungono mai 'networkidle'); il documento viene poi marcato e
+	il marcatore riletto a valle, insieme allo stato di caricamento: se nel frattempo la pagina è stata sostituita o
+	stava ancora arrivando, l'analisi si rifà. Senza queste garanzie un invio di form che non passa per AJAX — cioè
+	una navigazione — veniva fotografato a metà: la pagina risultava senza titolo, senza 'main' e senza intestazione di
+	primo livello, tre violazioni che sarebbero state attribuite all'applicazione. Allo stesso modo la maschera di
+	caricamento, presente solo durante una richiesta, veniva segnalata come contenuto fuori da ogni regione.
+
+	* [gov-a11y]
+	Nuovo modificatore di step "waitQuietMs": attende che il DOM smetta di cambiare prima di proseguire. Serve dove il
+	lavoro che resta è tutto nel browser — la rete è già a riposo, ma la vista si sta ancora costruendo — e analizzarla
+	subito significa fotografare uno stato di passaggio: contenuto non ancora disegnato ed elementi transitori
+	dell'attesa. Quanta quiete occorra è un fatto dell'applicazione e si dichiara nel target. Sui report statistici di
+	govwayMonitor ha fatto emergere tre campi privi di nome accessibile, che restavano invisibili finché quella vista
+	veniva esaminata a metà costruzione.
+
 2026-09-25  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]
@@ -19,8 +39,8 @@
 	* [gov-a11y]
 	"--no-lighthouse" non spegneva del tutto l'audit quando il config dichiarava "minScore": la verifica dei
 	prerequisiti ne pretendeva ancora i moduli e il riepilogo lo dava per eseguito. La precedenza del flag vale
-	adesso anche sull'aggregato usato dal preflight e dal report, e la soglia non compare piu' fra i gate quando
-	Lighthouse non gira, perche' non viene valutata.
+	adesso anche sull'aggregato usato dal preflight e dal report, e la soglia non compare più fra i gate quando
+	Lighthouse non gira, perché non viene valutata.
 
 	* [gov-a11y]
 	I testi del report HTML usano le lettere accentate al posto dell'apostrofo (accessibilità, gravità, è, più,

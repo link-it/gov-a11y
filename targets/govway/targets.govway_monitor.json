@@ -171,7 +171,10 @@
               }
             },
             "wait": "networkidle",
-            "delayMs": 2500
+            "$waitQuietNote": "I report statistici finiscono di costruirsi nel browser dopo che la rete e' a riposo: il grafico chiede i propri dati e viene disegnato, e fino ad allora la pagina mostra la maschera di attesa di RichFaces. Senza attendere che il DOM si fermi, le viste piu' pesanti venivano esaminate a meta' costruzione.",
+            "waitQuietMs": 3000,
+            "timeoutMs": 20000,
+            "delayMs": 500
           }
         ]
       },
