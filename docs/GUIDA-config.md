@@ -131,6 +131,7 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "clickText": "<testo>", "exact": true }` | Click sul primo elemento con quel testo |
 | `{ "fill": { "selector": "…", "value": "…" } }` | Compila un campo |
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
+| `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
 | `{ "scanTabs": "<selettore>" }` | Scopre i tab a runtime, clicca e scansiona ognuno |
 | `{ "scanCharts": { … } }` | Enumera icone-report di una griglia, genera e scansiona ognuna |

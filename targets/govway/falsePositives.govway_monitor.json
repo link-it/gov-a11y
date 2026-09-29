@@ -77,6 +77,15 @@
       "reason": "Percentuali disegnate sopra le fette del grafico a torta. Non stanno sul bianco della tela ma sul colore della fetta, quindi non rientrano nella voce 'testo-svg-dei-grafici'; axe rinuncia comunque a determinare lo sfondo, perché è un nodo SVG sottostante e non un colore di sfondo CSS. Il colore del testo non è fisso: 'coloraEtichetteFette' in ChartMap.js lo sceglie fetta per fetta secondo la luminanza del fondo effettivamente reso — nero sulle fette chiare, bianco sulle scure — e lo riscegli quando c3 sbiadisce o riporta a pieno le serie al passaggio del puntatore.",
       "verification": "Due misure. (1) Statica sulla tavolozza delle serie ('colorSerie' in ChartMap.js, 50 colori): per ognuno almeno uno fra nero e bianco supera 4,5:1, e il caso più stretto è #1f79a7 con 4,83:1 in bianco. (2) In pagina (2026-09-13) su 'Distribuzione per Errori / Pie chart', confrontando il colore reso del testo con quello reso della fetta, composti entrambi sul bianco secondo l'opacita' effettiva: a riposo le etichette stanno fra 5,01:1 e 7,03:1; con il puntatore su una fetta o su una voce di legenda, quando c3 sbiadisce le altre serie, fra 5,15:1 e 15,56:1. La misura vale su una versione che comprenda la regola '.c3-chart-arc.c3-defocused' in linkit-base.css e il calcolo del fondo effettivo in ChartMap.js: senza, lo stato sbiadito scende a 1,49:1, perché l'opacita' investe anche l'etichetta.",
       "expires": "2027-09-10"
+    },
+    {
+      "id": "contrasto-non-determinabile-nel-pannello-del-calendario",
+      "rule": "color-contrast",
+      "selector": ".rich-calendar-tool-btn, input.rich-calendar-input",
+      "reason": "Occorrenze che compaiono solo con il pannello del calendario aperto: per i comandi della barra ('Oggi', 'Pulisci', chiusura, data selezionata) axe dichiara 'bgImage' o 'shortTextContent', perché lo sfondo è dato dal tema del componente e il testo è brevissimo; per il campo della data dichiara 'bgOverlap', perché il pannello lo copre. In nessuno dei due casi axe misura, quindi non afferma che il contrasto sia insufficiente.",
+      "verification": "Misurati in pagina (2026-09-28) sulla ricerca transazioni, con il pannello aperto, i colori effettivamente resi: comandi 'Oggi' e 'Pulisci' #46464e su #f6f6fc = 8,68:1; comando di chiusura #000000 su #c2c2ca = 11,86:1; campo della data #3c3c44 su #ffffff = 10,93:1. Da due a quasi tre volte la soglia di 4,5:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-09-01"
     }
   ]
 }
