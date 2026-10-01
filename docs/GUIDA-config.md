@@ -130,6 +130,13 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "click": "<selettore CSS>" }` | Click (supporta `:has()`, `:text-is()` di Playwright) |
 | `{ "clickText": "<testo>", "exact": true }` | Click sul primo elemento con quel testo |
 | `{ "fill": { "selector": "…", "value": "…" } }` | Compila un campo |
+| `{ "fill": { "selector": "…", "env": "A11Y_…" } }` | Compila un campo con il valore di una **variabile d'ambiente** (vedi sotto) |
+| `{ "select": { "selector": "…", "value": "…" } }` | Sceglie un'opzione per testo: su `<select>` nativa per etichetta; su una tendina (ng-select, combobox ARIA) apre il controllo e clicca l'opzione con ruolo `option` il cui nome contiene il testo (`"exact": true` per l'uguaglianza). Accetta `"env"` al posto di `"value"` |
+
+In `fill` e `select` il campo si indica con `"selector"` (CSS) oppure con `"label"`, cioè per **nome
+accessibile** (etichetta associata o `aria-label`), confrontato per sottostringa; `"labelExact": true`
+chiede l'uguaglianza. L'etichetta serve dove l'id del campo è generato a ogni rendering
+(es. `lnk-form-field-<uuid>`): il nome accessibile resta stabile, e se manca è già un difetto.
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
 | `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
@@ -141,6 +148,34 @@ Modificatori comuni per ogni step: `delayMs` (attesa extra), `timeoutMs`, `optio
 fallisce non interrompe il flow), `desc` (etichetta nei log), `sourceHint`.
 
 Se un flow non ha step `scan`/`scanTabs`/`scanCharts`, scansiona lo **stato finale**.
+
+#### Valori dei campi da variabili d'ambiente (`env`)
+
+I dati con cui si compila un modulo (un codice fiscale, una motivazione) possono essere personali
+anche quando sono di collaudo, mentre il config è versionato e condiviso. Nei passi `fill` e
+`select` si dichiara quindi, al posto del valore, il **nome** della variabile da cui leggerlo:
+
+```jsonc
+{ "fill":   { "selector": "#codice_fiscale", "env": "A11Y_GOVHUB_CF" } },
+{ "select": { "selector": "ng-select[formcontrolname='reason_id']", "env": "A11Y_GOVHUB_MOTIVAZIONE" } }
+```
+
+- **Le variabili richieste si ricavano dai passi**: non c'è un elenco da mantenere. Se ne manca
+  anche una, il flow viene **saltato** prima del login, con l'elenco dei nomi mancanti
+  (`flow 'x' saltato: variabili d'ambiente mancanti A11Y_…`). Il resto del target gira comunque,
+  per esempio in una CI che non dispone dei dati di test.
+- **Il valore non compare mai nei report**: l'analisi fotografa la pagina con i campi compilati,
+  quindi ogni occorrenza dei valori letti dall'ambiente viene sostituita con `***` nei log e in tutti
+  i file di output (`axe-results.json`, `aria-tree/`, `report.html`, SARIF, Sonar, JUnit), in chiaro
+  e nelle forme codificate per JSON, XML e HTML. I valori più corti di 3 caratteri non vengono
+  mascherati, perché comparirebbero ovunque.
+- **Il mascheramento copre solo i valori noti**: se il flow invia il modulo e scansiona una pagina
+  di **risultati** (dati anagrafici, ISEE, imprese restituiti dai servizi), quei dati finiscono nei
+  report così come sono. I report di quei flow vanno trattati come **sensibili** anche con dati di
+  collaudo: niente artifact CI pubblici, una cartella `--out` dedicata.
+- Più tipi di modulo si coprono con **più flow**, ognuno con i suoi campi e le sue variabili (per
+  esempio un dossier per persona fisica e uno per impresa): si aggiungono nel config, senza toccare
+  il codice.
 
 #### Config di `scanCharts`
 
@@ -223,7 +258,8 @@ Le voci di **logout** sono **sempre saltate** (guardia universale: non deautenti
 
 ## Credenziali e sicurezza
 
-Non mettere password nel file. Ordine di risoluzione credenziali:
+Non mettere password nel file, né dati personali nei passi dei flow: per i valori dei campi usa
+`"env"` (vedi *Valori dei campi da variabili d'ambiente*). Ordine di risoluzione credenziali:
 **env per-target** `A11Y_<TARGET>_USER/PASS` **>** `user`/`pass`
 in config **>** globali `--user/--pass` / `A11Y_USER/PASS`. In CI usa i secret.
 

@@ -159,11 +159,14 @@ Ogni chiave di primo livello (che non inizia con `$`) è un **target**. Schema:
 }
 ```
 
-**Step dei flow / postLogin**: `goto`, `fill:{selector,value}`, `clickText`(+`exact`),
+**Step dei flow / postLogin**: `goto`, `fill:{selector,value}`, `select:{selector,value}` (opzione
+per testo, su `<select>` o tendina), `clickText`(+`exact`),
 `click`, `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
 smetta di cambiare per quel tratto, es. un grafico disegnato da script), `delayMs`, `timeoutMs`,
 `optional` (non interrompe il flow), `scan`, `scanTabs`, `scanCharts`, `scanMenu`. Usa **selettori
-stabili** (id non generati, `title`, testo, classe), mai id JSF `j_idNN`.
+stabili** (id non generati, `title`, testo, classe), mai id JSF `j_idNN`. In `fill` e `select` il
+valore può arrivare da una **variabile d'ambiente** (`"env": "A11Y_…"` al posto di `"value"`): il flow
+viene saltato se manca e il valore è mascherato con `***` in log e report.
 
 **Navigazione ricorsiva delle console** (`scanMenu`): enumera a runtime le voci di uno o più menù
 (sinistro, dropdown utente/profili), entra nelle liste (`listRow` → primo elemento), segue matite
