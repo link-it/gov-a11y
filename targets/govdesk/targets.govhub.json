@@ -1,0 +1,75 @@
+{
+  "$app": "GovHub",
+  "$comment": "GovHub (GovDesk) - Angular 21, shell che ospita le app GovDesk in iframe. Dev: 'npm run start-govhub-proxy' -> http://localhost:5200, backend via proxy /govhub-reverse-proxy (richiede VPN Link.it). Rotte da projects/govhub-app/src/app/app.routes.ts. Le rotte a SLUG (es. /govregistry, /govio, DURC, ANPR...) caricano in iframe le ALTRE app GovDesk: sono escluse di proposito, perche' axe analizza anche gli iframe e ne attribuirebbe le violazioni a GovHub; ogni app avra' il suo target.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true
+  },
+
+  "govhubLogin": {
+    "name": "govhub-login",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govhub-app/src/app/features/login",
+    "$note": "Target SENZA autenticazione: scansiona la pagina di login, che il target autenticato attraversa ma non analizza. /post-logout/<realm> senza sessione rimanda al login, quindi non e' elencata.",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 3000,
+    "pages": [
+      { "name": "login", "path": "/auth/realmdb" }
+    ]
+  },
+
+  "govhub": {
+    "name": "govhub",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govhub-app/src/app",
+
+    "$auth": "Login per REALM su /auth/<realm>. Il tipo del realm lo decide il backend: NONE = form username/password (gestito qui, POST /govhub-reverse-proxy/<realm>/do-login); KEYCLOAK/SPID = redirect OAuth2 interattivo, non pilotabile. 'realmdb' e' un realm NONE. Con /auth/login il realm resta vuoto e il login fallisce: va sempre indicato il realm. Credenziali MAI qui: env A11Y_GOVHUB_USER / A11Y_GOVHUB_PASS (il backend porta lo username in minuscolo).",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+
+    "$postLogin": "Utente multi-organizzazione: dopo il login si arriva a /select-organization (lista di button con il nome dell'organizzazione + 'Conferma', disabilitato finche' non si sceglie). Mono-organizzazione = assegnata in automatico: i passi sono optional e vengono saltati.",
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "conferma l'organizzazione" }
+      ]
+    },
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 3000,
+
+    "$pages": "Viste proprie di GovHub raggiungibili da URL. /dossier reindirizza a /dossier?filter=all. /ai-model e' protetta da aiModelGuard (visibile solo se l'utente puo' usare l'AI: altrimenti rimanda alla dashboard e viene deduplicata). /select-organization resta raggiungibile anche dopo la scelta (cambio organizzazione).",
+    "pages": [
+      { "name": "dashboard", "path": "/" },
+      { "name": "profilo", "path": "/profile" },
+      { "name": "dossier", "path": "/dossier" },
+      { "name": "dossier-nuovo", "path": "/dossier/create" },
+      { "name": "ai-model", "path": "/ai-model" },
+      { "name": "scelta-organizzazione", "path": "/select-organization" }
+    ],
+
+    "$flows": "Il click sulla card di un dossier (lnk-dossier-card) apre /dossier/:id/execute. skipIfMissing salta il flow se l'organizzazione non ha dossier. TODO: /dossier/:id/edit si apre dal menu azioni della card (solo admin), il cui pulsante e' un'icona senza nome accessibile e senza selettore stabile; /dossier/:id/results/:executionId richiede di ESEGUIRE il dossier (interroga i servizi esterni), quindi non e' una navigazione e resta fuori.",
+    "flows": [
+      {
+        "name": "dossier-esecuzione",
+        "start": "/dossier",
+        "skipIfMissing": "lnk-dossier-card",
+        "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-execute",
+        "steps": [
+          { "click": "lnk-dossier-card", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo dossier -> /dossier/:id/execute" },
+          { "scan": "dossier-esecuzione" }
+        ]
+      }
+    ]
+  }
+}
