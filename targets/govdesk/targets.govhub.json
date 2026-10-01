@@ -48,26 +48,94 @@
     "navWait": "domcontentloaded",
     "navDelayMs": 3000,
 
-    "$pages": "Viste proprie di GovHub raggiungibili da URL. /dossier reindirizza a /dossier?filter=all. /ai-model e' protetta da aiModelGuard (visibile solo se l'utente puo' usare l'AI: altrimenti rimanda alla dashboard e viene deduplicata). /select-organization resta raggiungibile anche dopo la scelta (cambio organizzazione).",
+    "$pages": "Viste proprie di GovHub raggiungibili da URL. /ai-model e' protetta da aiModelGuard (visibile solo se l'utente puo' usare l'AI: altrimenti rimanda alla dashboard e viene deduplicata). /select-organization resta raggiungibile anche dopo la scelta (cambio organizzazione). La LISTA dossier non e' qui ma nel flow dossier-lista: vedi $flows.",
     "pages": [
       { "name": "dashboard", "path": "/" },
       { "name": "profilo", "path": "/profile" },
-      { "name": "dossier", "path": "/dossier" },
       { "name": "dossier-nuovo", "path": "/dossier/create" },
       { "name": "ai-model", "path": "/ai-model" },
       { "name": "scelta-organizzazione", "path": "/select-organization" }
     ],
 
-    "$flows": "Il click sulla card di un dossier (lnk-dossier-card) apre /dossier/:id/execute. skipIfMissing salta il flow se l'organizzazione non ha dossier. TODO: /dossier/:id/edit si apre dal menu azioni della card (solo admin), il cui pulsante e' un'icona senza nome accessibile e senza selettore stabile; /dossier/:id/results/:executionId richiede di ESEGUIRE il dossier (interroga i servizi esterni), quindi non e' una navigazione e resta fuori.",
+    "$flows": "BUG APP (da segnalare): con un caricamento completo di /dossier (URL diretto, F5, segnalibro) la lista risulta vuota. SidebarLayoutComponent.ngOnInit cancella il cookie XSRF-TOKEN e la ricerca POST /proxy/dossier/dossiers/search parte senza X-XSRF-TOKEN -> 403 INVALID_SESSION, mostrato come 'Nessun dossier trovato'. Navigando in-app dalla sidebar il token c'e' e la lista si popola. Per questo i flow partono da / e raggiungono la lista cliccando 'Dossier' in sidebar. Il click sulla card (lnk-dossier-card) apre /dossier/:id/execute; il pulsante matita della pagina di esecuzione (icona senza nome accessibile, agganciata dal path SVG) apre /dossier/:id/edit (solo utenti che possono modificare). Solo navigazione, mai salvare. I flow dossier-esecuzione-{durc,anpr,anis} ESEGUONO i dossier preferiti della sidebar: interrogano i servizi esterni e lasciano tracce in audit, quindi solo dati di collaudo. I dati di input arrivano da variabili d'ambiente A11Y_GOVHUB_<DOSSIER>_*: se mancano il flow viene saltato, e i loro valori sono mascherati in log e report. I DATI RESTITUITI nelle pagine risultati invece finiscono nei report: trattare quell'output come sensibile. I preferiti sono dell'utente: se cambiano, vanno aggiornati i nomi qui.",
     "flows": [
       {
+        "name": "dossier-lista",
+        "start": "/",
+        "skipIfMissing": "a[href='/dossier']",
+        "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-list",
+        "steps": [
+          { "click": "a[href='/dossier']", "wait": "lnk-dossier-card", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri la lista dossier dalla sidebar (navigazione in-app)" },
+          { "scan": "dossier-lista" }
+        ]
+      },
+      {
         "name": "dossier-esecuzione",
-        "start": "/dossier",
-        "skipIfMissing": "lnk-dossier-card",
+        "start": "/",
+        "skipIfMissing": "a[href='/dossier']",
         "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-execute",
         "steps": [
+          { "click": "a[href='/dossier']", "wait": "lnk-dossier-card", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri la lista dossier dalla sidebar (navigazione in-app)" },
           { "click": "lnk-dossier-card", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo dossier -> /dossier/:id/execute" },
           { "scan": "dossier-esecuzione" }
+        ]
+      },
+      {
+        "name": "dossier-modifica",
+        "start": "/",
+        "skipIfMissing": "a[href='/dossier']",
+        "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-edit",
+        "steps": [
+          { "click": "a[href='/dossier']", "wait": "lnk-dossier-card", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri la lista dossier dalla sidebar (navigazione in-app)" },
+          { "click": "lnk-dossier-card", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo dossier -> /dossier/:id/execute" },
+          { "click": "button:has(svg path[d^='M11 5H6'])", "wait": "domcontentloaded", "delayMs": 3000, "desc": "pulsante matita -> /dossier/:id/edit" },
+          { "scan": "dossier-modifica" }
+        ]
+      },
+      {
+        "name": "dossier-esecuzione-durc",
+        "start": "/",
+        "skipIfMissing": "[role=link]:has(:text-is('DURC'))",
+        "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-results",
+        "$note": "Dossier 'DURC' (impresa) dai preferiti della sidebar. Campi: CF/P.IVA e motivazione (id stabili), numero protocollo (id generato: agganciato per etichetta).",
+        "steps": [
+          { "click": "[role=link]:has(:text-is('DURC'))", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il dossier 'DURC' dai preferiti della sidebar -> /dossier/:id/execute" },
+          { "fill": { "selector": "#lnk-app-dossier-execute_form-codice_fiscale_impresa", "env": "A11Y_GOVHUB_DURC_CF" } },
+          { "fill": { "selector": "#lnk-app-dossier-execute_form-motivation", "env": "A11Y_GOVHUB_DURC_MOTIVAZIONE" } },
+          { "fill": { "label": "Numero protocollo", "env": "A11Y_GOVHUB_DURC_PROTOCOLLO" } },
+          { "scan": "dossier-durc-compilato" },
+          { "clickText": "Esegui ricerca", "exact": true, "wait": "domcontentloaded", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 2000, "desc": "esegui il dossier -> /dossier/:id/results/:executionId" },
+          { "scan": "dossier-durc-risultati" }
+        ]
+      },
+      {
+        "name": "dossier-esecuzione-anpr",
+        "start": "/",
+        "skipIfMissing": "[role=link]:has(:text-is('anpr'))",
+        "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-results",
+        "$note": "Dossier 'anpr' (cittadino) dai preferiti della sidebar. La motivazione e' una ng-select senza id ne' nome accessibile (difetto): e' l'unica del form, quindi 'main ng-select'. Il campo soggetto (#codiceFiscale_anpr, senza etichetta: difetto) accetta il Codice Fiscale OPPURE l'ID ANPR, ed e' disabilitato finche' non si sceglie la motivazione. ATTENZIONE: inserendo un CF l'app lo risolve SUBITO in ID ANPR chiamando POST /proxy/govanpr/anpr-service-e002 (interrogazione gia' in compilazione, non solo all'esecuzione); in collaudo quella chiamata ha risposto 502 e il pulsante 'Esegui ricerca' restava disabilitato. Con l'ID ANPR non c'e' risoluzione: usare l'ID ANPR in A11Y_GOVHUB_ANPR_SOGGETTO. 'Verifica alla data' e 'Tipo Accertamento' restano ai valori predefiniti.",
+        "steps": [
+          { "click": "[role=link]:has(:text-is('anpr'))", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il dossier 'anpr' dai preferiti della sidebar -> /dossier/:id/execute" },
+          { "select": { "selector": "main ng-select", "env": "A11Y_GOVHUB_ANPR_MOTIVAZIONE" } },
+          { "fill": { "selector": "#codiceFiscale_anpr", "env": "A11Y_GOVHUB_ANPR_SOGGETTO" } },
+          { "scan": "dossier-anpr-compilato" },
+          { "clickText": "Esegui ricerca", "exact": true, "wait": "domcontentloaded", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 2000, "desc": "esegui il dossier -> /dossier/:id/results/:executionId" },
+          { "scan": "dossier-anpr-risultati" }
+        ]
+      },
+      {
+        "name": "dossier-esecuzione-anis",
+        "start": "/",
+        "skipIfMissing": "[role=link]:has(:text-is('ANIS + ANIST'))",
+        "sourceHint": "projects/govhub-app/src/app/features/dossier/pages/dossier-results",
+        "$note": "Dossier 'ANIS + ANIST' (cittadino) dai preferiti della sidebar. Il CF ha id generato (lnk-fiscal-code-<uuid>): si aggancia per prefisso del componente. La motivazione ha id stabile; la casella di motivazione unica resta come predefinita (spuntata).",
+        "steps": [
+          { "click": "[role=link]:has(:text-is('ANIS + ANIST'))", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il dossier 'ANIS + ANIST' dai preferiti della sidebar -> /dossier/:id/execute" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVHUB_ANIS_CF" } },
+          { "fill": { "selector": "#lnk-app-dossier-execute_form-motivation", "env": "A11Y_GOVHUB_ANIS_MOTIVAZIONE" } },
+          { "scan": "dossier-anis-compilato" },
+          { "clickText": "Esegui ricerca", "exact": true, "wait": "domcontentloaded", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 2000, "desc": "esegui il dossier -> /dossier/:id/results/:executionId" },
+          { "scan": "dossier-anis-risultati" }
         ]
       }
     ]
