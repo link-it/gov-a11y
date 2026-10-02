@@ -122,5 +122,36 @@ console.log('— evaluateGate');
 const reasons = M.evaluateGate(RESULTS, summary);
 check(Array.isArray(reasons) && reasons.length >= 1, 'gate fallisce con 1 serious (fail-on=serious di default)');
 
+console.log("— valori da variabili d'ambiente (fill.env / select.env)");
+const FLOW_ENV = { steps: [
+  { fill: { selector: '#cf', env: 'A11Y_TEST_CF' } },
+  { select: { selector: '#mot', env: 'A11Y_TEST_MOT' } },
+  { fill: { selector: '#cf2', env: 'A11Y_TEST_CF' } },
+  { fill: { selector: '#x', value: 'letterale' } },
+  { click: '#go' },
+] };
+eq(M.flowEnvRefs(FLOW_ENV), ['A11Y_TEST_CF', 'A11Y_TEST_MOT'], 'variabili ricavate dai passi, senza duplicati');
+delete process.env.A11Y_TEST_CF; delete process.env.A11Y_TEST_MOT;
+eq(M.missingEnv(M.flowEnvRefs(FLOW_ENV)), ['A11Y_TEST_CF', 'A11Y_TEST_MOT'], 'mancanti se non impostate');
+process.env.A11Y_TEST_CF = 'RSSMRA80A01H501U';
+process.env.A11Y_TEST_MOT = 'Verifica "d\'ufficio" <test>';
+eq(M.missingEnv(M.flowEnvRefs(FLOW_ENV)), [], 'nessuna mancante se impostate');
+let envThrown = false; try { M.envValue('A11Y_TEST_ASSENTE'); } catch { envThrown = true; }
+check(envThrown, 'envValue: variabile assente -> errore esplicito');
+eq(M.envValue('A11Y_TEST_CF'), 'RSSMRA80A01H501U', 'envValue restituisce il valore');
+M.envValue('A11Y_TEST_MOT');
+const MOT = process.env.A11Y_TEST_MOT;
+const masked = M.maskSecrets(`cf RSSMRA80A01H501U | json ${JSON.stringify(MOT)} | html ${M.xmlEscape(MOT)}`);
+check(!masked.includes('RSSMRA80A01H501U'), 'maschera il valore in chiaro');
+check(!masked.includes('Verifica'), 'maschera anche le forme JSON e XML del valore');
+const motHtml = MOT.replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+check(!M.maskSecrets(`<td>${motHtml}</td>`).includes('Verifica'), "maschera la forma HTML del report (apostrofo non codificato)");
+process.env.A11Y_TEST_CORTO = 'ab'; M.envValue('A11Y_TEST_CORTO');
+check(M.maskSecrets('ab cd ab') === 'ab cd ab', `valori più corti di ${M.MIN_SECRET} caratteri non mascherati`);
+M.writeAxeJson([{ ...RESULTS[0], violations: [{ ...RESULTS[0].violations[0],
+  nodes: [{ target: ['#cf'], html: '<input id="cf" value="RSSMRA80A01H501U">', failureSummary: 'x' }] }] }]);
+const axeTxt = readFileSync(join(OUT, 'axe-results.json'), 'utf8');
+check(!axeTxt.includes('RSSMRA80A01H501U') && axeTxt.includes('***'), 'il report scritto su disco non contiene il valore (***)');
+
 console.log(failed ? `\n❌ unit: ${failed} check falliti` : '\n✅ unit: tutti i check superati');
 process.exit(failed ? 1 : 0);

@@ -17,7 +17,7 @@
       "X-GovCat-principal": "lorenzo.gestore"
     },
     "navWait": "domcontentloaded",
-    "navDelayMs": 2500,
+    "navDelayMs": 8000,
     "postLogin": {
       "steps": [
         {
@@ -90,30 +90,89 @@
         "path": "/dashboard"
       }
     ],
-    "$flowsNote": "Discovery dinamico (nessun id cablato): apre la PRIMA adesione della lista e scansiona la vista che si apre. NB: cliccando una riga si apre la VETRINA dell'adesione (/adesioni/:id/view); il WIZARD di configurazione (/adesioni/:id) si ha per adesioni in configurazione. Per scansionare il wizard di uno stato SPECIFICO (bozza / pubblicato produzione) servira' un'estensione del tool per selezionare l'elemento per stato (TODO). L'espansione dei sub-step e' opzionale (presente solo nel wizard).",
+    "$flowsNote": "Discovery dinamico (nessun id cablato). SERVIZIO: la lista e' raggruppata (1o click .card h2.card-title = apre il gruppo, 2o = apre il primo servizio -> VETRINA /servizi/:id/view). Dalla vetrina il menu 'Altre azioni' (button[aria-label='Altre azioni']) -> voce 'Gestione' apre il DETTAGLIO /servizi/:id, che ha i tab delle sezioni (API/Allegati/Referenti/Gruppi). NB: la tab-bar delle sezioni NON persiste sui sotto-percorsi -> ogni sezione ha un flow dedicato che ri-raggiunge /:id e clicca un solo tab (scoped con #route-section per evitare le collisioni testo con sidebar/header). ADESIONE: click sulla riga (.item-row-link) -> VETRINA /adesioni/:id/view; il menu 'Altre azioni' -> voce 'Configura' apre il wizard/MODIFICA /adesioni/:id. Regola flows: solo navigazione, mai SALVA. Le viste per-id dipendono dai dati dell'utente (principal lorenzo.gestore).",
     "flows": [
       {
-        "name": "adesione-dettaglio",
+        "name": "servizio-vetrina-dettaglio",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-details",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo gruppo di servizi" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio -> vetrina /servizi/:id/view" },
+          { "scan": "servizio-vetrina" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "apri menu 'Altre azioni'" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Gestione -> dettaglio /servizi/:id" },
+          { "scan": "servizio-dettaglio" }
+        ]
+      },
+      {
+        "name": "servizio-sezione-api",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-api-details",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Gestione -> /servizi/:id" },
+          { "click": "#route-section button:has-text('API')", "wait": "domcontentloaded", "delayMs": 2000, "desc": "sezione API -> /servizi/:id/api" },
+          { "scan": "servizio-api" }
+        ]
+      },
+      {
+        "name": "servizio-sezione-allegati",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-allegati",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Gestione -> /servizi/:id" },
+          { "click": "#route-section button:has-text('Allegati')", "wait": "domcontentloaded", "delayMs": 2000, "desc": "sezione Allegati -> /servizi/:id/allegati" },
+          { "scan": "servizio-allegati" }
+        ]
+      },
+      {
+        "name": "servizio-sezione-referenti",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-referenti",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Gestione -> /servizi/:id" },
+          { "click": "#route-section button:has-text('Referenti')", "wait": "domcontentloaded", "delayMs": 2000, "desc": "sezione Referenti -> /servizi/:id/referenti" },
+          { "scan": "servizio-referenti" }
+        ]
+      },
+      {
+        "name": "servizio-sezione-gruppi",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-gruppi",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Gestione -> /servizi/:id" },
+          { "click": "#route-section button:has-text('Gruppi')", "wait": "domcontentloaded", "delayMs": 2000, "desc": "sezione Gruppi -> /servizi/:id/gruppi" },
+          { "scan": "servizio-gruppi" }
+        ]
+      },
+      {
+        "name": "adesione-vetrina-modifica",
         "start": "/adesioni",
         "skipIfMissing": ".item-row-link",
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/adesioni",
         "steps": [
-          { "click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima adesione (vetrina o wizard)" },
-          { "scan": "adesione-dettaglio" },
-          { "clickText": "In Compilazione", "optional": true, "wait": "domcontentloaded", "delayMs": 1500, "desc": "espandi sub-step (solo se wizard)" },
-          { "scan": "adesione-dettaglio-espanso" }
-        ]
-      },
-      {
-        "name": "servizio-vetrina",
-        "start": "/servizi",
-        "skipIfMissing": ".card h2.card-title",
-        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-view",
-        "$note": "La lista servizi e' raggruppata: primo click = apre il gruppo, secondo click = apre il primo servizio del gruppo (vetrina /servizi/:id/view). Assume il raggruppamento attivo.",
-        "steps": [
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo gruppo di servizi" },
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio del gruppo (vetrina)" },
-          { "scan": "servizio-vetrina" }
+          { "click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima adesione -> vetrina /adesioni/:id/view" },
+          { "scan": "adesione-vetrina" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "apri menu 'Altre azioni'" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Configura')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Configura -> modifica/wizard /adesioni/:id" },
+          { "scan": "adesione-modifica" }
         ]
       }
     ]

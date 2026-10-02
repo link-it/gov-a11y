@@ -534,7 +534,7 @@ async function login(page, target) {
 async function postLogin(page, target) {
   for (const s of (target.postLogin?.steps || [])) {
     try { await runStep(page, s); }
-    catch (e) { if (!s.optional) throw e; console.warn(`    postLogin: step opzionale fallito (${e.message})`); }
+    catch (e) { if (!s.optional) throw e; console.warn(`    postLogin: step opzionale fallito (${maskSecrets(e.message)})`); }
   }
 }
 
@@ -1050,21 +1050,88 @@ function risolviFileUpload(upload) {
   });
 }
 
-/* Opzione da scegliere in un <select> nativo: per valore o per testo visibile. Il valore e'
-   stabile ma spesso e' un codice interno; il testo e' quello che l'utente vede. */
-function opzioneDaScegliere(select) {
-  if (select.value !== undefined) return { value: String(select.value) };
-  if (select.label !== undefined) return { label: String(select.label) };
-  throw new Error("step 'select' senza 'value' ne' 'label'");
+/* Valori dei campi da variabili d'ambiente. I dati con cui si compila un modulo (un codice fiscale,
+   una motivazione) possono essere personali anche quando sono di collaudo, e il config e' versionato
+   e condiviso: un passo 'fill' o 'select' puo' quindi dichiarare, al posto del valore, il NOME della
+   variabile da cui leggerlo ({ "env": "A11Y_..." }). Quali variabili servano a un flow si ricava dai
+   suoi passi, senza un elenco da tenere allineato a mano, e se ne manca una il flow viene saltato.
+   I valori letti vengono mascherati nei log e in ogni file di report: l'analisi fotografa la pagina
+   con i campi compilati, e senza questa sostituzione il dato finirebbe nell'albero ARIA e negli
+   estratti HTML di axe. I valori piu' corti di MIN_SECRET caratteri non vengono mascherati: un
+   numero o una lettera comparirebbero ovunque e renderebbero i report illeggibili. */
+const MIN_SECRET = 3;
+const SECRET_VALUES = new Set();
+
+function envValue(name) {
+  const v = process.env[name];
+  if (v === undefined || v === '') throw new Error(`variabile d'ambiente ${name} non impostata`);
+  if (v.length >= MIN_SECRET) SECRET_VALUES.add(v);
+  return v;
+}
+
+// Nomi delle variabili d'ambiente citate dai passi di un flow (o di un elenco di passi).
+function flowEnvRefs(flowOrSteps) {
+  const steps = Array.isArray(flowOrSteps) ? flowOrSteps : (flowOrSteps?.steps || []);
+  const names = [];
+  for (const s of steps) for (const k of ['fill', 'select']) if (s?.[k]?.env && !names.includes(s[k].env)) names.push(s[k].env);
+  return names;
+}
+
+const missingEnv = names => names.filter(n => process.env[n] === undefined || process.env[n] === '');
+
+// Sostituisce con '***' ogni valore letto dall'ambiente, nelle forme in cui puo' comparire in un
+// report: testo semplice, stringa JSON (con le sequenze di escape), XML (JUnit/SARIF, che codificano
+// anche l'apostrofo) e HTML del report, che codifica solo <>&" e lascia l'apostrofo in chiaro.
+const htmlEscapeReport = v => v.replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+function maskSecrets(text) {
+  if (typeof text !== 'string' || !SECRET_VALUES.size) return text;
+  const forme = new Set();
+  for (const v of SECRET_VALUES) { forme.add(v); forme.add(JSON.stringify(v).slice(1, -1)); forme.add(xmlEscape(v)); forme.add(htmlEscapeReport(v)); }
+  let out = text;
+  for (const f of [...forme].sort((a, b) => b.length - a.length)) if (f) out = out.split(f).join('***');
+  return out;
+}
+
+// Scrittura dei file di report: passa sempre dal mascheramento dei valori letti dall'ambiente.
+const writeReport = (file, content) => writeFileSync(file, maskSecrets(content));
+
+/* Campo di un passo 'fill' o 'select': per selettore CSS ('selector') oppure per etichetta ('label'),
+   cioe' per nome accessibile. L'etichetta serve dove l'id del campo e' generato a ogni rendering
+   (es. 'lnk-form-field-<uuid>'): il nome accessibile resta stabile, e se manca e' a sua volta un
+   difetto da segnalare. Per default l'etichetta si confronta per sottostringa; "labelExact": true
+   chiede l'uguaglianza. */
+function fieldLocator(page, f, passo) {
+  if (f.label) return page.getByLabel(f.label, { exact: !!f.labelExact }).first();
+  if (f.selector) return page.locator(f.selector).first();
+  throw new Error(`passo '${passo}': serve 'selector' oppure 'label'`);
+}
+
+/* Passo 'select': sceglie un'opzione per testo. Su una <select> nativa usa l'etichetta dell'opzione;
+   su un componente a tendina (ng-select, combobox ARIA) apre il controllo e clicca l'opzione con
+   ruolo 'option' il cui nome corrisponde (per sottostringa, o esatto con "exact": true). */
+async function selectOption(page, sel, to) {
+  const value = sel.env ? envValue(sel.env) : sel.value;
+  if (value === undefined) throw new Error("passo 'select': serve 'value' (o 'env')");
+  const el = fieldLocator(page, sel, 'select');
+  await el.waitFor({ state: 'visible', timeout: to });
+  if (await el.evaluate(n => n.tagName === 'SELECT')) { await el.selectOption({ label: value }, { timeout: to }); return; }
+  await el.click({ timeout: to });
+  const opzione = page.getByRole('option', { name: value, exact: !!sel.exact }).first();
+  if (!(await opzione.waitFor({ state: 'visible', timeout: to }).then(() => true, () => false))) {
+    // L'errore elenca le opzioni presenti: la causa piu' frequente e' un valore scritto diversamente.
+    const presenti = (await page.getByRole('option').allTextContents()).map(t => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    throw new Error(`passo 'select': opzione '${value}' non trovata; opzioni disponibili: ${presenti.length ? presenti.join(' | ') : '(nessuna)'}`);
+  }
+  await opzione.click({ timeout: to });
 }
 
 // Esegue un singolo step di azione di un flow.
 async function runStep(page, step) {
   const to = step.timeoutMs || 8000;
   if (step.goto) await page.goto(BASE + step.goto, { waitUntil: 'domcontentloaded' });
-  else if (step.fill) await page.fill(step.fill.selector, step.fill.value, { timeout: to });
+  else if (step.fill) await fieldLocator(page, step.fill, 'fill').fill(step.fill.env ? envValue(step.fill.env) : step.fill.value, { timeout: to });
   else if (step.upload) await page.setInputFiles(step.upload.selector, risolviFileUpload(step.upload), { timeout: to });
-  else if (step.select) await page.selectOption(step.select.selector, opzioneDaScegliere(step.select), { timeout: to });
+  else if (step.select) await selectOption(page, step.select, to);
   else if (step.clickText) await page.getByText(step.clickText, { exact: !!step.exact }).first().click({ timeout: to });
   else if (step.click) await page.click(step.click, { timeout: to });
   await applyWait(page, step);
@@ -1078,6 +1145,13 @@ async function runFlows(browser, target, pageResults) {
     LH_ESCLUSO_NEL_FLOW = flow.lighthouse === false;
     if (LH_ESCLUSO_NEL_FLOW && DO_LH) console.log(`    flow '${flow.name}': Lighthouse escluso dal config del flow`);
     console.log(`  flow: ${flow.name}`);
+    // Variabili d'ambiente richieste dai passi (fill.env / select.env): se ne manca una il flow non
+    // puo' compilare il suo modulo, e lo si salta prima ancora di autenticarsi.
+    const envMancanti = missingEnv(flowEnvRefs(flow));
+    if (envMancanti.length) {
+      console.warn(`    flow '${flow.name}' saltato: variabili d'ambiente mancanti ${envMancanti.join(', ')}`);
+      continue;
+    }
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     const page = await ctx.newPage();
@@ -1487,19 +1561,19 @@ async function runFlows(browser, target, pageResults) {
           }
           continue;
         }
-        const label = step.desc || step.click || step.clickText || step.goto || (step.fill && step.fill.selector) || (step.upload && step.upload.selector) || (step.select && step.select.selector) || 'step';
+        const label = step.desc || step.click || step.clickText || step.goto || (step.fill && (step.fill.selector || step.fill.label)) || (step.upload && step.upload.selector) || (step.select && (step.select.selector || step.select.label)) || 'step';
         try {
           await runStep(page, step);
         } catch (e) {
-          if (step.optional) { console.warn(`    step '${label}' non riuscito (opzionale, proseguo): ${e.message}`); continue; }
-          console.warn(`    step '${label}' non riuscito: ${e.message} → flow '${flow.name}' interrotto`);
+          if (step.optional) { console.warn(`    step '${label}' non riuscito (opzionale, proseguo): ${maskSecrets(e.message)}`); continue; }
+          console.warn(`    step '${label}' non riuscito: ${maskSecrets(e.message)} → flow '${flow.name}' interrotto`);
           aborted = true; break;
         }
       }
       // Se il flow non ha step 'scan' espliciti, scansiona lo stato finale (comportamento di default).
       if (!scanned && !aborted) await recordScan(browser, page, target, `flow:${flow.name}`, pageResults, flow.sourceHint);
     } catch (e) {
-      console.warn(`  flow '${flow.name}' errore: ${e.message}`);
+      console.warn(`  flow '${flow.name}' errore: ${maskSecrets(e.message)}`);
     } finally {
       await ctx.close();
     }
@@ -1627,7 +1701,7 @@ function fmtCounts(c) {
 function writeAxeJson(results) {
   // ariaSnapshot esce come file separato (writeAriaTrees): lo togliamo dal JSON grezzo.
   const slim = results.map(({ ariaSnapshot, ...r }) => r);
-  writeFileSync(resolve(OUT, 'axe-results.json'), JSON.stringify(slim, null, 2));
+  writeReport(resolve(OUT, 'axe-results.json'), JSON.stringify(slim, null, 2));
 }
 
 // Albero ARIA (accessibility tree) per pagina/stato come EVIDENZA per la revisione manuale
@@ -1646,7 +1720,7 @@ function writeAriaTrees(results) {
       + `# target: ${pr.targetName}  |  vista: ${pr.name}\n# url: ${pr.url}\n`
       + `# Fonte: Playwright ariaSnapshot (motore a11y di Chromium). Righe '- <ruolo>' senza\n`
       + `# nome quotato = elemento senza nome accessibile.\n\n`;
-    writeFileSync(resolve(dir, file), header + pr.ariaSnapshot + '\n');
+    writeReport(resolve(dir, file), header + pr.ariaSnapshot + '\n');
     files[i] = `aria-tree/${file}`;
   });
   return files;
@@ -1701,7 +1775,7 @@ function writeSarif(results) {
       results: sarifResults,
     }],
   };
-  writeFileSync(resolve(OUT, 'a11y.sarif'), JSON.stringify(sarif, null, 2));
+  writeReport(resolve(OUT, 'a11y.sarif'), JSON.stringify(sarif, null, 2));
 }
 
 function writeSonar(results) {
@@ -1727,7 +1801,7 @@ function writeSonar(results) {
       }
     }
   }
-  writeFileSync(resolve(OUT, 'sonar-issues.json'), JSON.stringify({ issues }, null, 2));
+  writeReport(resolve(OUT, 'sonar-issues.json'), JSON.stringify({ issues }, null, 2));
 }
 
 function xmlEscape(s) {
@@ -1755,7 +1829,7 @@ function writeJUnit(results) {
 ${cases.join('\n')}
 </testsuite>
 `;
-  writeFileSync(resolve(OUT, 'a11y-junit.xml'), xml);
+  writeReport(resolve(OUT, 'a11y-junit.xml'), xml);
 }
 
 // Etichetta dell'app esaminata per i titoli del report: override esplicito nel config (`$app`),
@@ -1903,7 +1977,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     reason: v.reason, verification: v.verification, author: v.author || null,
     expires: v.expires || null, expired: !!v.expired, matches: v.matches,
   }));
-  writeFileSync(resolve(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
+  writeReport(resolve(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
 
   const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   const impClass = imp => imp === 'critical' ? 'crit' : imp === 'serious' ? 'ser' : imp === 'moderate' ? 'mod' : 'min';
@@ -2064,7 +2138,7 @@ ${ruleRows}
 <h2>Dettaglio violazioni per pagina</h2>
 ${details}
 </body></html>`;
-  writeFileSync(resolve(OUT, 'report.html'), html);
+  writeReport(resolve(OUT, 'report.html'), html);
   return summary;
 }
 
@@ -2111,11 +2185,11 @@ function evaluateGate(results, summary) {
 export {
   analyzeAxTree, analyzeMouseOnly, INIT_SOLO_MOUSE, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
   // pure / helper
-  parseArgs, resolveParam, credsFor, loadTargets,
+  parseArgs, resolveParam, credsFor, loadTargets, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
   // browser
-  harvestLinks, recordScan, runStep, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhExtraHeaders,
+  harvestLinks, recordScan, runStep, selectOption, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhExtraHeaders,
   // reporters + gate
   writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate,
 };

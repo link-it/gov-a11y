@@ -5,14 +5,33 @@
 	solo dopo un caricamento. I percorsi relativi si risolvono sulla directory del config.
 
 	* [gov-a11y]
-	Nuovi step per i <select> nativi: "select" sceglie un'opzione (per valore o testo); "scanOptions" scopre a
-	runtime le opzioni, le sceglie una alla volta e scansiona ogni stato ("skip" per escluderne, "name" come
-	prefisso delle viste).
+	Nuovo step "scanOptions": scopre a runtime le opzioni di un <select> nativo, le sceglie una alla volta e
+	scansiona ogni stato ("skip" per escluderne, "name" come prefisso delle viste).
 
 	* [gov-a11y]
 	Nuova opzione di flow "lighthouse": false. L'audit ricarica la vista con la stessa sessione e, su
 	un'applicazione con token anti-CSRF rinnovato a ogni pagina, faceva rifiutare l'invio successivo del flow.
 	Le viste escluse risultano "escluso" e non contano per "minScore".
+
+2026-10-01  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	I valori con cui un flow compila un modulo possono arrivare da variabili d'ambiente. Nei passi "fill" e nel nuovo
+	passo "select" si dichiara, al posto del valore, il nome della variabile ("env": "A11Y_..."): un codice fiscale o
+	una motivazione, anche se di collaudo, sono dati personali, e il config è versionato e condiviso. Quali variabili
+	servano a un flow si ricava dai suoi passi, senza un elenco da tenere allineato; se ne manca una il flow viene
+	saltato prima del login, così il target continua a girare dove i dati di test non ci sono. I valori letti vengono
+	sostituiti con "***" nei log e in tutti i report, in chiaro e nelle forme codificate per JSON, XML e HTML:
+	l'analisi fotografa la pagina con i campi compilati, e senza questa sostituzione il dato finirebbe nell'albero
+	ARIA e negli estratti di axe. Restano invece nei report, così come sono, i dati che i servizi restituiscono nelle
+	pagine risultati: quei report vanno trattati come sensibili.
+
+	* [gov-a11y]
+	Nuovo passo "select": sceglie un'opzione per testo, su una select nativa o su un componente a tendina
+	(ng-select, combobox ARIA). Se l'opzione non c'è, l'errore elenca quelle disponibili, perché la causa più
+	frequente è un valore scritto in modo diverso. In "fill" e "select" il campo si può indicare per etichetta
+	("label") oltre che per selettore: serve dove l'id è generato a ogni rendering, mentre il nome accessibile resta
+	stabile.
 
 2026-09-29  Andrea Poli <andrea.poli@link.it>
 

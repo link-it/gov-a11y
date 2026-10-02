@@ -24,7 +24,7 @@
 // detailMenu/detailConfig), recurse, scanTabs, scanCharts, recordScan, reporter e gate.
 
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -57,6 +57,14 @@ const ROUTES = {
   '/app/upload': page('Upload', `<h1>Carica</h1><label for="f">Archivio</label><input id="f" type="file"><div id="caricati"></div><script>document.getElementById('f').addEventListener('change', e => { const d = document.createElement('p'); d.id = 'caricato'; d.textContent = e.target.files[0].name; document.getElementById('caricati').append(d); });</script>`),
   '/app/opzioni': page('Opzioni', `<h1>Opzioni</h1><label for="tipo">Tipo</label><select id="tipo"><option value="">--</option><option value="a">Scelta uno</option><option value="b">Scelta due</option></select><div id="esito"></div><script>document.getElementById('tipo').addEventListener('change', e => { document.getElementById('esito').textContent = 'scelto ' + e.target.value; });</script>`),
   '/app/form': page('Form', `<form><input id="q" type="text"><button type="button">Cerca</button></form><div id="risultato">pronto</div>`),
+  // modulo con campo di testo, <select> nativa e combobox ARIA: i valori scelti vengono riportati a schermo
+  '/app/anagrafe': page('Anagrafe', `<h1>Interrogazione</h1>
+    <label for="cf">Codice fiscale</label><input id="cf" type="text">
+    <label for="mot">Motivazione</label><select id="mot"><option>--</option><option>Verifica d'ufficio</option></select>
+    <div id="uff" role="combobox" tabindex="0" aria-label="Ufficio" aria-controls="lst" aria-expanded="false" onclick="document.getElementById('lst').hidden=false">scegli</div>
+    <ul id="lst" role="listbox" aria-label="Uffici" hidden><li role="option" onclick="document.getElementById('uff').textContent=this.textContent;this.parentNode.hidden=true">Ufficio Tributi</li></ul>
+    <button id="vai" type="button" onclick="document.getElementById('esito').textContent='uff='+document.getElementById('uff').textContent+' mot='+document.getElementById('mot').value+' cf='+document.getElementById('cf').value">Esegui</button>
+    <div id="esito"></div>`),
 };
 const server = createServer((req, res) => {
   const path = req.url.split('?')[0];
@@ -85,12 +93,23 @@ writeFileSync(CFG, JSON.stringify({
         { upload: { selector: '#f', files: ['archivio-prova.zip'] }, wait: '#caricato' }, { scan: 'caricato' },
       ] },
       { name: 'opzioni', start: '/app/opzioni', steps: [
-        { select: { selector: '#tipo', label: 'Scelta due' }, wait: '#esito:has-text("scelto b")' }, { scan: 'scelta-singola' },
+        { select: { selector: '#tipo', value: 'Scelta due' }, wait: '#esito:has-text("scelto b")' }, { scan: 'scelta-singola' },
         { scanOptions: { selector: '#tipo', name: 'tipo', skip: '^--$' } },
       ] },
       { name: 'misc', start: '/app/form', steps: [
         { fill: { selector: '#q', value: 'x' } }, { clickText: 'Cerca', wait: '#risultato', delayMs: 50 },
         { scanTabs: '#menuct a' }, { scan: 'form-finale' },
+      ] },
+      // valori da variabili d'ambiente: fill.env, select.env su <select> nativa, select su combobox ARIA
+      { name: 'anagrafe', start: '/app/anagrafe', steps: [
+        { fill: { label: 'Codice fiscale', env: 'A11Y_INT_CF' } },
+        { select: { label: 'Motivazione', labelExact: true, env: 'A11Y_INT_MOT' } },
+        { select: { selector: '#uff', value: 'Tributi' } },
+        { click: '#vai', delayMs: 100 }, { scan: 'esito' },
+      ] },
+      // variabile non impostata: il flow va saltato prima di eseguire qualsiasi passo
+      { name: 'senza-env', start: '/app/anagrafe', steps: [
+        { fill: { selector: '#cf', env: 'A11Y_INT_ASSENTE' } }, { scan: 'mai' },
       ] },
     ],
   },
@@ -98,6 +117,9 @@ writeFileSync(CFG, JSON.stringify({
 
 /* ------------------------- run scan() ------------------------- */
 process.argv = [process.argv[0], process.argv[1], '--base', BASE, '--config', CFG, '--out', OUT, '--no-lighthouse', '--no-screen-reader'];
+process.env.A11Y_INT_CF = 'RSSMRA80A01H501U';
+process.env.A11Y_INT_MOT = "Verifica d'ufficio";
+delete process.env.A11Y_INT_ASSENTE;
 const M = await import('../a11y-scan.mjs');
 
 let failed = 0;
@@ -147,6 +169,17 @@ console.log('— reporter + gate (end-to-end)');
 M.writeAxeJson(results); M.writeSarif(results); M.writeSonar(results); M.writeJUnit(results);
 const summary = M.writeSummaryAndHtml(results, M.writeAriaTrees(results));
 check(existsSync(join(OUT, 'report.html')) && existsSync(join(OUT, 'a11y.sarif')), 'report generati');
+console.log("— valori da variabili d'ambiente (fill.env / select.env)");
+const esito = results.find(r => r.name === 'flow:anagrafe/esito');
+check(!!esito, 'flow con fill.env/select.env eseguito');
+check(!!esito && /uff=Ufficio Tributi/.test(esito.ariaSnapshot || ''), 'select su combobox ARIA: opzione scelta per testo');
+check(!!esito && esito.ariaSnapshot.includes("mot=Verifica d'ufficio"), 'select.env su <select> nativa: opzione scelta dal valore della variabile');
+check(!!esito && esito.ariaSnapshot.includes('cf=RSSMRA80A01H501U'), 'fill.env per label: campo trovato per etichetta e compilato con il valore della variabile');
+check(!hasName('flow:senza-env'), 'flow con variabile mancante saltato');
+const outFiles = readdirSync(OUT, { recursive: true }).filter(f => /\.(json|html|xml|sarif|yaml)$/.test(f));
+const trapela = outFiles.filter(f => { const t = readFileSync(join(OUT, f), 'utf8');
+  return t.includes('RSSMRA80A01H501U') || t.includes("Verifica d'ufficio") || t.includes('Verifica d&apos;ufficio'); });
+check(outFiles.length > 3 && trapela.length === 0, `nessun file di output contiene i valori delle variabili${trapela.length ? ' (trapelano in: ' + trapela.join(', ') + ')' : ''}`);
 check(M.evaluateGate(results, summary).length >= 1, 'gate rileva violazioni (button senza nome)');
 
 console.log('— runLighthouse (audit opzionale: happy-path o fallback null)');
