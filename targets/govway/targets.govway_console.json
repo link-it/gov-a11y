@@ -71,6 +71,36 @@
         ]
       },
       {
+        "name": "importa-archivio",
+        "lighthouse": false,
+        "$lighthouseNote": "Lighthouse ricarica la vista in una scheda separata con la stessa sessione: la console rinnova il token anti-CSRF e l'invio successivo del form verrebbe rifiutato ('Controllo validita' CSRF non superato'), fotografando la pagina d'errore invece del resoconto.",
+        "$note": "Importa (voce di menu): il form vuoto e' gia' coperto da flow:menu/importa; il resoconto esiste solo dopo un import. Il flow carica 'fixtures/govway-tag-esempio.zip' (un archivio con il solo tag 'BB') e lo importa con le opzioni predefinite: senza 'Aggiornamento' un tag gia' presente non viene modificato, quindi le scansioni successive lasciano la configurazione com'e' dopo la prima. Scansiona il form con il file scelto e il resoconto.",
+        "start": "/govwayConsole/",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
+        "steps": [
+          { "click": "a.voceMenuRC[title='Importa']", "wait": "networkidle", "delayMs": 800, "desc": "apri Importa dal menu" },
+          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/govway-tag-esempio.zip"] }, "delayMs": 300, "desc": "scegli l'archivio di prova" },
+          { "scan": "file-scelto" },
+          { "click": ".buttonrowform input[type='submit']", "wait": "networkidle", "delayMs": 1500, "desc": "Importa: esegue l'import e mostra il resoconto" },
+          { "scan": "resoconto" }
+        ]
+      },
+      {
+        "name": "elimina-archivio",
+        "lighthouse": false,
+        "$lighthouseNote": "Lighthouse ricarica la vista in una scheda separata con la stessa sessione: la console rinnova il token anti-CSRF e l'invio successivo del form verrebbe rifiutato ('Controllo validita' CSRF non superato'), fotografando la pagina d'errore invece del resoconto.",
+        "$note": "Elimina (voce di menu): il form vuoto e' gia' coperto da flow:menu/elimina; il resoconto esiste solo dopo un'eliminazione. Usa lo stesso archivio del flow 'importa-archivio', che lo precede: elimina il tag 'BB' appena importato e lascia la configurazione come prima della scansione. Scansiona il form con il file scelto e il resoconto.",
+        "start": "/govwayConsole/",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
+        "steps": [
+          { "click": "a.voceMenuRC[title='Elimina']", "wait": "networkidle", "delayMs": 800, "desc": "apri Elimina dal menu" },
+          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/govway-tag-esempio.zip"] }, "delayMs": 300, "desc": "scegli l'archivio di prova" },
+          { "scan": "file-scelto" },
+          { "click": ".buttonrowform input[type='submit']", "wait": "networkidle", "delayMs": 1500, "desc": "Elimina: rimuove gli oggetti dell'archivio e mostra il resoconto" },
+          { "scan": "resoconto" }
+        ]
+      },
+      {
         "name": "auditing-filtro-date",
         "$note": "Il pannello del datepicker (jQuery UI) e' nel DOM ma nascosto: si apre dando il fuoco al campo, altrimenti axe lo salta e non viene mai esaminato.",
         "start": "/govwayConsole/auditing.do",

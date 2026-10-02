@@ -84,7 +84,7 @@
       }
     ],
     "$pagesRedirectNote": "Alcune pagine (transazioni-live/esitiLive, allarmi-stato/statoAllarmi, allarmi-history/allarmeHistory) possono rimbalzare su welcome.jsf se il relativo modulo non e' abilitato o l'utenza non ha i permessi: il tool le rileva (warning 'redirect') e le salta (dedup su URL effettivo). Restano in lista perche' in ambienti con quei moduli attivi vengono scansionate correttamente.",
-    "$flowsNote": "I flows raggiungono viste NON GET-navigabili (pagine di dettaglio) navigando come un utente: start -> steps (click/fill/wait) -> scan del DOM risultante. Step: {click|clickText|fill|goto, wait:'networkidle'|selettore, delayMs, optional:true=non interrompe il flow se fallisce, timeoutMs, desc}. skipIfMissing: se il selettore-sentinella manca sulla start page (es. lista vuota) il flow viene saltato. Usa SEMPRE selettori stabili (id non-generato, title, testo, classe), MAI id 'j_idNN' generati da JSF.",
+    "$flowsNote": "I flows raggiungono viste NON GET-navigabili (pagine di dettaglio) navigando come un utente: start -> steps (click/fill/wait) -> scan del DOM risultante. Step: {click|clickText|fill|upload|goto, wait:'networkidle'|selettore, delayMs, optional:true=non interrompe il flow se fallisce, timeoutMs, desc}. skipIfMissing: se il selettore-sentinella manca sulla start page (es. lista vuota) il flow viene saltato. Usa SEMPRE selettori stabili (id non-generato, title, testo, classe), MAI id 'j_idNN' generati da JSF.",
     "flows": [
       {
         "name": "transazioni-risultati",
@@ -166,6 +166,230 @@
             },
             "wait": "networkidle",
             "delayMs": 2500
+          }
+        ]
+      },
+      {
+        "name": "transazioni-esamina-archivio",
+        "$note": "Esamina archivio: la ricerca su un export ZIP di transazioni. Lo stato con l'elenco dei file caricati (nome del file + comando di rimozione) esiste solo dopo un caricamento, quindi il flow carica l'archivio di prova 'fixtures/transazioni-esempio.zip' (un export di una sola transazione prodotto dalla testsuite: dati sintetici) e scansiona: form vuoto, form con archivio caricato, risultati dell'analisi e dettaglio della transazione letta dall'archivio, tab per tab. Il percorso del file e' relativo alla directory di questo config.",
+        "start": "/govwayMonitor/transazioni/pages/form/transazioni.jsf",
+        "sourceHint": "tools/web_interfaces/monitor/src/src_core/META-INF/taglib/fileUpload.xhtml",
+        "steps": [
+          { "clickText": "Esamina archivio", "exact": true, "wait": "networkidle", "delayMs": 1500, "desc": "scegli la ricerca 'Esamina archivio'" },
+          { "wait": "input[type='file'][name='theFile']", "timeoutMs": 8000, "desc": "attendi il campo di caricamento" },
+          { "scan": "form" },
+          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/transazioni-esempio.zip"] }, "wait": "a[id*='-delete-cmd_']", "timeoutMs": 15000, "delayMs": 800, "desc": "carica l'archivio di prova: compare la riga del file con il comando di rimozione" },
+          { "scan": "archivio-caricato" },
+          { "click": "#filtra", "wait": "networkidle", "delayMs": 1500, "desc": "Avvia Analisi" },
+          { "wait": "#msgDt_tbl", "timeoutMs": 8000, "desc": "attendi la tabella delle transazioni dell'archivio" },
+          { "scan": "risultati" },
+          { "click": "div.rowTransazione", "wait": "networkidle", "delayMs": 2000, "desc": "apri il dettaglio della transazione" },
+          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1200 }
+        ]
+      },
+      {
+        "name": "ricerche-utente-importa",
+        "$note": "Ricerche Utente (Profilo utente > Ricerche Utente) e il modale 'Importa Ricerche'. L'elenco dei file caricati nel modale esiste solo dopo un caricamento: il flow carica 'fixtures/ricerche-esempio.json' (export di due ricerche statistiche di prova) e scansiona il modale prima e dopo. Il tasto 'Importa' del modale NON viene premuto: salverebbe le ricerche nella base dati.",
+        "start": "/govwayMonitor/core/pages/list/ricercheUtenteList.jsf",
+        "skipIfMissing": "[id$='carica-iconLink']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/core/pages/list/ricercheUtenteList.xhtml",
+        "steps": [
+          { "scan": "lista" },
+          { "click": "[id$='carica-iconLink']", "wait": "input[type='file'][name='theFile']", "timeoutMs": 8000, "delayMs": 800, "desc": "apri il modale 'Importa Ricerche'" },
+          { "scan": "importa" },
+          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/ricerche-esempio.json"] }, "wait": "a[id*='-delete-cmd_']", "timeoutMs": 15000, "delayMs": 800, "desc": "carica il file di prova: compare la riga del file con il comando di rimozione" },
+          { "scan": "file-caricato" }
+        ]
+      },
+      {
+        "name": "modale-salva-ricerca",
+        "$note": "Finestra modale 'Salva Ricerca' (comune a transazioni, eventi, statistiche e allarmi: stesso include salvaRicercaUtenteModale.xhtml). Aperta dal pulsante del filtro di ricerca delle transazioni; il salvataggio NON viene confermato.",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "[id$='salvaRicerca-iconLink']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/commons/includes/salvaRicercaUtenteModale.xhtml",
+        "steps": [
+          {
+            "click": "[id$='salvaRicerca-iconLink']",
+            "wait": "div.rich-mpnl-header:visible",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "apri il modale 'Salva Ricerca'"
+          },
+          {
+            "scan": "modale"
+          }
+        ]
+      },
+      {
+        "name": "modale-esporta-transazioni",
+        "$note": "Finestra modale di esportazione delle transazioni (exportCsvModalPnl): richiede almeno una riga selezionata. Si esegue la ricerca, si seleziona la prima transazione e si apre il modale senza confermare l'esportazione. Il modale si ricostruisce a ogni scelta delle sue tendine: con scanOptions vengono scansionate tutte le opzioni di 'Informazioni Esportate' (con il tipo di documento predefinito; 'Personalizza' mostra la selezione delle colonne) e poi tutte quelle di 'Tipologia di Documento' (es. ZIP mostra tracce, diagnostici e contenuti). Le opzioni non sono cablate: dipendono dalla configurazione.",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/list/transazioni.xhtml",
+        "steps": [
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "input[id$='msgDt_column_ckb']",
+            "timeoutMs": 8000,
+            "desc": "attendi le righe selezionabili"
+          },
+          {
+            "click": "input[id$='msgDt_column_ckb']",
+            "delayMs": 300,
+            "desc": "seleziona la prima transazione"
+          },
+          {
+            "click": "[id$='exportCsv-iconLink']",
+            "wait": "div.rich-mpnl-header:visible",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "apri il modale di esportazione"
+          },
+          {
+            "scanOptions": {
+              "selector": "select[id$='selectTipoColonne']",
+              "name": "colonne"
+            },
+            "wait": "networkidle",
+            "delayMs": 800
+          },
+          {
+            "scanOptions": {
+              "selector": "select[id$='selectTipoExport']",
+              "name": "documento"
+            },
+            "wait": "networkidle",
+            "delayMs": 800
+          }
+        ]
+      },
+      {
+        "name": "modale-nessuna-selezione",
+        "$note": "Finestra modale che avvisa di selezionare almeno un elemento (<tabella>_checkSelection, comune alle tabelle paginate). Si ottiene premendo 'Esporta' nelle Ricerche Utente senza selezionare nulla.",
+        "start": "/govwayMonitor/core/pages/list/ricercheUtenteList.jsf",
+        "skipIfMissing": "[id$='esportaButton-iconLink']",
+        "sourceHint": "tools/web_interfaces/monitor/src/src_core/META-INF/taglib/PagedDataTable.xhtml",
+        "steps": [
+          {
+            "click": "[id$='esportaButton-iconLink']",
+            "wait": "div.rich-mpnl-header:visible",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "Esporta senza selezione"
+          },
+          {
+            "scan": "modale"
+          }
+        ]
+      },
+      {
+        "name": "modale-conferma-eliminazione",
+        "$note": "Finestra modale di conferma dell'eliminazione (<tabella>_deleteConfirmation, comune alle tabelle paginate). Si seleziona la prima ricerca utente e si preme 'Elimina selezionati'; l'eliminazione NON viene confermata.",
+        "start": "/govwayMonitor/core/pages/list/ricercheUtenteList.jsf",
+        "skipIfMissing": "input[id$='tableRicercheUtente_deleteBtn']",
+        "sourceHint": "tools/web_interfaces/monitor/src/src_core/META-INF/taglib/PagedDataTable.xhtml",
+        "steps": [
+          {
+            "click": "input[id$='tableRicercheUtente_column_ckb']",
+            "delayMs": 300,
+            "desc": "seleziona la prima ricerca"
+          },
+          {
+            "click": "input[id$='tableRicercheUtente_deleteBtn']",
+            "wait": "div.rich-mpnl-header:visible",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "Elimina selezionati"
+          },
+          {
+            "scan": "modale"
+          }
+        ]
+      },
+      {
+        "name": "modale-esporta-configurazioni",
+        "$note": "Finestra modale di esportazione delle configurazioni API (exportCsvModalPnl in Configurazione API): l'elenco compare dopo 'Cerca'; si seleziona la prima configurazione e si apre il modale senza confermare. La tendina del tipo di documento non cambia la vista, quindi basta una scansione. Richiede un utente con i permessi sulla pagina. Si entra dalla voce di menu e non dall'URL della pagina: e' la voce di menu a inizializzare la ricerca (profilo di interoperabilita' e tipologia predefiniti); aprendo l'URL direttamente la ricerca resta senza profilo e le righe dell'elenco risultano vuote.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/stat/pages/list/configurazioniGenerali.xhtml",
+        "steps": [
+          {
+            "clickText": "Configurazione API",
+            "exact": true,
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "entra da menu: inizializza la ricerca (profilo e tipologia predefiniti), come fa un utente"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "wait": "input[id$='tableConfigurazioni_column_ckb']",
+            "timeoutMs": 8000,
+            "desc": "attendi l'elenco delle configurazioni"
+          },
+          {
+            "click": "input[id$='tableConfigurazioni_column_ckb']",
+            "delayMs": 300,
+            "desc": "seleziona la prima configurazione"
+          },
+          {
+            "click": "[id$='exportCsv-iconLink']",
+            "wait": "div.rich-mpnl-header:visible",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "apri il modale di esportazione"
+          },
+          {
+            "scan": "modale"
+          }
+        ]
+      },
+      {
+        "name": "modale-stato-api",
+        "$note": "Finestra modale di cambio stato di un'API in Configurazione API (statoToggleModalPnl o statoGruppiModalPnl, secondo i gruppi). Visibile solo con il permesso di operativita' sulle API; il cambio di stato NON viene confermato. Si entra dalla voce di menu e non dall'URL della pagina: e' la voce di menu a inizializzare la ricerca (profilo di interoperabilita' e tipologia predefiniti); aprendo l'URL direttamente la ricerca resta senza profilo e le righe dell'elenco risultano vuote.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/stat/pages/list/configurazioniGenerali.xhtml",
+        "steps": [
+          {
+            "clickText": "Configurazione API",
+            "exact": true,
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "entra da menu: inizializza la ricerca (profilo e tipologia predefiniti), come fa un utente"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "wait": "input[id$='tableConfigurazioni_column_ckb']",
+            "timeoutMs": 8000,
+            "desc": "attendi l'elenco delle configurazioni"
+          },
+          {
+            "wait": "[id$='toggleStato-iconLink']",
+            "timeoutMs": 5000,
+            "desc": "comando di cambio stato (solo con il permesso di operativita' sulle API)"
+          },
+          {
+            "click": "[id$='toggleStato-iconLink']",
+            "wait": "div.rich-mpnl-header:visible",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "apri il cambio di stato della prima API"
+          },
+          {
+            "scan": "modale"
           }
         ]
       },
@@ -254,8 +478,8 @@
         ]
       }
     ],
-    "$mouseOnlyNote": "Eccezioni dichiarate dall'applicazione: gli strati interattivi dei grafici c3 (voci di legenda, che accendono e spengono le serie, e i rettangoli invisibili che intercettano il puntatore) e le tabelle di ombreggiatura dei menu RichFaces ('..._shifted'), che sono decorative e riproducono l'ombra del pannello. Nei grafici il contenuto e' gia' disponibile in forma testuale ('role=img' con la descrizione completa). DECISIONE DA RIVEDERE se la legenda dovesse diventare l'unico modo per filtrare i dati.",
-    "mouseOnlyIgnore": ".c3-legend-item, .c3-event-rect, .c3-chart-arc path, table[id$='_shifted']"
+    "$mouseOnlyNote": "Eccezioni dichiarate dall'applicazione: gli strati interattivi dei grafici c3 (voci di legenda, che accendono e spengono le serie, e i rettangoli invisibili che intercettano il puntatore) e le tabelle di ombreggiatura dei menu RichFaces ('..._shifted'), che sono decorative e riproducono l'ombra del pannello. Nei grafici il contenuto e' gia' disponibile in forma testuale ('role=img' con la descrizione completa). DECISIONE DA RIVEDERE se la legenda dovesse diventare l'unico modo per filtrare i dati. Sono escluse anche l'intestazione e le maniglie dei bordi delle finestre modali RichFaces ('.rich-mpnl-header', '.rich-mpnl-resizer'), che servono solo a spostare e ridimensionare la finestra: e' una comodita' di disposizione, non una funzione, e tutto il contenuto e i comandi della finestra (chiusura compresa, anche con Esc) sono utilizzabili da tastiera.",
+    "mouseOnlyIgnore": ".c3-legend-item, .c3-event-rect, .c3-chart-arc path, table[id$='_shifted'], .rich-mpnl-header, .rich-mpnl-resizer"
   },
   "console": {
     "name": "govwayConsole",
@@ -310,6 +534,36 @@
             "wait": "networkidle",
             "delayMs": 400
           }
+        ]
+      },
+      {
+        "name": "importa-archivio",
+        "lighthouse": false,
+        "$lighthouseNote": "Lighthouse ricarica la vista in una scheda separata con la stessa sessione: la console rinnova il token anti-CSRF e l'invio successivo del form verrebbe rifiutato ('Controllo validita' CSRF non superato'), fotografando la pagina d'errore invece del resoconto.",
+        "$note": "Importa (voce di menu): il form vuoto e' gia' coperto da flow:menu/importa; il resoconto esiste solo dopo un import. Il flow carica 'fixtures/govway-tag-esempio.zip' (un archivio con il solo tag 'BB') e lo importa con le opzioni predefinite: senza 'Aggiornamento' un tag gia' presente non viene modificato, quindi le scansioni successive lasciano la configurazione com'e' dopo la prima. Scansiona il form con il file scelto e il resoconto.",
+        "start": "/govwayConsole/",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
+        "steps": [
+          { "click": "a.voceMenuRC[title='Importa']", "wait": "networkidle", "delayMs": 800, "desc": "apri Importa dal menu" },
+          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/govway-tag-esempio.zip"] }, "delayMs": 300, "desc": "scegli l'archivio di prova" },
+          { "scan": "file-scelto" },
+          { "click": ".buttonrowform input[type='submit']", "wait": "networkidle", "delayMs": 1500, "desc": "Importa: esegue l'import e mostra il resoconto" },
+          { "scan": "resoconto" }
+        ]
+      },
+      {
+        "name": "elimina-archivio",
+        "lighthouse": false,
+        "$lighthouseNote": "Lighthouse ricarica la vista in una scheda separata con la stessa sessione: la console rinnova il token anti-CSRF e l'invio successivo del form verrebbe rifiutato ('Controllo validita' CSRF non superato'), fotografando la pagina d'errore invece del resoconto.",
+        "$note": "Elimina (voce di menu): il form vuoto e' gia' coperto da flow:menu/elimina; il resoconto esiste solo dopo un'eliminazione. Usa lo stesso archivio del flow 'importa-archivio', che lo precede: elimina il tag 'BB' appena importato e lascia la configurazione come prima della scansione. Scansiona il form con il file scelto e il resoconto.",
+        "start": "/govwayConsole/",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
+        "steps": [
+          { "click": "a.voceMenuRC[title='Elimina']", "wait": "networkidle", "delayMs": 800, "desc": "apri Elimina dal menu" },
+          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/govway-tag-esempio.zip"] }, "delayMs": 300, "desc": "scegli l'archivio di prova" },
+          { "scan": "file-scelto" },
+          { "click": ".buttonrowform input[type='submit']", "wait": "networkidle", "delayMs": 1500, "desc": "Elimina: rimuove gli oggetti dell'archivio e mostra il resoconto" },
+          { "scan": "resoconto" }
         ]
       },
       {

@@ -879,6 +879,13 @@ async function runScreenReader(page) {
   return { stops: phrases.length, phrases, roleOnly };
 }
 
+/* Lighthouse escluso per il flow in corso ("lighthouse": false nel flow). L'audit ricarica
+   l'URL della vista in una scheda separata, con la stessa sessione: su un'applicazione che
+   rinnova a ogni pagina un token anti-CSRF, quella ricarica invalida il token del form aperto
+   nella scheda della scansione, e l'invio successivo del flow viene rifiutato. Il flow
+   fotografa allora una pagina d'errore invece della vista che doveva raggiungere. */
+let LH_ESCLUSO_NEL_FLOW = false;
+
 // Esegue axe (e Lighthouse / screen reader) sullo stato CORRENTE del DOM e registra il risultato.
 async function recordScan(browser, page, target, name, pageResults, sourceHint) {
   const url = page.url();
@@ -920,7 +927,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   // verificare, pur essendo coperte dal registro su tutte le altre viste.
   const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   let lhScore = null;
-  if (DO_LH) lhScore = await runLighthouse(browser, url, target, await lhExtraHeaders(page, target));
+  if (DO_LH && !LH_ESCLUSO_NEL_FLOW) lhScore = await runLighthouse(browser, url, target, await lhExtraHeaders(page, target));
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
   // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
@@ -929,7 +936,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   if (DO_SR) sr = await runScreenReader(page);
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, axTree, soloMouse, ariaSnapshot, sr,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, axTree, soloMouse, ariaSnapshot, sr,
   });
   const counts = summarizeImpacts(r.violations);
   const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -1029,11 +1036,35 @@ async function applyWait(page, step) {
   if (step.delayMs) await page.waitForTimeout(step.delayMs);
 }
 
+/* File da caricare in un campo 'input[type=file]'. I percorsi relativi si risolvono sulla
+   directory del config, come per i falsi positivi: l'archivio di prova sta accanto al target
+   che lo usa. Un file mancante ferma lo step con un messaggio chiaro, invece dell'errore
+   generico di Playwright. */
+function risolviFileUpload(upload) {
+  const elenco = [].concat(upload.files ?? upload.file ?? []);
+  if (!elenco.length) throw new Error("step 'upload' senza 'files'");
+  return elenco.map(f => {
+    const percorso = isAbsolute(String(f)) ? String(f) : resolve(dirname(CONFIG), String(f));
+    if (!existsSync(percorso)) throw new Error(`file da caricare non trovato: ${percorso}`);
+    return percorso;
+  });
+}
+
+/* Opzione da scegliere in un <select> nativo: per valore o per testo visibile. Il valore e'
+   stabile ma spesso e' un codice interno; il testo e' quello che l'utente vede. */
+function opzioneDaScegliere(select) {
+  if (select.value !== undefined) return { value: String(select.value) };
+  if (select.label !== undefined) return { label: String(select.label) };
+  throw new Error("step 'select' senza 'value' ne' 'label'");
+}
+
 // Esegue un singolo step di azione di un flow.
 async function runStep(page, step) {
   const to = step.timeoutMs || 8000;
   if (step.goto) await page.goto(BASE + step.goto, { waitUntil: 'domcontentloaded' });
   else if (step.fill) await page.fill(step.fill.selector, step.fill.value, { timeout: to });
+  else if (step.upload) await page.setInputFiles(step.upload.selector, risolviFileUpload(step.upload), { timeout: to });
+  else if (step.select) await page.selectOption(step.select.selector, opzioneDaScegliere(step.select), { timeout: to });
   else if (step.clickText) await page.getByText(step.clickText, { exact: !!step.exact }).first().click({ timeout: to });
   else if (step.click) await page.click(step.click, { timeout: to });
   await applyWait(page, step);
@@ -1044,6 +1075,8 @@ async function runStep(page, step) {
 // sessione, quindi riusare la sessione del BFS falserebbe i flow (es. "Cerca" -> "Nuova Ricerca").
 async function runFlows(browser, target, pageResults) {
   for (const flow of target.flows) {
+    LH_ESCLUSO_NEL_FLOW = flow.lighthouse === false;
+    if (LH_ESCLUSO_NEL_FLOW && DO_LH) console.log(`    flow '${flow.name}': Lighthouse escluso dal config del flow`);
     console.log(`  flow: ${flow.name}`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
@@ -1274,6 +1307,36 @@ async function runFlows(browser, target, pageResults) {
           }
           continue;
         }
+        // Step 'scanOptions': scopre DINAMICAMENTE le opzioni di un <select> nativo, le sceglie una
+        // alla volta e scansiona lo stato che ognuna produce (campi che compaiono o cambiano). Le
+        // opzioni non sono cablate: dipendono spesso dalla configurazione dell'applicazione.
+        // Config: stringa (selettore) | oggetto {selector, name, skip}. 'name' antepone un prefisso
+        // al nome delle viste (utile con piu' select nello stesso flow), 'skip' e' una regex sul
+        // testo delle opzioni da non scegliere (es. il segnaposto '--'). Un'opzione che non si
+        // riesce a scegliere — ad esempio perche' la scelta precedente ha tolto il select — viene
+        // saltata con un avviso.
+        if (step.scanOptions !== undefined) {
+          const cfg = typeof step.scanOptions === 'string' ? { selector: step.scanOptions } : (step.scanOptions || {});
+          const sel = String(cfg.selector || '').trim();
+          if (!sel) { console.warn('    scanOptions: manca il selettore del select — passo saltato'); continue; }
+          const scarta = cfg.skip ? new RegExp(cfg.skip, 'i') : null;
+          const opzioni = await page.$$eval(`${sel} option`, os => os.filter(o => !o.disabled)
+            .map(o => ({ value: o.value, label: (o.textContent || '').trim().replace(/\s+/g, ' ') }))).catch(() => []);
+          if (!opzioni.length) { console.warn(`    scanOptions: nessuna opzione trovata in '${sel}'`); continue; }
+          console.log(`    scanOptions: ${opzioni.length} opzioni scoperte (${sel})`);
+          const prefisso = cfg.name ? `${slug(cfg.name)}-` : '';
+          for (let oi = 0; oi < opzioni.length; oi++) {
+            const o = opzioni[oi];
+            if (scarta && scarta.test(o.label)) continue;
+            try {
+              await page.selectOption(sel, { value: o.value }, { timeout: step.timeoutMs || 8000 });
+              await applyWait(page, step);
+            } catch (e) { console.warn(`    opzione '${o.label}' non selezionabile: ${e.message}`); continue; }
+            await recordScan(browser, page, target, `flow:${flow.name}/${prefisso}${slug(o.label) || `opzione${oi + 1}`}`, pageResults, step.sourceHint || flow.sourceHint);
+            scanned = true;
+          }
+          continue;
+        }
         // Step 'scanMenu': scopre DINAMICAMENTE le voci di uno o piu' menu (selettori in config) e le
         // scansiona. Nessuna label/URL cablata: enumera a runtime cio' che c'e'. Gestisce i dropdown
         // (campo 'open': selettore da cliccare per aprire il menu prima di enumerare/cliccare).
@@ -1424,7 +1487,7 @@ async function runFlows(browser, target, pageResults) {
           }
           continue;
         }
-        const label = step.desc || step.click || step.clickText || step.goto || (step.fill && step.fill.selector) || 'step';
+        const label = step.desc || step.click || step.clickText || step.goto || (step.fill && step.fill.selector) || (step.upload && step.upload.selector) || (step.select && step.select.selector) || 'step';
         try {
           await runStep(page, step);
         } catch (e) {
@@ -1441,6 +1504,7 @@ async function runFlows(browser, target, pageResults) {
       await ctx.close();
     }
   }
+  LH_ESCLUSO_NEL_FLOW = false;
 }
 
 /* ----------------------------- scan ------------------------------------- */
@@ -1828,7 +1892,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.falsePositivesTotal += (pr.falsePositives || []).length;
     const srRoleOnly = pr.sr ? pr.sr.roleOnly.length : 0;
     summary.srRoleOnlyTotal += srRoleOnly;
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, ariaTree: ariaFiles[results.indexOf(pr)] || null });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
     perTarget[pr.targetName] = perTarget[pr.targetName] || [];
     perTarget[pr.targetName].push(pr);
@@ -1852,7 +1916,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     return `<tr><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a></td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
-      <td>${pr.lhScore != null ? (pr.lhScore * 100).toFixed(0) + '%' : '-'}</td>
+      <td>${pr.lhScore != null ? (pr.lhScore * 100).toFixed(0) + '%' : (pr.lhEscluso ? 'escluso' : '-')}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
       <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td>
       <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td></tr>`;
@@ -2022,7 +2086,8 @@ function evaluateGate(results, summary) {
     // summary.lighthouse contiene SOLO le viste con punteggio: se un audit non e' completato la
     // soglia non e' verificabile su quella vista. Passare il gate in quel caso sarebbe un falso ok
     // (con --min-score e tutti gli audit in errore il gate risulterebbe verde).
-    const senzaPunteggio = results.filter(pr => pr.lhScore == null).length;
+    // le viste escluse dal flow ('"lighthouse": false') non hanno punteggio per scelta, non per errore
+    const senzaPunteggio = results.filter(pr => pr.lhScore == null && !pr.lhEscluso).length;
     if (senzaPunteggio) {
       reasons.push(`${senzaPunteggio} viste senza punteggio Lighthouse: soglia --min-score non verificabile (vedi i warning [lighthouse] nel log)`);
     }

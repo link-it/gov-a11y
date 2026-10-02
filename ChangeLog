@@ -1,3 +1,19 @@
+2026-10-01  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Nuovo step "upload": carica uno o più file in un 'input[type=file]', per raggiungere le viste che esistono
+	solo dopo un caricamento. I percorsi relativi si risolvono sulla directory del config.
+
+	* [gov-a11y]
+	Nuovi step per i <select> nativi: "select" sceglie un'opzione (per valore o testo); "scanOptions" scopre a
+	runtime le opzioni, le sceglie una alla volta e scansiona ogni stato ("skip" per escluderne, "name" come
+	prefisso delle viste).
+
+	* [gov-a11y]
+	Nuova opzione di flow "lighthouse": false. L'audit ricarica la vista con la stessa sessione e, su
+	un'applicazione con token anti-CSRF rinnovato a ogni pagina, faceva rifiutare l'invio successivo del flow.
+	Le viste escluse risultano "escluso" e non contano per "minScore".
+
 2026-09-29  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

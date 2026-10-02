@@ -134,7 +134,7 @@ Su un **deploy** statico (senza HMR) puoi lasciare il default `networkidle`.
 Dettagli che si aprono cliccando una riga, tab interne, grafici: si raggiungono con uno
 **script** di passi. Step disponibili (validi anche in `postLogin`):
 
-`goto`, `fill:{selector,value}`, `clickText`(+`exact`), `click`,
+`goto`, `fill:{selector,value}`, `upload:{selector,files}`, `select:{selector,value|label}`, `clickText`(+`exact`), `click`,
 `wait`(`networkidle`|`load`|`domcontentloaded`|un selettore), `delayMs`, `timeoutMs`,
 `optional` (non interrompe il flow), `scan`, `scanTabs`, `scanCharts`.
 

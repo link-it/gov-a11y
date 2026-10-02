@@ -86,6 +86,43 @@
       "verification": "Misurati in pagina (2026-09-28) sulla ricerca transazioni, con il pannello aperto, i colori effettivamente resi: comandi 'Oggi' e 'Pulisci' #46464e su #f6f6fc = 8,68:1; comando di chiusura #000000 su #c2c2ca = 11,86:1; campo della data #3c3c44 su #ffffff = 10,93:1. Da due a quasi tre volte la soglia di 4,5:1.",
       "author": "andrea.poli@link.it",
       "expires": "2027-09-01"
+    },
+    {
+      "id": "lista-di-trasferimento-vuota",
+      "rule": "aria-required-children",
+      "selector": "div.rich-shuttle-list-content[role=\"listbox\"]:not(:has([role=\"option\"]))",
+      "reason": "Le liste del componente listShuttle (es. 'Elementi selezionati' nella selezione delle colonne dell'export) sono 'listbox' le cui opzioni sono le voci presenti. Quando la lista è vuota non contiene opzioni: è lo stato corretto di una lista senza elementi, non un ruolo incompleto. axe non può distinguerlo da una 'listbox' a cui manchino le opzioni per errore e chiede di verificarla. Il selettore copre solo le liste senza alcuna opzione.",
+      "verification": "Verificato in pagina (2026-10-02) su Transazioni > Esporta > Informazioni Esportate 'Personalizza': con la lista di destinazione vuota il contenitore ha role='listbox', aria-multiselectable='true', nome 'Elementi selezionati' e nessun figlio; copiando una colonna compare la riga con role='option' e l'occorrenza sparisce. Le 3 occorrenze del report g32 sono tutte la lista di destinazione vuota delle varianti CSV/XLS dell'export.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-10-01"
+    },
+    {
+      "id": "contenuti-delle-finestre-modali",
+      "rule": "color-contrast",
+      "selector": "div.rich-mpnl-header, div.rich-mpnl-header span, p.legend, .rich-mpnl-body span.output-text-font-weight-bold",
+      "reason": "Barra del titolo delle finestre modali RichFaces, riga 'Note: (*) Campi obbligatori' e testo dei messaggi brevi nelle finestre ('E' necessario selezionare almeno 1 elemento'). La finestra è posizionata sopra la maschera che oscura la pagina, e axe rinuncia a determinare lo sfondo perché vede elementi sovrapposti ('bgOverlap', 'elmPartiallyObscuring'); lo sfondo effettivo è quello dichiarato sulla barra del titolo o il bianco del contenuto della finestra.",
+      "verification": "Misurato in pagina (2026-10-02) sulle finestre 'Importa Ricerche', 'Export Configurazioni', 'Selezione richiesta.' e 'Conferma Operazione': barra del titolo #ffffff su #46464e = 9,35:1 (14px grassetto); 'Note: (*) Campi obbligatori' #000000 su #ffffff = 21:1 (14px); 'E' necessario selezionare almeno 1 elemento.' #000000 su #ffffff = 21:1 (14px grassetto). Confermato dalle schermate fornite. Soglia 4,5:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-10-01"
+    },
+    {
+      "id": "voci-delle-liste-di-trasferimento",
+      "rule": "color-contrast",
+      "selector": "td.rich-shuttle-source-cell, td.rich-shuttle-target-cell",
+      "reason": "Voci delle liste del componente listShuttle (es. la selezione delle colonne dell'export delle transazioni). Ogni cella contiene un'immagine distanziatrice e il contenitore scorrevole le copre in parte: axe rinuncia a determinare lo sfondo ('elmPartiallyObscured'), che è il bianco del contenitore delle voci.",
+      "verification": "Misurato in pagina (2026-10-02) su Transazioni > Esporta > Informazioni Esportate 'Personalizza': voci 'Id Transazione', 'Profilo', 'Esito' #000000 su #ffffff = 21:1 (14px). Confermato dalla schermata fornita. Soglia 4,5:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-10-01"
+    },
+    {
+      "id": "celle-delle-tabelle-sovrapposte",
+      "rule": "color-contrast",
+      "cause": "elmPartiallyObscuring",
+      "selector": "td.rich-table-cell",
+      "reason": "Celle delle tabelle RichFaces che axe vede sovrapposte in parte ad altri elementi (es. la riga 'Correlazione Applicativa Risposta Fallita' della tabella 'Distribuzione per Errori' con visualizzazione 'Tempo Medio Risposta'). Lo sfondo effettivo è quello della riga, bianco o #f6f6fc nelle righe alterne. La voce copre la sola causa 'elmPartiallyObscuring': un contrasto davvero insufficiente e misurabile resterebbe una violazione.",
+      "verification": "Misurato in pagina (2026-10-02) sulle celle delle tabelle RichFaces (elenco Ricerche Utente, stesso componente e stessa classe): testo #46464e su #ffffff = 9,35:1, su #f6f6fc circa 8,6:1 (14px). Confermato dalla schermata del report 'Distribuzione per Errori - Tempo Medio Risposta'. Soglia 4,5:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-10-01"
     }
   ]
 }

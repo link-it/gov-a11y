@@ -130,12 +130,17 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "click": "<selettore CSS>" }` | Click (supporta `:has()`, `:text-is()` di Playwright) |
 | `{ "clickText": "<testo>", "exact": true }` | Click sul primo elemento con quel testo |
 | `{ "fill": { "selector": "…", "value": "…" } }` | Compila un campo |
+| `{ "upload": { "selector": "…", "files": ["…"] } }` | Carica uno o più file in un `input[type=file]`. I percorsi relativi si risolvono sulla directory del config; un file mancante interrompe lo step |
+| `{ "select": { "selector": "…", "value": "…" } }` | Sceglie un'opzione di un `<select>` nativo, per valore (`value`) o per testo visibile (`label`) |
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
 | `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
 | `{ "scanTabs": "<selettore>" }` | Scopre i tab a runtime, clicca e scansiona ognuno |
+| `{ "scanOptions": { "selector": "…", "name": "…", "skip": "<regex>" } }` | Scopre a runtime le opzioni di un `<select>` nativo, le sceglie una alla volta e scansiona lo stato prodotto da ognuna. `name` antepone un prefisso al nome delle viste, `skip` esclude le opzioni il cui testo corrisponde (es. il segnaposto). Accetta anche la sola stringa del selettore |
 | `{ "scanCharts": { … } }` | Enumera icone-report di una griglia, genera e scansiona ognuna |
 | `{ "scanMenu": [ … ] }` | Enumera a runtime le voci di uno o più menù, naviga e scansiona ognuna |
+
+Opzione del flow `"lighthouse": false`: esclude Lighthouse dalle viste di quel flow, che risultano "escluso" nel report e non contano per `minScore`. Serve nei flow che inviano un form protetto da token anti-CSRF: l'audit ricarica la vista in una scheda separata con la stessa sessione, l'applicazione rinnova il token e l'invio successivo del flow viene rifiutato.
 
 Modificatori comuni per ogni step: `delayMs` (attesa extra), `timeoutMs`, `optional: true` (se
 fallisce non interrompe il flow), `desc` (etichetta nei log), `sourceHint`.

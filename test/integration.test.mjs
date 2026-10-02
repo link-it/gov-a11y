@@ -54,6 +54,8 @@ const ROUTES = {
   '/app/wizard': page('Wizard', `<h1>Configurazione</h1><a class="edit-link" title="Controllo Accessi" href="/app/edit">c</a>`),
   '/app/charts': page('Charts', `<h1>Analisi</h1><fieldset><legend>Distribuzione</legend><a class="tipologia-button" href="#"><span>Line chart</span></a></fieldset><input id="generaReport" type="button" value="Genera" onclick="location.href='/app/report'">`),
   '/app/report': page('Report', `<h1>Report generato</h1>${NAMELESS}`),
+  '/app/upload': page('Upload', `<h1>Carica</h1><label for="f">Archivio</label><input id="f" type="file"><div id="caricati"></div><script>document.getElementById('f').addEventListener('change', e => { const d = document.createElement('p'); d.id = 'caricato'; d.textContent = e.target.files[0].name; document.getElementById('caricati').append(d); });</script>`),
+  '/app/opzioni': page('Opzioni', `<h1>Opzioni</h1><label for="tipo">Tipo</label><select id="tipo"><option value="">--</option><option value="a">Scelta uno</option><option value="b">Scelta due</option></select><div id="esito"></div><script>document.getElementById('tipo').addEventListener('change', e => { document.getElementById('esito').textContent = 'scelto ' + e.target.value; });</script>`),
   '/app/form': page('Form', `<form><input id="q" type="text"><button type="button">Cerca</button></form><div id="risultato">pronto</div>`),
 };
 const server = createServer((req, res) => {
@@ -67,6 +69,7 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 /* ------------------------- config sintetico ------------------------- */
 const OUT = mkdtempSync(join(tmpdir(), 'gova11y-int-'));
 const CFG = join(OUT, 'targets.json');
+writeFileSync(join(OUT, 'archivio-prova.zip'), 'PK'); // risolto relativo alla directory del config
 writeFileSync(CFG, JSON.stringify({
   app: {
     name: 'MockApp', enabled: true, loginPath: '/app/', contextPath: '/app/',
@@ -78,6 +81,13 @@ writeFileSync(CFG, JSON.stringify({
       { name: 'menu', start: '/app/home', steps: [{ scanMenu: [{ item: '#menuct a.voceMenuRC', listRow: "[id^='entry_']", recurse: { depth: 2, max: 20 }, detailMenu: { open: '#divIconMenu_barraTitolo', item: '.context-menu a' }, detailConfig: "[id^='form-add-tab-link']" }], wait: 'networkidle', delayMs: 100 }] },
       { name: 'matite', start: '/app/home', steps: [{ scanMenu: [{ item: '#menuct a.voceMenuRC', listRow: "[id^='entry_']", detailEdit: 'a.edit-link' }], wait: 'networkidle', delayMs: 100 }] },
       { name: 'stat', start: '/app/charts', steps: [{ scanCharts: { grid: '/app/charts', icon: 'a.tipologia-button', generate: '#generaReport', label: 'span' }, wait: 'networkidle', delayMs: 100 }] },
+      { name: 'upload', start: '/app/upload', steps: [
+        { upload: { selector: '#f', files: ['archivio-prova.zip'] }, wait: '#caricato' }, { scan: 'caricato' },
+      ] },
+      { name: 'opzioni', start: '/app/opzioni', steps: [
+        { select: { selector: '#tipo', label: 'Scelta due' }, wait: '#esito:has-text("scelto b")' }, { scan: 'scelta-singola' },
+        { scanOptions: { selector: '#tipo', name: 'tipo', skip: '^--$' } },
+      ] },
       { name: 'misc', start: '/app/form', steps: [
         { fill: { selector: '#q', value: 'x' } }, { clickText: 'Cerca', wait: '#risultato', delayMs: 50 },
         { scanTabs: '#menuct a' }, { scan: 'form-finale' },
@@ -124,6 +134,12 @@ console.log('— scanCharts');
 check(hasUrl('/app/report'), 'scanCharts: icona → Genera → report scansionato');
 console.log('— runStep (fill/clickText/wait/scan)');
 check(hasName('flow:misc/form-finale'), 'step misti (fill+clickText+scan) eseguiti');
+console.log('— upload (file relativo al config)');
+check(hasName('flow:upload/caricato'), 'step upload: file caricato e stato successivo scansionato');
+console.log('— select + scanOptions (opzioni scoperte a runtime)');
+check(hasName('flow:opzioni/scelta-singola'), 'step select: opzione scelta per testo e stato scansionato');
+check(hasName('flow:opzioni/tipo-scelta-uno') && hasName('flow:opzioni/tipo-scelta-due'), 'scanOptions: una vista per ogni opzione, con prefisso');
+check(!hasName('flow:opzioni/tipo-opzione1'), "scanOptions: l'opzione esclusa da 'skip' non viene scansionata");
 console.log('— recordScan produce dati a11y');
 check(results.some(r => Array.isArray(r.violations)), 'ogni risultato ha violations[]');
 
