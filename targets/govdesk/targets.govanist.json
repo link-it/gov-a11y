@@ -1,0 +1,138 @@
+{
+  "$app": "GovAnist",
+  "$comment": "GovAnist (ANIST, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis: stessa struttura (libreria core/ui comune), funzione /examine invece di /examiner e quattro tipi di richiesta invece di due. Dev: 'npm run start-govanist-proxy' in govanist-app-v2 -> http://localhost:5213, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5213) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govanist-app/src/app/app.routes.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+
+  "govanist": {
+    "name": "govanist",
+    "enabled": true,
+    "loginPath": "http://localhost:5200/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govanist-app/src/app",
+
+    "$locale": "L'app sceglie la lingua da navigator.language (I18nService, getBrowserLang): il Chromium headless e' in inglese, quindi senza 'locale' si analizzerebbe l'interfaccia inglese. NB: <html lang> resta 'en' anche con l'interfaccia in italiano (difetto app, WCAG 3.1.1).",
+    "$auth": "Login sul realm di GovHub (form, come nel target govhub), poi scelta dell'organizzazione su GovHub. Credenziali MAI qui: env A11Y_GOVANIST_USER / A11Y_GOVANIST_PASS (stessa utenza di GovHub). L'organizzazione NON arriva da GovHub (nessun postMessage fuori dall'iframe): l'app mostra il proprio selettore nel form. Ruoli richiesti dalla rotta /examine (roleGuard): govanist_attendance_examiner (Accertatore Frequenze: iscrizione in corso, stato frequenza anno corrente e precedente) e/o govanist_qualification_examiner (Accertatore Titoli: titoli scolastici); il ruolo decide le voci di 'Tipo di richiesta'.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "GovHub: scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "GovHub: conferma l'organizzazione" }
+      ]
+    },
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+
+    "$pages": "Con STANDALONE: false la rotta / (dashboard) reindirizza alla prima funzione consentita dai ruoli (rootRedirectGuard), cioe' /examine: per questo non e' elencata (verrebbe deduplicata). La dashboard compare solo a un utente senza ruoli ANIST.",
+    "pages": [
+      { "name": "accertamento", "path": "/examine" }
+    ],
+
+    "$flows": "Lighthouse escluso dai flow: ricarica l'URL (/examine) e misurerebbe di nuovo il form vuoto, non lo stato raggiunto dal flow. Solo navigazione: mai stampare (il pulsante Stampa scarica un PDF generato dal backend). I flow accertamento-* ESEGUONO l'interrogazione ANIST, uno per tipo di richiesta (POST /proxy/govanist/attendance/assessment | qualification/assessment | attendance/assessment/missed-current-year | attendance/assessment/previous-year; gli ultimi due leggono anche i decoder degli esiti): chiamano il servizio esterno e lasciano tracce in audit, quindi solo dati di collaudo. CF e motivazione arrivano da A11Y_GOVANIST_CF / A11Y_GOVANIST_MOTIVAZIONE: se mancano il flow viene saltato, e i valori sono mascherati in log e report. I DATI RESTITUITI nella pagina risultati finiscono invece nei report: trattare quell'output come sensibile. Organizzazione e ufficio sono dati di configurazione dell'ente, non personali: scritti qui (se cambiano, aggiornarli). Il campo CF non interroga nulla durante la compilazione.",
+    "flows": [
+      {
+        "name": "accertamento-tendina",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-organization",
+        "sourceHint": "projects/govanist-app/src/app/core/ui/organization-select",
+        "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
+        "steps": [
+          { "click": "#lnk-app-forms-fields-organization", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
+          { "scan": "tendina-organizzazione" }
+        ]
+      },
+      {
+        "name": "ricerca-cf",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-form-fiscal-code button",
+        "sourceHint": "projects/govanist-app/src/app/core/ui/form/fiscal-code-search",
+        "$note": "Dialog 'ricerca del codice fiscale' (lente accanto al campo CF): calcola il CF dai dati anagrafici. Si apre e si analizza, senza compilarlo.",
+        "steps": [
+          { "click": "lnk-form-fiscal-code button", "wait": "mat-dialog-container", "delayMs": 1500, "desc": "apri il dialog di ricerca del CF" },
+          { "scan": "dialog-ricerca-cf" }
+        ]
+      },
+      {
+        "name": "accertamento-iscrizione",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-typeOperations",
+        "sourceHint": "projects/govanist-app/src/app/features/examine",
+        "steps": [
+          { "select": { "selector": "#lnk-app-forms-fields-organization", "value": "Comune DB" }, "delayMs": 2000, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "#lnk-app-forms-fields-office", "value": "Tributi" }, "delayMs": 500, "desc": "ufficio" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVANIST_CF" } },
+          { "fill": { "selector": "#lnk-app-forms-fields-requestReason", "env": "A11Y_GOVANIST_MOTIVAZIONE" } },
+          { "select": { "selector": "#lnk-app-forms-fields-typeOperations", "value": "Iscrizione scolastica in corso" }, "delayMs": 500 },
+          { "scan": "iscrizione-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "lnk-result-display, ui-box-message-error", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "iscrizione-risultati" }
+        ]
+      },
+      {
+        "name": "accertamento-titoli",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-typeOperations",
+        "sourceHint": "projects/govanist-app/src/app/features/examine",
+        "steps": [
+          { "select": { "selector": "#lnk-app-forms-fields-organization", "value": "Comune DB" }, "delayMs": 2000, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "#lnk-app-forms-fields-office", "value": "Tributi" }, "delayMs": 500, "desc": "ufficio" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVANIST_CF" } },
+          { "fill": { "selector": "#lnk-app-forms-fields-requestReason", "env": "A11Y_GOVANIST_MOTIVAZIONE" } },
+          { "select": { "selector": "#lnk-app-forms-fields-typeOperations", "value": "Titoli scolastici ottenuti" }, "delayMs": 500 },
+          { "scan": "titoli-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "lnk-result-display, ui-box-message-error", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "titoli-risultati" }
+        ]
+      },
+      {
+        "name": "accertamento-frequenza-anno-corrente",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-typeOperations",
+        "sourceHint": "projects/govanist-app/src/app/features/examine",
+        "steps": [
+          { "select": { "selector": "#lnk-app-forms-fields-organization", "value": "Comune DB" }, "delayMs": 2000, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "#lnk-app-forms-fields-office", "value": "Tributi" }, "delayMs": 500, "desc": "ufficio" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVANIST_CF" } },
+          { "fill": { "selector": "#lnk-app-forms-fields-requestReason", "env": "A11Y_GOVANIST_MOTIVAZIONE" } },
+          { "select": { "selector": "#lnk-app-forms-fields-typeOperations", "value": "Stato frequenza scolastica - anno corrente" }, "delayMs": 500 },
+          { "scan": "frequenza-corrente-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "lnk-result-display, ui-box-message-error", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "frequenza-corrente-risultati" }
+        ]
+      },
+      {
+        "name": "accertamento-frequenza-anno-precedente",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-typeOperations",
+        "sourceHint": "projects/govanist-app/src/app/features/examine",
+        "steps": [
+          { "select": { "selector": "#lnk-app-forms-fields-organization", "value": "Comune DB" }, "delayMs": 2000, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "#lnk-app-forms-fields-office", "value": "Tributi" }, "delayMs": 500, "desc": "ufficio" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVANIST_CF" } },
+          { "fill": { "selector": "#lnk-app-forms-fields-requestReason", "env": "A11Y_GOVANIST_MOTIVAZIONE" } },
+          { "select": { "selector": "#lnk-app-forms-fields-typeOperations", "value": "Stato frequenza scolastica - anno precedente" }, "delayMs": 500 },
+          { "scan": "frequenza-precedente-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "lnk-result-display, ui-box-message-error", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "frequenza-precedente-risultati" }
+        ]
+      }
+    ]
+  }
+}
