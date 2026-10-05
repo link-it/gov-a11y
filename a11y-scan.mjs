@@ -507,9 +507,19 @@ function credsFor(target) {
   return { user, pass };
 }
 
+/* URL della pagina di login. Il loginPath e' di norma relativo a --base, ma puo' essere un URL
+   assoluto: serve quando il login si fa su un'altra applicazione, come le app GovDesk in sviluppo,
+   ognuna sulla sua porta e autenticate dalla sessione di GovHub (localhost:5200). I cookie
+   dipendono dall'host e non dalla porta, quindi la sessione aperta sull'origine del login vale
+   anche per le pagine scansionate su --base. In quel caso contextPath e pagina di partenza del
+   crawl, che il login relativo forniva per difetto, ricadono sulla radice di --base. */
+const isAbsUrl = p => typeof p === 'string' && /^https?:\/\//i.test(p);
+const absUrl = p => (isAbsUrl(p) ? p : BASE + (p || ''));
+const defaultCtxPath = target => target.contextPath || (isAbsUrl(target.loginPath) ? '/' : target.loginPath) || '/';
+
 async function login(page, target) {
   if (!target.login) return true;   // target senza form: auth via header/SSO
-  const url = BASE + target.loginPath;
+  const url = absUrl(target.loginPath);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   const l = target.login;
   const { user, pass } = credsFor(target);
@@ -1423,7 +1433,7 @@ async function runFlows(browser, target, pageResults) {
           const menus = Array.isArray(raw) ? raw
             : (typeof raw === 'string' ? [{ item: raw }]
               : [{ item: raw.menuItem || raw.item || '#menuct a.voceMenuRC', open: raw.open, listRow: raw.listRow, skip: raw.skip }]);
-          const start = BASE + (flow.start || target.loginPath);
+          const start = flow.start ? BASE + flow.start : absUrl(target.loginPath);
           const to = step.timeoutMs || 8000;
           for (const m of menus) {
             const menuSel = m.item || m.menuItem || '#menuct a.voceMenuRC';
@@ -1471,7 +1481,7 @@ async function runFlows(browser, target, pageResults) {
                   let recOpts = null;
                   if (detailUrl && rec) {
                     recOpts = {
-                      ctxPath: target.contextPath || target.loginPath || '/',
+                      ctxPath: defaultCtxPath(target),
                       skipRe: new RegExp(rec.skip || 'logout|signout|esci|elimina|delete|remove|rimuovi|reset|export|download|salva|annulla', 'i'),
                       tabsSel: rec.tabs === false ? null : (typeof rec.tabs === 'string' ? rec.tabs : '.ui-tabs-nav a'),
                       visited: new Set([normVisit(detailUrl)]),
@@ -1604,7 +1614,7 @@ async function scan() {
 
   for (const target of targets) {
     applyTargetParams(target);   // risolve tags/crawl/lighthouse/screen-reader/... per QUESTO target
-    console.log(`\n== ${target.name} (${BASE}${target.loginPath}) ==`);
+    console.log(`\n== ${target.name} (${absUrl(target.loginPath)}) ==`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     const page = await ctx.newPage();
@@ -1618,10 +1628,10 @@ async function scan() {
     }
 
     // Coda BFS: pagine in config (depth 0, sempre scansionate) + crawl opzionale.
-    const ctxPath = target.contextPath || target.loginPath;
+    const ctxPath = defaultCtxPath(target);
     const configPages = (target.pages || []).map(p => ({ path: p.path, name: p.name, depth: 0 }));
     const queue = [...configPages];
-    if (CRAWL > 0 && queue.length === 0) queue.push({ path: target.loginPath, name: 'landing', depth: 0 });
+    if (CRAWL > 0 && queue.length === 0) queue.push({ path: isAbsUrl(target.loginPath) ? '/' : target.loginPath, name: 'landing', depth: 0 });
     const visited = new Set();
     const scannedFinal = new Set();   // dedup per URL EFFETTIVO (dopo redirect)
     let crawlCount = 0;
@@ -2185,7 +2195,7 @@ function evaluateGate(results, summary) {
 export {
   analyzeAxTree, analyzeMouseOnly, INIT_SOLO_MOUSE, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
   // pure / helper
-  parseArgs, resolveParam, credsFor, loadTargets, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
+  parseArgs, resolveParam, credsFor, loadTargets, isAbsUrl, absUrl, defaultCtxPath, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
   // browser

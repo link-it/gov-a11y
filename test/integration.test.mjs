@@ -68,11 +68,29 @@ const ROUTES = {
 };
 const server = createServer((req, res) => {
   const path = req.url.split('?')[0];
+  // pagina protetta: autenticata solo dal cookie impostato dal server di login, che gira su un'altra porta
+  if (path === '/app2/protetta') {
+    const ok = /(^|;\s*)SESS=ok(;|$)/.test(req.headers.cookie || '');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(page('Protetta', ok ? '<h1>Area riservata</h1>' : '<h1>Non autenticato</h1>'));
+  }
   const html = ROUTES[path] || ROUTES[path + '/'] || page('404', `<h1>404 ${path}</h1>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const BASE = `http://127.0.0.1:${server.address().port}`;
+// server di login su un'altra porta (come GovHub :5200 per le app GovDesk :52xx): imposta il cookie e
+// rimanda alla sua pagina di benvenuto. I cookie dipendono dall'host, non dalla porta.
+const authServer = createServer((req, res) => {
+  const path = req.url.split('?')[0];
+  if (path === '/do-login') { res.writeHead(302, { 'Set-Cookie': 'SESS=ok; Path=/', Location: '/benvenuto' }); return res.end(); }
+  const html = path === '/login'
+    ? `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Login</title></head><body><main><form method="get" action="/do-login"><label>Utente <input name="u"></label><label>Password <input type="password" name="p"></label><button type="submit">Entra</button></form></main></body></html>`
+    : `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Benvenuto</title></head><body><main><h1>Benvenuto</h1></main></body></html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
+});
+await new Promise(r => authServer.listen(0, '127.0.0.1', r));
+const AUTH = `http://127.0.0.1:${authServer.address().port}`;
 
 /* ------------------------- config sintetico ------------------------- */
 const OUT = mkdtempSync(join(tmpdir(), 'gova11y-int-'));
@@ -112,6 +130,12 @@ writeFileSync(CFG, JSON.stringify({
         { fill: { selector: '#cf', env: 'A11Y_INT_ASSENTE' } }, { scan: 'mai' },
       ] },
     ],
+  },
+  // login su un'altra origine (loginPath assoluto), pagine su --base autenticate dal cookie condiviso
+  app2: {
+    name: 'MockApp2', enabled: true, loginPath: `${AUTH}/login`,
+    login: { usernameSelector: "input[name='u']", passwordSelector: "input[name='p']", submitSelector: "button[type='submit']", successUrlIncludes: 'benvenuto' },
+    pages: [{ name: 'protetta', path: '/app2/protetta' }],
   },
 }, null, 2));
 
@@ -176,6 +200,10 @@ check(!!esito && /uff=Ufficio Tributi/.test(esito.ariaSnapshot || ''), 'select s
 check(!!esito && esito.ariaSnapshot.includes("mot=Verifica d'ufficio"), 'select.env su <select> nativa: opzione scelta dal valore della variabile');
 check(!!esito && esito.ariaSnapshot.includes('cf=RSSMRA80A01H501U'), 'fill.env per label: campo trovato per etichetta e compilato con il valore della variabile');
 check(!hasName('flow:senza-env'), 'flow con variabile mancante saltato');
+console.log("— loginPath assoluto (login su un'altra origine)");
+const protetta = results.find(r => r.target === 'app2' && r.url === `${BASE}/app2/protetta`);
+check(!!protetta, 'pagina del target scansionata su --base dopo il login altrove');
+check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'sessione aperta sull\'origine del login valida anche su --base (cookie condiviso)');
 const outFiles = readdirSync(OUT, { recursive: true }).filter(f => /\.(json|html|xml|sarif|yaml)$/.test(f));
 const trapela = outFiles.filter(f => { const t = readFileSync(join(OUT, f), 'utf8');
   return t.includes('RSSMRA80A01H501U') || t.includes("Verifica d'ufficio") || t.includes('Verifica d&apos;ufficio'); });
@@ -189,6 +217,6 @@ const lh = await M.runLighthouse(lhBrowser, `${BASE}/app/home`, {});
 await lhBrowser.close();
 check(lh === null || (typeof lh === 'number' && lh >= 0 && lh <= 1), 'runLighthouse → punteggio 0..1 oppure null (fallback se dep assente)');
 
-server.close();
+server.close(); authServer.close();
 console.log(failed ? `\n❌ integration: ${failed} check falliti` : '\n✅ integration: tutti i check superati');
 process.exit(failed ? 1 : 0);

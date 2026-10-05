@@ -1,3 +1,13 @@
+2026-10-05  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Il "loginPath" di un target puo' essere un URL assoluto: il login avviene su quella pagina, mentre pagine e flow
+	restano relativi a --base. Serve quando l'applicazione da scansionare non ha un login proprio e usa la sessione di
+	un'altra, come le app GovDesk in sviluppo: ognuna gira sulla sua porta e si autentica con la sessione di GovHub
+	(localhost:5200). I cookie dipendono dall'host e non dalla porta, quindi la sessione aperta sull'origine del login
+	vale anche per le pagine scansionate su --base. In quel caso contextPath e pagina di partenza del crawl, che il
+	login relativo forniva per difetto, ricadono sulla radice di --base.
+
 2026-10-01  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

@@ -122,6 +122,14 @@ console.log('— evaluateGate');
 const reasons = M.evaluateGate(RESULTS, summary);
 check(Array.isArray(reasons) && reasons.length >= 1, 'gate fallisce con 1 serious (fail-on=serious di default)');
 
+console.log('— loginPath assoluto (login su un\'altra origine)');
+check(M.isAbsUrl('http://localhost:5200/auth/realmdb') && M.isAbsUrl('https://h/x') && !M.isAbsUrl('/auth') && !M.isAbsUrl(undefined), 'isAbsUrl riconosce solo http(s)://');
+eq(M.absUrl('http://localhost:5200/auth/realmdb'), 'http://localhost:5200/auth/realmdb', 'URL assoluto lasciato com\'e\'');
+check(M.absUrl('/auth').endsWith('/auth') && M.absUrl('/auth').startsWith('http'), 'percorso relativo prefissato con --base');
+eq(M.defaultCtxPath({ loginPath: 'http://localhost:5200/auth/realmdb' }), '/', 'contextPath di default: radice di --base se il login e\' altrove');
+eq(M.defaultCtxPath({ loginPath: '/app/' }), '/app/', 'contextPath di default: loginPath se relativo');
+eq(M.defaultCtxPath({ loginPath: 'http://h/x', contextPath: '/c/' }), '/c/', 'contextPath esplicito vince');
+
 console.log("— valori da variabili d'ambiente (fill.env / select.env)");
 const FLOW_ENV = { steps: [
   { fill: { selector: '#cf', env: 'A11Y_TEST_CF' } },

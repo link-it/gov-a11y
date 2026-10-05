@@ -54,7 +54,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 "console": {
   "name": "govwayConsole",              // etichetta del target nei report
   "enabled": true,                       // false = target saltato
-  "loginPath": "/govwayConsole/",       // path della pagina di login (relativo a --base)
+  "loginPath": "/govwayConsole/",       // path della pagina di login (relativo a --base, o URL assoluto)
   "contextPath": "/govwayConsole/",     // prefisso per il crawl (segue solo link di questo path)
   "sourceHint": "…/loginAS.jsp",        // file sorgente su cui Sonar aggancia (approssimato) le issue
 
@@ -87,6 +87,27 @@ Tutte hanno un default built-in, quindi sono opzionali.
 
 Se il campo utente non viene trovato, il login viene **saltato** (utile se già autenticati/SSO).
 Usa **selettori stabili** (name/id/classe), non id generati dai framework.
+
+#### Login su un'altra applicazione (`loginPath` assoluto)
+
+`loginPath` può essere un URL assoluto (`http://…` / `https://…`): il login avviene su quella
+pagina, le `pages` e i `flows` restano relativi a `--base`. Serve quando l'applicazione da
+scansionare non ha un login proprio e usa la sessione di un'altra, come le app GovDesk in sviluppo:
+ognuna gira sulla sua porta (es. `:5212`) e si autentica con la sessione di GovHub (`:5200`).
+
+```jsonc
+"loginPath": "http://localhost:5200/auth/realmdb",   // login su GovHub
+"login": { "usernameSelector": "#username", "passwordSelector": "#password",
+           "submitSelector": "button[type='submit']", "successUrlIncludes": "select-organization" }
+// --base http://localhost:5212  →  pages e flows sull'app
+```
+
+Funziona perché i cookie dipendono dall'**host** e non dalla porta: la sessione aperta su
+`localhost:5200` viene inviata anche a `localhost:5212`. Su host diversi (es. `app.example.it` e
+`login.example.it`) il cookie non viene condiviso e il login non vale. Con il login altrove,
+`contextPath` e la pagina di partenza del crawl ricadono sulla radice di `--base`; i passi di
+`postLogin` partono dalla pagina in cui il login è terminato (per esempio la scelta
+dell'organizzazione su GovHub).
 
 ### `postLogin.steps[]`
 
