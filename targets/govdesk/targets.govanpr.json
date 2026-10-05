@@ -1,0 +1,149 @@
+{
+  "$app": "GovAnpr",
+  "$comment": "GovAnpr (ANPR, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis per login, lingua e struttura; il form pero' e' proprio di ANPR (form-anpr: organizzazione, ufficio, motivazione, tipo di accertamento/verifica, ID ANPR, data), non quello comune delle altre app. Quattro funzioni: /examiner e /verifier (puntuali, con la pagina /result), /massive-examiner e /massive-verifier (liste dei lotti caricati, dettaglio /:id). Dev: 'npm run start-govanpr-proxy' in govanpr-app-v2 -> http://localhost:5209, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5209) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govanpr-app/src/app/app.routes.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+
+  "govanpr": {
+    "name": "govanpr",
+    "enabled": true,
+    "loginPath": "http://localhost:5200/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govanpr-app/src/app",
+
+    "$locale": "L'app sceglie la lingua da navigator.language (I18nService, getBrowserLang): il Chromium headless e' in inglese, quindi senza 'locale' si analizzerebbe l'interfaccia inglese. NB: <html lang> resta 'en' anche con l'interfaccia in italiano (difetto app, WCAG 3.1.1).",
+    "$auth": "Login sul realm di GovHub (form, come nel target govhub), poi scelta dell'organizzazione su GovHub. Credenziali MAI qui: env A11Y_GOVANPR_USER / A11Y_GOVANPR_PASS (stessa utenza di GovHub). L'organizzazione NON arriva da GovHub (nessun postMessage fuori dall'iframe): l'app mostra il proprio selettore nel form. Ruoli (roleGuard), uno per funzione: govanpr_examiner, govanpr_verifier, govanpr_massive_examiner, govanpr_massive_verifier. L'utente di scansione li ha tutti su Comune DB.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "GovHub: scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "GovHub: conferma l'organizzazione" }
+      ]
+    },
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+
+    "$pages": "Con STANDALONE: false la rotta / (dashboard) reindirizza alla prima funzione consentita dai ruoli (rootRedirectGuard), cioe' /examiner: per questo non e' elencata (verrebbe deduplicata). Le pagine /examiner/result e /verifier/result mostrano l'esito dell'ultima interrogazione: raggiungibili solo dopo un'esecuzione (vedi i flow).",
+    "pages": [
+      { "name": "accertamento", "path": "/examiner" },
+      { "name": "verifica", "path": "/verifier" },
+      { "name": "accertamenti-massivi", "path": "/massive-examiner" },
+      { "name": "verifiche-massive", "path": "/massive-verifier" }
+    ],
+
+    "$flows": "Lighthouse escluso dai flow sul form: ricarica l'URL e misurerebbe la vista di partenza, non lo stato raggiunto dal flow (resta attivo sul dettaglio dei lotti, che ha un URL proprio). Campi del form ANPR: id generati o assenti, quindi agganciati per componente (form-field-anpr-organization-select / -office-select / -reason-select, form-select[formcontrolname=verificationType]); l'ID ANPR ha id stabile #IdANPR_generic. Organizzazione Comune DB, ufficio Tributi, motivazione 'Accertamenti Fiscali': motivazioni e tipi arrivano dal backend e DIPENDONO dall'ufficio (GET /reasons, /use-cases); sono configurazione, non dati personali, quindi scritti qui. Il soggetto si indica con l'ID ANPR e MAI con il CF: un CF viene risolto in ID ANPR chiamando subito il servizio (anpr-service-e002), gia' durante la compilazione; l'ID ANPR ha solo un controllo formale locale. esecuzione-accertamento ESEGUE un accertamento vero ('Accertamento Generalita'', una chiamata): servizio esterno, tracce in audit, solo dati di collaudo; l'ID ANPR arriva da A11Y_GOVANPR_ID_ANPR (flow saltato se manca, valore mascherato); i DATI RESTITUITI finiscono nei report: trattarli come sensibili. La verifica non si esegue: richiederebbe i dati dichiarati di ogni sottomodulo. Solo navigazione: MAI caricare un file nelle funzioni massive (il caricamento crea un lotto, cioe' un'elaborazione vera su tutti i soggetti del file). Il modulo di caricamento e' gia' aperto nella pagina della lista, quindi lo analizza la pagina stessa (cliccare 'Carica file' lo chiuderebbe). Il dettaglio di un lotto si apre dal primo elemento della lista (lnk-item-row button, il nome del file): se la lista e' vuota il flow viene saltato. I lotti sono quelli caricati dagli utenti dell'organizzazione: possono cambiare.",
+    "flows": [
+      {
+        "name": "accertamento-tendina",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "form-field-anpr-organization-select ng-select",
+        "sourceHint": "projects/govanpr-app/src/app/core/ui/ui_anpr/forms/anpr",
+        "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
+        "steps": [
+          { "click": "form-field-anpr-organization-select ng-select", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
+          { "scan": "tendina-organizzazione" }
+        ]
+      },
+      {
+        "name": "accertamento-modulo",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "form-field-anpr-organization-select ng-select",
+        "sourceHint": "projects/govanpr-app/src/app/core/ui/ui_anpr/forms/anpr",
+        "$note": "Il form si apre del tutto solo dopo organizzazione e ufficio: qui si sceglie anche motivazione e tipo, e si analizza il modulo completo (campo ID ANPR, data), SENZA eseguire.",
+        "steps": [
+          { "select": { "selector": "form-field-anpr-organization-select ng-select", "value": "Comune DB", "exact": true }, "delayMs": 2500, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "form-field-anpr-office-select ng-select", "value": "Tributi", "exact": true }, "delayMs": 2500, "desc": "ufficio (carica motivazioni e tipi)" },
+          { "select": { "selector": "form-field-anpr-reason-select ng-select", "value": "Accertamenti Fiscali", "exact": true }, "delayMs": 2500, "desc": "motivazione (dipende dall'ufficio)" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Accertamento Generalità", "exact": true }, "delayMs": 1500 },
+          { "scan": "modulo-completo" }
+        ]
+      },
+      {
+        "name": "verifica-sottomoduli",
+        "start": "/verifier",
+        "lighthouse": false,
+        "skipIfMissing": "form-field-anpr-organization-select ng-select",
+        "sourceHint": "projects/govanpr-app/src/app/core/ui/ui_anpr/forms/verify",
+        "$note": "Ogni tipo di verifica apre un sottomodulo diverso con i dati dichiarati da verificare (generalita', residenza, stato di famiglia, matrimonio, ...): si scelgono uno dopo l'altro e si analizza ognuno, SENZA eseguire. I sottomoduli compaiono solo con un ID ANPR valido: si usa l'ID fittizio '00000001', che il controllo formale (locale, AnprValidatorService) accetta per costruzione e che non identifica nessuno; con un ID non parte alcuna interrogazione ANPR, solo le letture delle decodifiche (comuni, stati esteri, stati civili, legami). Resta valido cambiando tipo. Decesso ed Esistenza in vita non hanno sottomodulo. Se cambia l'elenco dei tipi (GET /use-cases), aggiornarlo qui.",
+        "steps": [
+          { "select": { "selector": "form-field-anpr-organization-select ng-select", "value": "Comune DB", "exact": true }, "delayMs": 2500, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "form-field-anpr-office-select ng-select", "value": "Tributi", "exact": true }, "delayMs": 2500, "desc": "ufficio (carica motivazioni e tipi)" },
+          { "select": { "selector": "form-field-anpr-reason-select ng-select", "value": "Accertamenti Fiscali", "exact": true }, "delayMs": 2500, "desc": "motivazione (dipende dall'ufficio)" },
+          { "fill": { "selector": "#IdANPR_generic", "value": "00000001" }, "delayMs": 1500, "desc": "ID ANPR FITTIZIO (accettato dal controllo formale locale, non e' un soggetto): i sottomoduli compaiono solo con un ID valido" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Cittadinanza", "exact": true }, "delayMs": 1500 },
+          { "scan": "cittadinanza" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Decesso", "exact": true }, "delayMs": 1500 },
+          { "scan": "decesso" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Esistenza in vita", "exact": true }, "delayMs": 1500 },
+          { "scan": "esistenza-in-vita" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Maternità", "exact": true }, "delayMs": 1500 },
+          { "scan": "maternita" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Matrimonio", "exact": true }, "delayMs": 1500 },
+          { "scan": "matrimonio" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Paternità", "exact": true }, "delayMs": 1500 },
+          { "scan": "paternita" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Residenza", "exact": true }, "delayMs": 1500 },
+          { "scan": "residenza" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Stato di Famiglia", "exact": true }, "delayMs": 1500 },
+          { "scan": "stato-di-famiglia" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Stato libero", "exact": true }, "delayMs": 1500 },
+          { "scan": "stato-libero" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Unione civile", "exact": true }, "delayMs": 1500 },
+          { "scan": "unione-civile" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Verifica dichiarazione Vedovanza", "exact": true }, "delayMs": 1500 },
+          { "scan": "vedovanza" }
+        ]
+      },
+      {
+        "name": "esecuzione-accertamento",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "form-field-anpr-organization-select ng-select",
+        "sourceHint": "projects/govanpr-app/src/app/features/examiner",
+        "steps": [
+          { "select": { "selector": "form-field-anpr-organization-select ng-select", "value": "Comune DB", "exact": true }, "delayMs": 2500, "desc": "organizzazione (carica gli uffici)" },
+          { "select": { "selector": "form-field-anpr-office-select ng-select", "value": "Tributi", "exact": true }, "delayMs": 2500, "desc": "ufficio (carica motivazioni e tipi)" },
+          { "select": { "selector": "form-field-anpr-reason-select ng-select", "value": "Accertamenti Fiscali", "exact": true }, "delayMs": 2500, "desc": "motivazione (dipende dall'ufficio)" },
+          { "select": { "selector": "form-select[formcontrolname='verificationType'] ng-select", "value": "Accertamento Generalità", "exact": true }, "delayMs": 1500 },
+          { "fill": { "selector": "#IdANPR_generic", "env": "A11Y_GOVANPR_ID_ANPR" }, "delayMs": 2000, "desc": "ID ANPR (controllo formale locale, dopo 600 ms)" },
+          { "scan": "accertamento-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "app-examiner-result", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "accertamento-risultati" }
+        ]
+      },
+      {
+        "name": "massivo-accertamento-dettaglio",
+        "start": "/massive-examiner",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govanpr-app/src/app/features/massive-examine/examine-detail",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo lotto -> /massive-examiner/:id" },
+          { "scan": "dettaglio-lotto" }
+        ]
+      },
+      {
+        "name": "massivo-verifica-dettaglio",
+        "start": "/massive-verifier",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govanpr-app/src/app/features/massive-verify/verify-detail",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo lotto -> /massive-verifier/:id" },
+          { "scan": "dettaglio-lotto" }
+        ]
+      }
+    ]
+  }
+}
