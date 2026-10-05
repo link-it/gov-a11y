@@ -104,6 +104,8 @@ if (args.help || args.h) {
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
   --no-mouse-only     Disabilita il controllo dei comandi utilizzabili col solo mouse
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
+  --locale <tag>      Lingua del browser (es. it-IT): navigator.language e Accept-Language. Le app che
+                      scelgono la lingua dal browser si mostrano come la vedono i loro utenti
   --product-version <v>  Versione del prodotto in prova (o env A11Y_PRODUCT_VERSION). Dichiarativa:
                       compare nel report e in summary.json, cosi' l'esito e' riferibile a una versione
   --insecure          Ignora errori certificato HTTPS (default true)
@@ -115,7 +117,7 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnScreenReader, minScore, noFlows, insecure, productVersion.
+  failOnMouseOnly, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -199,6 +201,12 @@ const PRODUCT_VERSION = (() => {
 let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
+/* Lingua del browser. Molte SPA scelgono la lingua dell'interfaccia da navigator.language, e il
+   Chromium di CI e' in inglese: senza indicarla si analizzerebbe una variante che gli utenti non
+   vedono. Per-target nel context; quella globale (CLI o defaults) anche all'avvio del browser,
+   perche' la scheda di Lighthouse vive nel context di default e non eredita quella del target. */
+const LOCALE_GLOBALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, null, 'locale', null);
+let LOCALE = LOCALE_GLOBALE;
 /* '--no-lighthouse' vince su 'minScore': senza questa precedenza la sola presenza della soglia nel
    config riaccenderebbe l'audit, e una scansione rapida in CI durerebbe quanto una completa. */
 let DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, null, 'lighthouse', false) || MIN_SCORE !== null);
@@ -219,6 +227,7 @@ function applyTargetParams(target) {
   DO_SR = !!resolveParam(CLI_SR, target, 'screenReader', false);
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
+  LOCALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, target, 'locale', null);
   DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null);
   /* Controllo dei comandi utilizzabili col solo mouse: attivo salvo diversa indicazione.
      Le eccezioni sono un fatto dell'APPLICAZIONE, non dello strumento: si dichiarano nel
@@ -594,28 +603,79 @@ function normalizeLinks(hrefs, contextPath) {
 // errore" (altrimenti si vedono solo lhScore: null e sembra un problema di installazione).
 let _lhOk = 0, _lhFail = 0, _lhFirstErr = null;
 
-// Header per la tab di Lighthouse. La tab aperta via CDP vive nel context DI DEFAULT del browser,
-// mentre la scansione naviga in un browser context ISOLATO (browser.newContext()): i cookie di
-// sessione NON sono condivisi, quindi senza questo passaggio Lighthouse vede la pagina non
-// autenticata (login/errore applicativo) e la run non produce punteggio.
-async function lhExtraHeaders(page, target) {
+// Porta CDP su cui il browser della scansione si apre a Lighthouse (vedi scan()).
+const LH_PORT = 9222;
+
+/* Sessione per la tab di Lighthouse. La tab aperta via CDP vive nel context DI DEFAULT del
+   browser, mentre la scansione naviga in un browser context ISOLATO (browser.newContext()): la
+   sessione NON e' condivisa, e senza questo passaggio Lighthouse misura la pagina che l'app
+   mostra a chi non e' autenticato (login, scelta dell'organizzazione), presentandola come la vista.
+   Ci si collega al context di default via CDP e vi si porta:
+   - i COOKIE, ciascuno con il suo dominio e il suo path. Spediti come header 'Cookie' fisso
+     valevano solo quelli del path della pagina: il cookie di sessione di GovHub ha path
+     /govhub-reverse-proxy, restava fuori, il backend rispondeva 403 e l'app rimandava al login.
+     E solo i cookie veri sono leggibili dalla pagina (document.cookie), come il token XSRF;
+   - lo SESSION STORAGE dell'origine della vista, con uno script d'avvio: vale per singola
+     scheda, e quella di Lighthouse e' nuova. GovHub vi tiene l'organizzazione scelta: senza,
+     ogni vista rimanda alla scelta dell'organizzazione.
+   Restituisce gli header per Lighthouse e 'rilascia', da chiamare dopo la run: toglie lo script,
+   che altrimenti resterebbe attivo per le viste successive. */
+const _lhDefault = new Map();   // porta CDP -> context di default (connessione riusata)
+async function lhContextDefault(port) {
+  if (!_lhDefault.has(port)) {
+    // connessione persa (browser chiuso, nuova scansione nello stesso processo): la si riapre alla prossima vista
+    _lhDefault.set(port, chromium.connectOverCDP(`http://127.0.0.1:${port}`).then(b => {
+      b.on('disconnected', () => _lhDefault.delete(port));
+      return b.contexts()[0];
+    }));
+  }
+  try { return await _lhDefault.get(port); } catch (e) { _lhDefault.delete(port); throw e; }
+}
+async function lhPreparaSessione(page, target, port = LH_PORT) {
   const headers = { ...(target?.extraHTTPHeaders || {}) };
+  let script = null;
   try {
-    const cookies = await page.context().cookies(page.url());
-    if (cookies.length) headers.Cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-  } catch { /* senza cookie LH vedra' la pagina non autenticata: lo dira' il runtimeError */ }
-  return Object.keys(headers).length ? headers : undefined;
+    const def = await lhContextDefault(port);
+    const cookies = await page.context().cookies();
+    if (cookies.length) await def.addCookies(cookies);
+    const ss = await page.evaluate(() => ({ origin: location.origin, items: Object.fromEntries(Object.entries(sessionStorage)) })).catch(() => null);
+    if (ss && Object.keys(ss.items).length) {
+      script = await def.addInitScript(({ origin, items }) => {
+        if (location.origin !== origin) return;
+        for (const [k, v] of Object.entries(items)) sessionStorage.setItem(k, v);
+      }, ss);
+    }
+  } catch (e) {
+    // ripiego: l'header con i cookie del path della pagina (copre le app con un solo cookie a path /)
+    console.warn(`  [lighthouse] sessione non copiata (${e.message}): uso l'header Cookie`);
+    try {
+      const cookies = await page.context().cookies(page.url());
+      if (cookies.length) headers.Cookie = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+    } catch { /* senza cookie LH vedra' la pagina non autenticata: lo dira' lo scarto del punteggio */ }
+  }
+  return {
+    headers: Object.keys(headers).length ? headers : undefined,
+    rilascia: async () => { if (script) await script.dispose().catch(() => {}); },
+  };
+}
+
+// true se i due URL indicano la stessa vista (frammento e '/' finale a parte); null se non leggibili.
+function lhStessaVista(a, b) {
+  try {
+    const n = u => { const x = new URL(u); return x.origin + x.pathname.replace(/\/+$/, '') + x.search; };
+    return n(a) === n(b);
+  } catch { return null; }
 }
 
 async function runLighthouse(browser, url, target, extraHeaders) {
   try {
     const { default: lighthouse } = await import('lighthouse');
-    // Il browser e' lanciato con --remote-debugging-port=9222 (vedi scan()).
+    // Il browser e' lanciato con --remote-debugging-port=LH_PORT (vedi scan()).
     // Usiamo il modulo lighthouse grezzo: apre una tab sullo stesso browser (CDP),
-    // quindi con disableStorageReset condivide localStorage e con extraHeaders porta i cookie di
-    // sessione (vedi lhExtraHeaders) e l'eventuale header di auth del target.
+    // quindi con disableStorageReset condivide localStorage e conserva i cookie di sessione
+    // copiati da lhPreparaSessione; extraHeaders porta l'eventuale header di auth del target.
     const runner = await lighthouse(url, {
-      port: 9222,
+      port: LH_PORT,
       output: 'json',
       logLevel: 'error',
       onlyCategories: ['accessibility'],
@@ -641,6 +701,16 @@ async function runLighthouse(browser, url, target, extraHeaders) {
       _lhFail++;
       if (!_lhFirstErr) _lhFirstErr = 'run completata senza punteggio accessibility';
       console.warn(`  [lighthouse] nessun punteggio accessibility su ${url}${lhr?.finalDisplayedUrl ? ` (url finale: ${lhr.finalDisplayedUrl})` : ''}`);
+      return null;
+    }
+    /* La vista arriva qui gia' risolta (url effettivo dopo i redirect): se Lighthouse finisce
+       altrove, di norma e' stato rimandato al login, e il punteggio sarebbe quello di un'altra
+       pagina presentato come se fosse di questa. Lo si scarta, e lo si dice. */
+    const finale = lhr?.finalDisplayedUrl;
+    if (finale && lhStessaVista(finale, url) === false) {
+      _lhFail++;
+      if (!_lhFirstErr) _lhFirstErr = `misurata un'altra pagina (${finale} invece di ${url}): sessione non arrivata a Lighthouse?`;
+      console.warn(`  [lighthouse] punteggio scartato: misurata ${finale} invece di ${url}`);
       return null;
     }
     _lhOk++;
@@ -937,7 +1007,11 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   // verificare, pur essendo coperte dal registro su tutte le altre viste.
   const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   let lhScore = null;
-  if (DO_LH && !LH_ESCLUSO_NEL_FLOW) lhScore = await runLighthouse(browser, url, target, await lhExtraHeaders(page, target));
+  if (DO_LH && !LH_ESCLUSO_NEL_FLOW) {
+    const sessione = await lhPreparaSessione(page, target);
+    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); }
+    finally { await sessione.rilascia(); }
+  }
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
   // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
@@ -1162,7 +1236,7 @@ async function runFlows(browser, target, pageResults) {
       console.warn(`    flow '${flow.name}' saltato: variabili d'ambiente mancanti ${envMancanti.join(', ')}`);
       continue;
     }
-    const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
+    const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     const page = await ctx.newPage();
     try {
@@ -1607,15 +1681,15 @@ async function scan() {
 
   mkdirSync(OUT, { recursive: true });   // solo dopo i controlli: niente directory report a vuoto
   const browser = await chromium.launch({
-    args: anyLh ? ['--remote-debugging-port=9222'] : [],
+    args: [...(anyLh ? [`--remote-debugging-port=${LH_PORT}`] : []), ...(LOCALE_GLOBALE ? [`--lang=${LOCALE_GLOBALE}`] : [])],
   });
 
   const pageResults = [];   // { target, name, url, violations:[axe], lhScore }
 
   for (const target of targets) {
     applyTargetParams(target);   // risolve tags/crawl/lighthouse/screen-reader/... per QUESTO target
-    console.log(`\n== ${target.name} (${absUrl(target.loginPath)}) ==`);
-    const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined });
+    console.log(`\n== ${target.name} (${absUrl(target.loginPath)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
+    const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     const page = await ctx.newPage();
 
@@ -2199,7 +2273,7 @@ export {
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
   // browser
-  harvestLinks, recordScan, runStep, selectOption, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhExtraHeaders,
+  harvestLinks, recordScan, runStep, selectOption, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
   // reporters + gate
   writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate,
 };

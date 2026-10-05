@@ -43,6 +43,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Si applica **solo** agli `incomplete`. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
+| `locale` | stringa | — | Lingua del browser, es. `"it-IT"` (equiv. CLI `--locale`): imposta `navigator.language` e `Accept-Language`. Serve alle app che scelgono la lingua dell'interfaccia dal browser: il Chromium di CI è in inglese, e senza `locale` si analizzerebbe una variante che gli utenti non vedono. Per-target; quello globale (CLI o `defaults`) vale anche per la scheda di Lighthouse, che non eredita quello del target |
 | `productVersion` | stringa | — | Versione del prodotto in prova, riportata nel report e in `summary.json` — **globale** (equiv. CLI `--product-version`, env `A11Y_PRODUCT_VERSION`). Dichiarativa: nessuno strumento esterno può dedurla |
 
 > `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il

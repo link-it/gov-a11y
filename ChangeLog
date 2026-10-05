@@ -1,6 +1,23 @@
 2026-10-05  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]
+	Lighthouse misura la vista autenticata e non la pagina di login. La sua scheda vive nel context di default del
+	browser, separato da quello della scansione, e finora riceveva la sessione come header "Cookie" con i soli cookie
+	del path della pagina: un cookie di sessione su un altro path (GovHub: JSESSIONID su /govhub-reverse-proxy)
+	restava fuori, il backend rispondeva 403 e l'app rimandava al login, che era quanto Lighthouse valutava. Ora i
+	cookie vengono copiati nel context di default, ognuno con il suo dominio e il suo path, insieme al sessionStorage
+	dell'origine della vista, che la scheda nuova di Lighthouse avrebbe vuoto (GovHub vi tiene l'organizzazione
+	scelta). Se Lighthouse finisce comunque su un'altra pagina il punteggio viene scartato e segnalato, invece di
+	essere attribuito alla vista. I punteggi Lighthouse dei report precedenti delle applicazioni con la sessione su
+	un path diverso da quello delle pagine vanno ricalcolati.
+
+	* [gov-a11y]
+	Nuova opzione "locale" (nel target, nei defaults o da CLI con --locale): la lingua del browser, cioe'
+	navigator.language e Accept-Language. Le applicazioni che scelgono la lingua dell'interfaccia dal browser, come
+	le app GovDesk, nel Chromium di CI si mostravano in inglese, una variante che i loro utenti non vedono. Quella
+	globale vale anche per la scheda di Lighthouse.
+
+	* [gov-a11y]
 	Il "loginPath" di un target puo' essere un URL assoluto: il login avviene su quella pagina, mentre pagine e flow
 	restano relativi a --base. Serve quando l'applicazione da scansionare non ha un login proprio e usa la sessione di
 	un'altra, come le app GovDesk in sviluppo: ognuna gira sulla sua porta e si autentica con la sessione di GovHub

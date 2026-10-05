@@ -76,7 +76,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
 | `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
-| `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve i **cookie di sessione** del context di scansione (header `Cookie`) e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate |
+| `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve una copia dei **cookie di sessione** del context di scansione (ognuno col suo path) e del suo `sessionStorage`, e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate. Se Lighthouse finisce su un'altra pagina (es. rimandato al login) il punteggio viene scartato e segnalato |
 | `--min-score <0..1>` | — | Gate Lighthouse (implica `--lighthouse`) |
 | `--crawl <n>` / `--crawl-depth <d>` | `0` / `2` | Dopo il login, scopre e scansiona fino a n pagine (BFS) oltre quelle in config |
 | `--no-flows` | off | Non eseguire i flows scriptati |
@@ -84,11 +84,12 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--no-lighthouse` / `--no-screen-reader` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
 | `--product-version <v>` | — | Versione del prodotto in prova (anche env `A11Y_PRODUCT_VERSION`): dichiarativa, compare nel report e in `summary.json` |
 | `--insecure` | on | Ignora errori certificato HTTPS |
+| `--locale <tag>` | — | Lingua del browser (es. `it-IT`): `navigator.language` e `Accept-Language`. Per le app che scelgono la lingua dal browser, che altrimenti si vedrebbero in inglese |
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
 > **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `failOn`,
-> `failOnNameless`, `minScore`, `noFlows`, `insecure`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
+> `failOnNameless`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
 > [`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md).

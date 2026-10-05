@@ -74,6 +74,11 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(page('Protetta', ok ? '<h1>Area riservata</h1>' : '<h1>Non autenticato</h1>'));
   }
+  // lingua del browser a schermo: verifica che il 'locale' del target arrivi alla pagina
+  if (path === '/app2/lingua') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(page('Lingua', `<h1>Lingua</h1><p id="lingua"></p><script>document.getElementById('lingua').textContent = 'lingua=' + navigator.language;</script>`));
+  }
   const html = ROUTES[path] || ROUTES[path + '/'] || page('404', `<h1>404 ${path}</h1>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
 });
@@ -135,7 +140,9 @@ writeFileSync(CFG, JSON.stringify({
   app2: {
     name: 'MockApp2', enabled: true, loginPath: `${AUTH}/login`,
     login: { usernameSelector: "input[name='u']", passwordSelector: "input[name='p']", submitSelector: "button[type='submit']", successUrlIncludes: 'benvenuto' },
-    pages: [{ name: 'protetta', path: '/app2/protetta' }],
+    locale: 'it-IT',
+    pages: [{ name: 'protetta', path: '/app2/protetta' }, { name: 'lingua', path: '/app2/lingua' }],
+    flows: [{ name: 'lingua', start: '/app2/lingua', steps: [{ scan: 'lingua' }] }],
   },
 }, null, 2));
 
@@ -204,6 +211,11 @@ console.log("— loginPath assoluto (login su un'altra origine)");
 const protetta = results.find(r => r.target === 'app2' && r.url === `${BASE}/app2/protetta`);
 check(!!protetta, 'pagina del target scansionata su --base dopo il login altrove');
 check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'sessione aperta sull\'origine del login valida anche su --base (cookie condiviso)');
+console.log('— locale del target (lingua del browser)');
+const lingua = results.find(r => r.target === 'app2' && r.name === 'lingua');
+check(!!lingua && /lingua=it-IT/.test(lingua.ariaSnapshot || ''), "pagine: la pagina vede navigator.language = 'locale' del target");
+const linguaFlow = results.find(r => r.name === 'flow:lingua/lingua');
+check(!!linguaFlow && /lingua=it-IT/.test(linguaFlow.ariaSnapshot || ''), "flow: anche il context del flow usa il 'locale' del target");
 const outFiles = readdirSync(OUT, { recursive: true }).filter(f => /\.(json|html|xml|sarif|yaml)$/.test(f));
 const trapela = outFiles.filter(f => { const t = readFileSync(join(OUT, f), 'utf8');
   return t.includes('RSSMRA80A01H501U') || t.includes("Verifica d'ufficio") || t.includes('Verifica d&apos;ufficio'); });
@@ -214,7 +226,26 @@ console.log('— runLighthouse (audit opzionale: happy-path o fallback null)');
 const { chromium } = await import('playwright');
 const lhBrowser = await chromium.launch({ args: ['--remote-debugging-port=9223'] });
 const lh = await M.runLighthouse(lhBrowser, `${BASE}/app/home`, {});
-await lhBrowser.close();
+// sessione per la tab di Lighthouse: i cookie vanno nel context di default con il LORO path (il
+// cookie di sessione di GovHub ha path /govhub-reverse-proxy, diverso da quello della pagina)
+const ctxSess = await lhBrowser.newContext();
+await ctxSess.addCookies([{ name: 'SESS', value: 'ok', domain: '127.0.0.1', path: '/api2', httpOnly: true }, { name: 'XSRF', value: 't', domain: '127.0.0.1', path: '/' }]);
+const pSess = await ctxSess.newPage(); await pSess.goto(`${BASE}/app2/lingua`);
+await pSess.evaluate(() => sessionStorage.setItem('org', '44'));
+const sess = await M.lhPreparaSessione(pSess, {}, 9223);
+const cdpLh = await chromium.connectOverCDP('http://127.0.0.1:9223');
+const nelDefault = await cdpLh.contexts()[0].cookies(`${BASE}/api2/chi`);
+// una scheda nuova del context di default (come quella di Lighthouse) trova lo sessionStorage della vista
+const leggiOrg = async () => { const t = await cdpLh.contexts()[0].newPage(); await t.goto(`${BASE}/app2/lingua`);
+  const v = await t.evaluate(() => sessionStorage.getItem('org')); await t.close(); return v; };
+const orgPrima = await leggiOrg();
+await sess.rilascia();
+const orgDopo = await leggiOrg();
+await cdpLh.close(); await lhBrowser.close();
+check(nelDefault.some(c => c.name === 'SESS' && c.path === '/api2' && c.httpOnly) && nelDefault.some(c => c.name === 'XSRF'), 'lhPreparaSessione: cookie copiati nel context di Lighthouse con path e httpOnly');
+check(!sess.headers?.Cookie, "lhPreparaSessione: nessun header 'Cookie' fisso (i cookie sono veri)");
+check(orgPrima === '44', 'lhPreparaSessione: la scheda nuova di Lighthouse trova lo sessionStorage della vista');
+check(orgDopo === null, 'rilascia(): lo script tolto non vale per le viste successive');
 check(lh === null || (typeof lh === 'number' && lh >= 0 && lh <= 1), 'runLighthouse → punteggio 0..1 oppure null (fallback se dep assente)');
 
 server.close(); authServer.close();

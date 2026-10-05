@@ -130,6 +130,13 @@ eq(M.defaultCtxPath({ loginPath: 'http://localhost:5200/auth/realmdb' }), '/', '
 eq(M.defaultCtxPath({ loginPath: '/app/' }), '/app/', 'contextPath di default: loginPath se relativo');
 eq(M.defaultCtxPath({ loginPath: 'http://h/x', contextPath: '/c/' }), '/c/', 'contextPath esplicito vince');
 
+console.log('— Lighthouse: la pagina misurata e\' quella richiesta');
+check(M.lhStessaVista('http://h:1/examiner', 'http://h:1/examiner/') === true, "stessa vista: '/' finale ignorato");
+check(M.lhStessaVista('http://h:1/#/servizi', 'http://h:1/#/adesioni') === true, 'frammento ignorato (rotte a hash: nessuno scarto indebito)');
+check(M.lhStessaVista('http://h:1/auth/login', 'http://h:1/profile') === false, 'rimandato al login: vista diversa');
+check(M.lhStessaVista('http://h:2/x', 'http://h:1/x') === false, 'porta diversa: vista diversa');
+check(M.lhStessaVista('non-url', 'http://h/x') === null, 'URL non leggibile: nessun giudizio');
+
 console.log("— valori da variabili d'ambiente (fill.env / select.env)");
 const FLOW_ENV = { steps: [
   { fill: { selector: '#cf', env: 'A11Y_TEST_CF' } },

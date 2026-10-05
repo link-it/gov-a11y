@@ -68,8 +68,16 @@ exit code **2**:
 Lighthouse non usa la pagina della scansione: apre una **propria tab** via CDP (porta 9222) nel
 context di default del browser, mentre la scansione naviga in un `browser.newContext()` isolato. I
 cookie di sessione non sono condivisi per costruzione: il tool li rilegge dal context corrente e li
-passa a Lighthouse come header `Cookie` (insieme agli `extraHTTPHeaders` del target), altrimenti la
-console risponde con la pagina di login o un errore applicativo e l'audit non produce punteggio.
+**copia nel context di default**, ciascuno con il suo dominio e il suo path (gli `extraHTTPHeaders` del
+target arrivano come header), altrimenti la console risponde con la pagina di login o un errore
+applicativo. Copiarli, invece di spedirli come header `Cookie` fisso, conta quando il cookie di
+sessione ha un path diverso da quello della pagina (GovHub: `JSESSIONID` su `/govhub-reverse-proxy`) o
+quando la pagina deve leggerli (token XSRF da `document.cookie`). Anche lo **`sessionStorage`**
+dell'origine della vista viene riportato nella tab di Lighthouse, che è nuova e lo avrebbe vuoto (GovHub
+vi tiene l'organizzazione scelta: senza, ogni vista rimanderebbe alla scelta dell'organizzazione).
+
+Se Lighthouse finisce comunque su un'altra pagina — di norma il login — il punteggio misurerebbe
+quella: viene **scartato** e segnalato (`punteggio scartato: misurata … invece di …`).
 
 Una run Lighthouse che non riesce a caricare la pagina **non solleva un'eccezione**: completa con
 `lhr.runtimeError` e `score: null`. Questi casi vengono ora segnalati per vista con il codice

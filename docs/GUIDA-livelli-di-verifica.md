@@ -130,9 +130,11 @@ contrattuale.
 lanciato con `--remote-debugging-port=9222`; Lighthouse **non riusa la pagina** della scansione, apre
 una propria tab via CDP nel context di default del browser. Poiché la scansione naviga in un
 `browser.newContext()` isolato, i cookie di sessione non sarebbero condivisi: il tool li rilegge dal
-context corrente e li passa a Lighthouse come header `Cookie`, insieme agli `extraHTTPHeaders` del
-target. Senza questo, su una console autenticata Lighthouse analizzerebbe la pagina di login o un
-errore applicativo.
+context corrente e li copia nel context di default, ognuno col suo path, insieme allo `sessionStorage`
+della vista; gli `extraHTTPHeaders` del
+target arrivano come header. Senza questo, su una console autenticata Lighthouse analizzerebbe la
+pagina di login o un errore applicativo; se succede comunque (Lighthouse finisce su un'altra
+pagina), il punteggio viene scartato e segnalato.
 
 **Quando non produce punteggio**: una run Lighthouse che non riesce a caricare la pagina **non
 solleva un'eccezione**, completa con `lhr.runtimeError` e `score: null`. Questi casi sono segnalati
