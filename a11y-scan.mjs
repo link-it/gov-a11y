@@ -1218,6 +1218,12 @@ async function runStep(page, step) {
   else if (step.select) await selectOption(page, step.select, to);
   else if (step.clickText) await page.getByText(step.clickText, { exact: !!step.exact }).first().click({ timeout: to });
   else if (step.click) await page.click(step.click, { timeout: to });
+  /* Messaggio alla finestra della pagina, come lo invierebbe la shell che ospita l'app in un
+     iframe. Un'app incorporata (es. le app GovDesk dentro GovHub) puo' ricevere dalla shell
+     dati di contesto, come l'organizzazione scelta, che fuori dall'iframe non arrivano mai:
+     scansionata sulla sua porta resterebbe ferma sullo stato "in attesa". Funziona con le app
+     che non verificano la provenienza del messaggio. */
+  else if (step.postMessage !== undefined) await page.evaluate(m => window.postMessage(m, '*'), step.postMessage);
   await applyWait(page, step);
 }
 

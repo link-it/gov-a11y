@@ -149,12 +149,13 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | Step | Effetto |
 |---|---|
 | `{ "goto": "<path>" }` | Naviga a un URL |
-| `{ "click": "<selettore CSS>" }` | Click (supporta `:has()`, `:text-is()` di Playwright) |
+| `{ "click": "<selettore CSS>" }` | Click (supporta `:has()`, `:text-is()`, `:text-matches()` di Playwright). In `:text-matches("…")` Playwright interpreta gli escape della stringa: nel JSON una classe come `\s` va scritta `\\\\s` (il valore deve contenere `\\s`), altrimenti diventa una semplice `s` e la regex non trova nulla |
 | `{ "clickText": "<testo>", "exact": true }` | Click sul primo elemento con quel testo |
 | `{ "fill": { "selector": "…", "value": "…" } }` | Compila un campo |
 | `{ "upload": { "selector": "…", "files": ["…"] } }` | Carica uno o più file in un `input[type=file]`. I percorsi relativi si risolvono sulla directory del config; un file mancante interrompe lo step |
 | `{ "fill": { "selector": "…", "env": "A11Y_…" } }` | Compila un campo con il valore di una **variabile d'ambiente** (vedi sotto) |
 | `{ "select": { "selector": "…", "value": "…" } }` | Sceglie un'opzione per testo: su `<select>` nativa per etichetta; su una tendina (ng-select, combobox ARIA) apre il controllo e clicca l'opzione con ruolo `option` il cui nome contiene il testo (`"exact": true` per l'uguaglianza). Accetta `"env"` al posto di `"value"` |
+| `{ "postMessage": { … } }` | Invia il messaggio (qualsiasi valore JSON) alla finestra della pagina con `window.postMessage`, come la **shell che ospita l'app in un iframe**. Serve alle app incorporate che ricevono dalla shell il contesto (es. l'organizzazione scelta in GovHub): scansionate sulla loro porta, senza la shell, resterebbero ferme in attesa. Funziona con le app che non verificano la provenienza del messaggio. Va ripetuto in ogni flow che ne ha bisogno (ogni flow parte da una sessione nuova) |
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
 | `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |

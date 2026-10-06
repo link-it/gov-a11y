@@ -162,7 +162,7 @@ Ogni chiave di primo livello (che non inizia con `$`) è un **target**. Schema:
 
 **Step dei flow / postLogin**: `goto`, `fill:{selector,value}`, `upload:{selector,files}`, `select:{selector,value}` (opzione
 per testo, su `<select>` o tendina), `clickText`(+`exact`),
-`click`, `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
+`click`, `postMessage`(messaggio alla finestra della pagina, come dalla shell che ospita l'app), `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
 smetta di cambiare per quel tratto, es. un grafico disegnato da script), `delayMs`, `timeoutMs`,
 `optional` (non interrompe il flow), `scan`, `scanTabs`, `scanOptions`, `scanCharts`, `scanMenu`. Usa **selettori
 stabili** (id non generati, `title`, testo, classe), mai id JSF `j_idNN`. In `fill` e `select` il

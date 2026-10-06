@@ -1,3 +1,14 @@
+2026-10-06  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Nuovo passo di flow "postMessage": invia un messaggio (un qualsiasi valore JSON) alla finestra della pagina,
+	come farebbe la shell che ospita l'applicazione in un iframe. Un'applicazione incorporata puo' ricevere dalla
+	shell dati di contesto che, scansionata sulla sua porta, non le arrivano mai: il catalogo di GovDesk riceve
+	da GovHub l'organizzazione scelta e senza di essa resta fermo su "Seleziona un'organizzazione". Funziona con
+	le applicazioni che non verificano la provenienza del messaggio. La guida spiega anche come scrivere nel
+	JSON le classi di una regex in ":text-matches()": Playwright interpreta gli escape della stringa del
+	selettore, e un "\s" scritto senza raddoppiare il backslash diventa una semplice "s".
+
 2026-10-05  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]

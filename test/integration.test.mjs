@@ -56,6 +56,8 @@ const ROUTES = {
   '/app/report': page('Report', `<h1>Report generato</h1>${NAMELESS}`),
   '/app/upload': page('Upload', `<h1>Carica</h1><label for="f">Archivio</label><input id="f" type="file"><div id="caricati"></div><script>document.getElementById('f').addEventListener('change', e => { const d = document.createElement('p'); d.id = 'caricato'; d.textContent = e.target.files[0].name; document.getElementById('caricati').append(d); });</script>`),
   '/app/opzioni': page('Opzioni', `<h1>Opzioni</h1><label for="tipo">Tipo</label><select id="tipo"><option value="">--</option><option value="a">Scelta uno</option><option value="b">Scelta due</option></select><div id="esito"></div><script>document.getElementById('tipo').addEventListener('change', e => { document.getElementById('esito').textContent = 'scelto ' + e.target.value; });</script>`),
+  // app "incorporata": il contesto (organizzazione) arriva solo da un messaggio della shell che la ospita
+  '/app/ospitata': page('Ospitata', `<h1>App ospitata</h1><p id="ctx">In attesa dell'organizzazione</p><script>window.addEventListener('message', e => { const m = e.data; if (m && m.type === 'GOVAPP' && m.payload && m.payload.action === 'ORGANIZATION') document.getElementById('ctx').textContent = 'Organizzazione ' + m.payload.data.id; });</script>`),
   '/app/form': page('Form', `<form><input id="q" type="text"><button type="button">Cerca</button></form><div id="risultato">pronto</div>`),
   // modulo con campo di testo, <select> nativa e combobox ARIA: i valori scelti vengono riportati a schermo
   '/app/anagrafe': page('Anagrafe', `<h1>Interrogazione</h1>
@@ -129,6 +131,11 @@ writeFileSync(CFG, JSON.stringify({
         { select: { label: 'Motivazione', labelExact: true, env: 'A11Y_INT_MOT' } },
         { select: { selector: '#uff', value: 'Tributi' } },
         { click: '#vai', delayMs: 100 }, { scan: 'esito' },
+      ] },
+      // passo postMessage: simula la shell che invia all'app il contesto
+      { name: 'ospitata', start: '/app/ospitata', steps: [
+        { postMessage: { type: 'GOVAPP', payload: { action: 'ORGANIZATION', data: { id: 44 } } }, wait: '#ctx:has-text("Organizzazione 44")' },
+        { scan: 'con-organizzazione' },
       ] },
       // variabile non impostata: il flow va saltato prima di eseguire qualsiasi passo
       { name: 'senza-env', start: '/app/anagrafe', steps: [
@@ -211,6 +218,9 @@ console.log("— loginPath assoluto (login su un'altra origine)");
 const protetta = results.find(r => r.target === 'app2' && r.url === `${BASE}/app2/protetta`);
 check(!!protetta, 'pagina del target scansionata su --base dopo il login altrove');
 check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'sessione aperta sull\'origine del login valida anche su --base (cookie condiviso)');
+console.log('— postMessage (contesto inviato dalla shell che ospita l\'app)');
+const ospitata = results.find(r => r.name === 'flow:ospitata/con-organizzazione');
+check(!!ospitata && /Organizzazione 44/.test(ospitata.ariaSnapshot || ''), "postMessage: l'app riceve il messaggio e mostra il contesto");
 console.log('— locale del target (lingua del browser)');
 const lingua = results.find(r => r.target === 'app2' && r.name === 'lingua');
 check(!!lingua && /lingua=it-IT/.test(lingua.ariaSnapshot || ''), "pagine: la pagina vede navigator.language = 'locale' del target");

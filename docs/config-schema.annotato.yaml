@@ -97,6 +97,8 @@ console:
         - { fill: { selector: "#cf", env: "A11Y_APP_CF" } }    # valore da variabile d'ambiente (mascherato nei report)
         - { select: { selector: "#tipo", value: "Testo" } }    # opzione per testo (<select> o tendina); accetta anche env
         - { fill: { label: "Numero protocollo", env: "A11Y_APP_PROT" } }  # campo per etichetta (id generati)
+        - { postMessage: { type: "GOVAPP", payload: { action: "ORGANIZATION", data: { id: 44 } } } }
+                                                               # messaggio alla finestra, come dalla shell ospite (app in iframe)
         - { wait: "networkidle" }                              # attesa load-state o selettore
         - { waitQuietMs: 1000 }                                # attende che il DOM smetta di cambiare per 1 s
         - { scan: "etichetta" }                                # scansiona lo stato corrente
