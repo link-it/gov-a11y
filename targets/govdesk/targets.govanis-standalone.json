@@ -1,0 +1,198 @@
+{
+  "$app": "GovAnis (standalone)",
+  "$comment": "GovAnis (ANIS, GovDesk) in modalita' STANDALONE: true (app-config.json, o config.json in assets a runtime). Senza GovHub: l'app ha login per realm (/auth/<realm>, come GovHub), scelta dell'organizzazione (/select-organization), sidebar, menu utente, profilo e dashboard propri. Dev: 'npm run start-govanis-proxy' in govanis-app-v2 -> http://localhost:5212 con STANDALONE: true, backend via proxy /govhub-reverse-proxy (VPN Link.it). GovHub NON serve. Variante incorporata (STANDALONE: false, via GovHub): targets.govanis.json. Rotte da projects/govanis-app/src/app/app.routes.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+
+  "govanisLogin": {
+    "name": "govanis-standalone-login",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govanis-app/src/app/features/login",
+    "$note": "Target SENZA autenticazione: la pagina di login del realm, che gli altri target attraversano ma non analizzano. Con /auth/login (nessun realm) il login fallisce (403 su /do-login senza realm): va sempre indicato il realm.",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 4000,
+    "pages": [
+      { "name": "login", "path": "/auth/realmdb" }
+    ]
+  },
+
+  "govanisSceltaOrg": {
+    "name": "govanis-standalone-scelta-organizzazione",
+    "enabled": true,
+    "lighthouse": false,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govanis-app/src/app/features/select-organization",
+    "$note": "Login SENZA scegliere l'organizzazione, per analizzare la pagina di scelta. Si apre '/': con l'organizzazione non ancora scelta l'app vi rimanda da se' (/select-organization, navigazione interna). Aprire direttamente /select-organization non funziona: la guardia (organizationChooserPageGuard) sta fuori dalla sessione, con un caricamento completo trova il profilo non ancora caricato e rimanda al login anche con la sessione valida (difetto app). Per lo stesso motivo Lighthouse e' escluso: ricarica /select-organization e misurerebbe il login (il tool scarterebbe il punteggio). 'Cambia organizzazione' del menu utente apre invece un dialog (vedi il target govanis).",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "pages": [
+      { "name": "scelta-organizzazione", "path": "/" }
+    ]
+  },
+
+  "govanis": {
+    "name": "govanis-standalone",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govanis-app/src/app",
+
+    "$locale": "L'app sceglie la lingua da navigator.language (I18nService, getBrowserLang): il Chromium headless e' in inglese, quindi senza 'locale' si analizzerebbe l'interfaccia inglese.",
+    "$auth": "Login per realm su /auth/<realm>, come GovHub (POST /govhub-reverse-proxy/<realm>/do-login). Credenziali MAI qui: env A11Y_USER / A11Y_PASS (valgono per tutti i target del file) oppure A11Y_<CHIAVE>_USER / _PASS per singolo target. Ruoli per /examiner (roleGuard): govanis_enrollment_examiner e/o govanis_qualification_examiner.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "$postLogin": "Utente multi-organizzazione: dopo il login si arriva a /select-organization (pulsanti con il nome dell'organizzazione + 'Conferma'). Mono-organizzazione = assegnata in automatico: i passi sono optional. L'organizzazione scelta arriva gia' selezionata nel form di accertamento.",
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "conferma l'organizzazione" }
+      ]
+    },
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+
+    "$pages": "In standalone la dashboard / resta visibile (rootRedirectGuard reindirizza solo con STANDALONE: false). /profile e' raggiungibile anche dal menu utente.",
+    "pages": [
+      { "name": "dashboard", "path": "/" },
+      { "name": "profilo", "path": "/profile" },
+      { "name": "accertamento", "path": "/examiner" }
+    ],
+
+    "$flows": "Lighthouse escluso dai flow: ricarica l'URL e misurerebbe la vista di partenza, non lo stato raggiunto dal flow. Solo navigazione: mai 'Esci' (chiude la sessione), mai stampare; 'Guida utente' e' un link esterno (non seguito). Menu utente, 'Informazioni', 'Contatta il supporto' e 'Cambia organizzazione' si aprono e si analizzano, senza confermare nulla. I flow esecuzione-* ESEGUONO l'interrogazione ANIS come nel target incorporato (POST /proxy/govanis/academic-enrollment | academic-qualification): servizio esterno, tracce in audit, solo dati di collaudo; CF e motivazione da A11Y_GOVANIS_CF / A11Y_GOVANIS_MOTIVAZIONE (flow saltato se mancano, valori mascherati); i DATI RESTITUITI finiscono nei report: trattarli come sensibili.",
+    "flows": [
+      {
+        "name": "menu-utente",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govanis-app/src/app/core/ui/profile-menu",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "scan": "menu-utente-aperto" }
+        ]
+      },
+      {
+        "name": "cambia-organizzazione",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govanis-app/src/app/core/ui/profile-menu",
+        "$note": "Dialog di cambio organizzazione: si apre e si analizza, senza confermare.",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "clickText": "Cambia organizzazione", "exact": true, "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog di cambio organizzazione" },
+          { "scan": "dialog-cambia-organizzazione" }
+        ]
+      },
+      {
+        "name": "contatta-supporto",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govanis-app/src/app/core/ui/profile-menu",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "clickText": "Contatta il supporto", "exact": true, "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog del supporto" },
+          { "scan": "dialog-supporto" }
+        ]
+      },
+      {
+        "name": "informazioni",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button:has-text('Informazioni')",
+        "sourceHint": "projects/govanis-app/src/app/core/ui/about",
+        "steps": [
+          { "click": "button:has-text('Informazioni')", "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog Informazioni" },
+          { "scan": "dialog-informazioni" }
+        ]
+      },
+      {
+        "name": "sidebar-chiusa",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label='Chiudi la barra laterale']",
+        "sourceHint": "projects/govanis-app/src/app/core/layout/sidebar-layout",
+        "steps": [
+          { "click": "button[aria-label='Chiudi la barra laterale']", "delayMs": 1000, "desc": "chiudi la barra laterale" },
+          { "scan": "barra-laterale-chiusa" }
+        ]
+      },
+      {
+        "name": "accertamento-tendina",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-organization",
+        "sourceHint": "projects/govanis-app/src/app/core/ui/organization-select",
+        "steps": [
+          { "click": "#lnk-app-forms-fields-organization", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
+          { "scan": "tendina-organizzazione" }
+        ]
+      },
+      {
+        "name": "ricerca-cf",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-form-fiscal-code button",
+        "sourceHint": "projects/govanis-app/src/app/core/ui/form/fiscal-code-search",
+        "steps": [
+          { "click": "lnk-form-fiscal-code button", "wait": "mat-dialog-container", "delayMs": 1500, "desc": "apri il dialog di ricerca del CF" },
+          { "scan": "dialog-ricerca-cf" }
+        ]
+      },
+      {
+        "name": "esecuzione-iscrizioni",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-typeOperations",
+        "sourceHint": "projects/govanis-app/src/app/features/examiner",
+        "steps": [
+          { "select": { "selector": "#lnk-app-forms-fields-organization", "value": "Comune DB", "exact": true }, "delayMs": 2000, "desc": "organizzazione (gia' preselezionata; carica gli uffici)" },
+          { "select": { "selector": "#lnk-app-forms-fields-office", "value": "Tributi", "exact": true }, "delayMs": 500, "desc": "ufficio" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVANIS_CF" } },
+          { "fill": { "selector": "#lnk-app-forms-fields-requestReason", "env": "A11Y_GOVANIS_MOTIVAZIONE" } },
+          { "select": { "selector": "#lnk-app-forms-fields-typeOperations", "value": "Iscrizioni accademiche", "exact": true }, "delayMs": 500 },
+          { "scan": "iscrizioni-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "lnk-result-display, ui-box-message-error", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "iscrizioni-risultati" }
+        ]
+      },
+      {
+        "name": "esecuzione-titoli",
+        "start": "/examiner",
+        "lighthouse": false,
+        "skipIfMissing": "#lnk-app-forms-fields-typeOperations",
+        "sourceHint": "projects/govanis-app/src/app/features/examiner",
+        "steps": [
+          { "select": { "selector": "#lnk-app-forms-fields-organization", "value": "Comune DB", "exact": true }, "delayMs": 2000, "desc": "organizzazione (gia' preselezionata; carica gli uffici)" },
+          { "select": { "selector": "#lnk-app-forms-fields-office", "value": "Tributi", "exact": true }, "delayMs": 500, "desc": "ufficio" },
+          { "fill": { "selector": "input[id^='lnk-fiscal-code-']", "env": "A11Y_GOVANIS_CF" } },
+          { "fill": { "selector": "#lnk-app-forms-fields-requestReason", "env": "A11Y_GOVANIS_MOTIVAZIONE" } },
+          { "select": { "selector": "#lnk-app-forms-fields-typeOperations", "value": "Titoli di studio conseguiti", "exact": true }, "delayMs": 500 },
+          { "scan": "titoli-compilato" },
+          { "click": "#lnk-form-button-submit", "wait": "lnk-result-display, ui-box-message-error", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 1500, "desc": "esegui l'accertamento" },
+          { "scan": "titoli-risultati" }
+        ]
+      }
+    ]
+  }
+}
