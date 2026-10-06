@@ -33,7 +33,7 @@ PORTA_GOVHUB=5200
 
 # app:porta, nell'ordine di scansione. Il config e' targets.<app>.json (e targets.<app>-standalone.json
 # per la modalita' standalone). Le porte sono quelle di 'npm run start-<app>-proxy'.
-APP=(govhub:5200 govanis:5212 govanist:5213 govdurc:5218 govtitcatasto:5217 govwaas:5216 govanpr:5209 govinad:5201 govisee:5207 govregistroimprese:5215)
+APP=(govhub:5200 govanis:5212 govanist:5213 govdurc:5218 govtitcatasto:5217 govwaas:5216 govanpr:5209 govinad:5201 govisee:5207 govregistroimprese:5215 govcasellariogiudiziale:5219)
 
 PREFISSO="report"
 COMPLETA=0
@@ -52,7 +52,7 @@ Uso: scan.sh [--full] [--solo app,app] [--out PREFISSO] [--product-version VERSI
                   qui e non avviata conta come errore; senza --solo le app non avviate
                   vengono saltate.
                   App: govhub govanis govanist govdurc govtitcatasto govwaas govanpr govinad
-                       govisee govregistroimprese
+                       govisee govregistroimprese govcasellariogiudiziale
   --out PREFISSO  Prefisso delle directory dei report (default: report) -> <PREFISSO>-<app>/
   --product-version VERSIONE
                   Versione riportata nei report. Senza, ogni app usa la sua (letta da

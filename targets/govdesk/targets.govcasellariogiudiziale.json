@@ -1,0 +1,96 @@
+{
+  "$app": "GovCasellarioGiudiziale",
+  "$comment": "GovCasellarioGiudiziale (Casellario Giudiziale, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis per login, lingua e struttura; la funzione pero' e' diversa: /examine e' la LISTA delle richieste di certificato, con il form della nuova richiesta che si apre dal pulsante in intestazione (organizzazione, ufficio, caso d'uso, motivazione, data, protocollo e data protocollo, informazioni da stampare e da restituire, dati anagrafici del soggetto); il dettaglio di una richiesta e' /examine/:id. Dev: 'npm run start-govcasellariogiudiziale-proxy' in casellario-giudiziale-app -> http://localhost:5219, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5219) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govcasellariogiudiziale-app/src/app/app.routes.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+
+  "govcasellariogiudiziale": {
+    "name": "govcasellariogiudiziale",
+    "enabled": true,
+    "loginPath": "http://localhost:5200/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govcasellariogiudiziale-app/src/app",
+
+    "$locale": "L'app sceglie la lingua da navigator.language (I18nService, getBrowserLang): il Chromium headless e' in inglese, quindi senza 'locale' si analizzerebbe l'interfaccia inglese.",
+    "$auth": "Login sul realm di GovHub (form, come nel target govhub), poi scelta dell'organizzazione su GovHub. Credenziali MAI qui: env A11Y_GOVCASELLARIOGIUDIZIALE_USER / _PASS (stessa utenza di GovHub) o A11Y_USER / A11Y_PASS. L'organizzazione NON arriva da GovHub (nessun postMessage fuori dall'iframe): l'app mostra il proprio selettore nel form (preselezione solo con un'unica organizzazione). Ruolo (roleGuard): govcasellariogiudiziale_examiner; l'utente di scansione lo ha su Comune DB.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "GovHub: scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "GovHub: conferma l'organizzazione" }
+      ]
+    },
+
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+
+    "$pages": "Con STANDALONE: false la rotta / (dashboard) reindirizza alla prima funzione consentita dai ruoli (rootRedirectGuard), cioe' /examine: per questo non e' elencata (verrebbe deduplicata).",
+    "pages": [
+      { "name": "richieste", "path": "/examine" }
+    ],
+
+    "$flows": "Lighthouse escluso dai flow sul form: ricarica l'URL e misurerebbe di nuovo la lista con il form chiuso, non lo stato raggiunto dal flow (resta attivo sul dettaglio di una richiesta, che ha un URL proprio). Solo navigazione, e NESSUN flow di esecuzione: inviare il form crea una richiesta di certificato al Casellario (asincrona, che resta nella lista dell'ente, visibile agli altri utenti), cioe' una scrittura, e chiede molti dati anagrafici del soggetto. Il form si apre dal pulsante 'Nuovo accertamento' (agganciato per testo: nell'intestazione ci sono anche i pulsanti del filtro) e si analizza vuoto; la tendina del caso d'uso e' lnk-form-select[controlname=use_case] (id lnk-app-forms-fields-reason); il dialog di ricerca del CF si apre senza compilarlo (calcola il CF in locale, nessuna interrogazione). Il dettaglio si apre dalla prima richiesta della lista: se la lista e' vuota il flow viene saltato; le richieste sono quelle dell'organizzazione e possono cambiare.",
+    "flows": [
+      {
+        "name": "nuova-richiesta",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-request-list-header",
+        "sourceHint": "projects/govcasellariogiudiziale-app/src/app/features/examine-single",
+        "$note": "Form della nuova richiesta aperto (pannello #request-form-panel), vuoto. Non si invia.",
+        "steps": [
+          { "clickText": "Nuovo accertamento", "exact": true, "wait": "#request-form-panel.open", "delayMs": 1500, "desc": "apri il form della nuova richiesta" },
+          { "scan": "form-nuova-richiesta" }
+        ]
+      },
+      {
+        "name": "nuova-richiesta-caso-uso",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-request-list-header",
+        "sourceHint": "projects/govcasellariogiudiziale-app/src/app/features/examine-single",
+        "$note": "Tendina dei casi d'uso aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM. I campi si abilitano in cascata: organizzazione -> ufficio -> caso d'uso (che dipende dall'ufficio).",
+        "steps": [
+          { "clickText": "Nuovo accertamento", "exact": true, "wait": "#request-form-panel.open", "delayMs": 1500, "desc": "apri il form della nuova richiesta" },
+          { "select": { "selector": "#request-form-panel lnk-organization-select ng-select", "value": "Comune DB", "exact": true }, "delayMs": 2000, "desc": "organizzazione (abilita e carica gli uffici)" },
+          { "select": { "selector": "#request-form-panel lnk-office-select ng-select", "value": "Tributi", "exact": true }, "delayMs": 2000, "desc": "ufficio (abilita e carica i casi d'uso)" },
+          { "click": "lnk-form-select[controlname='use_case'] ng-select", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina del caso d'uso" },
+          { "scan": "tendina-caso-uso" }
+        ]
+      },
+      {
+        "name": "ricerca-cf",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-request-list-header",
+        "sourceHint": "projects/govcasellariogiudiziale-app/src/app/core/ui/form/fiscal-code-search",
+        "$note": "Dialog 'ricerca del codice fiscale' (lente accanto al campo CF del soggetto): calcola il CF dai dati anagrafici. Si apre e si analizza, senza compilarlo.",
+        "steps": [
+          { "clickText": "Nuovo accertamento", "exact": true, "wait": "#request-form-panel.open", "delayMs": 1500, "desc": "apri il form della nuova richiesta" },
+          { "click": "lnk-form-fiscal-code button", "wait": "mat-dialog-container", "delayMs": 1500, "desc": "apri il dialog di ricerca del CF" },
+          { "scan": "dialog-ricerca-cf" }
+        ]
+      },
+      {
+        "name": "dettaglio-richiesta",
+        "start": "/examine",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govcasellariogiudiziale-app/src/app/features/examine-bulk",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima richiesta -> /examine/:id" },
+          { "scan": "dettaglio-richiesta" }
+        ]
+      }
+    ]
+  }
+}
