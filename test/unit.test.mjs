@@ -45,6 +45,15 @@ eq(M.slug('  A / B  '), 'a-b', 'trim + separatori');
 
 console.log('— normUrl');
 eq(M.normUrl('http://h/app/lista/?x=1'), 'http://h/app/lista?x=1', 'rimuove slash finale, tiene query');
+// Le app con routing sul fragment (Angular useHash, molte SPA storiche) tengono
+// li' l'intera rotta: se il fragment uscisse dalla chiave, tutte le viste
+// avrebbero lo stesso URL normalizzato e il dedup ne scarterebbe tutte tranne
+// una.
+eq(M.normUrl('http://h/app/#/pendenze'), 'http://h/app#/pendenze', 'tiene il fragment');
+check(M.normUrl('http://h/app/#/pendenze') !== M.normUrl('http://h/app/#/ricevute'), 'due rotte sul fragment → chiavi distinte');
+eq(M.normUrl('http://h/app/#!/pendenze'), 'http://h/app#!/pendenze', 'tiene anche la rotta in stile hashbang');
+eq(M.normUrl('http://h/app/lista#main-content'), 'http://h/app/lista', "un'ancora non e' una rotta: fuori dalla chiave");
+eq(M.normUrl('http://h/app/#state=abc&code=xyz'), 'http://h/app', 'i parametri di un login nel fragment restano fuori dalla chiave');
 
 console.log('— normVisit (dedup: ignora token di sessione, ordina i parametri)');
 eq(M.normVisit('http://h/x.do?id=2&__prevTabKey__=AAA&a=1'), 'http://h/x.do?a=1&id=2', 'strip __prevTabKey__ + sort');

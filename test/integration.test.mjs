@@ -58,6 +58,8 @@ const ROUTES = {
   '/app/opzioni': page('Opzioni', `<h1>Opzioni</h1><label for="tipo">Tipo</label><select id="tipo"><option value="">--</option><option value="a">Scelta uno</option><option value="b">Scelta due</option></select><div id="esito"></div><script>document.getElementById('tipo').addEventListener('change', e => { document.getElementById('esito').textContent = 'scelto ' + e.target.value; });</script>`),
   // app "incorporata": il contesto (organizzazione) arriva solo da un messaggio della shell che la ospita
   '/app/ospitata': page('Ospitata', `<h1>App ospitata</h1><p id="ctx">In attesa dell'organizzazione</p><script>window.addEventListener('message', e => { const m = e.data; if (m && m.type === 'GOVAPP' && m.payload && m.payload.action === 'ORGANIZATION') document.getElementById('ctx').textContent = 'Organizzazione ' + m.payload.data.id; });</script>`),
+  // SPA che instrada sul fragment (Angular useHash): '#/riservata' rimbalza su '#/home'
+  '/app/spa': page('SPA', `<main><h1 id="titolo">...</h1></main><script>function rotta() { if (location.hash === '#/riservata') { location.hash = '#/home'; return; } document.getElementById('titolo').textContent = 'Rotta ' + location.hash.slice(2); } window.addEventListener('hashchange', rotta); rotta();</script>`),
   '/app/form': page('Form', `<form><input id="q" type="text"><button type="button">Cerca</button></form><div id="risultato">pronto</div>`),
   // modulo con campo di testo, <select> nativa e combobox ARIA: i valori scelti vengono riportati a schermo
   '/app/anagrafe': page('Anagrafe', `<h1>Interrogazione</h1>
@@ -118,7 +120,9 @@ writeFileSync(CFG, JSON.stringify({
     login: { usernameSelector: "input[name='login']", passwordSelector: "input[type='password']", submitSelector: "input.deButton[value='Login']", successUrlIncludes: 'home' },
     postLogin: { steps: [{ clickText: 'Home', optional: true, delayMs: 20 }] },
     crawl: 5, crawlDepth: 1,
-    pages: [{ name: 'home', path: '/app/home' }, { name: 'bianca', path: '/app/bianca' }, { name: 'tardiva', path: '/app/tardiva' }],
+    navDelayMs: 300,   // come nei target veri: una SPA rimbalza (redirect sul fragment) dopo la navigazione
+    pages: [{ name: 'home', path: '/app/home' }, { name: 'bianca', path: '/app/bianca' }, { name: 'tardiva', path: '/app/tardiva' },
+      { name: 'spa-home', path: '/app/spa#/home' }, { name: 'spa-elenco', path: '/app/spa#/elenco' }, { name: 'spa-riservata', path: '/app/spa#/riservata' }],
     flows: [
       { name: 'menu', start: '/app/home', steps: [{ scanMenu: [{ item: '#menuct a.voceMenuRC', listRow: "[id^='entry_']", recurse: { depth: 2, max: 20 }, detailMenu: { open: '#divIconMenu_barraTitolo', item: '.context-menu a' }, detailConfig: "[id^='form-add-tab-link']" }], wait: 'networkidle', delayMs: 100 }] },
       { name: 'matite', start: '/app/home', steps: [{ scanMenu: [{ item: '#menuct a.voceMenuRC', listRow: "[id^='entry_']", detailEdit: 'a.edit-link' }], wait: 'networkidle', delayMs: 100 }] },
@@ -230,6 +234,10 @@ check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'session
 console.log('— postMessage (contesto inviato dalla shell che ospita l\'app)');
 const ospitata = results.find(r => r.name === 'flow:ospitata/con-organizzazione');
 check(!!ospitata && /Organizzazione 44/.test(ospitata.ariaSnapshot || ''), "postMessage: l'app riceve il messaggio e mostra il contesto");
+console.log('— dedup con routing sul fragment (SPA useHash)');
+const spaHome = results.find(r => r.name === 'spa-home'), spaElenco = results.find(r => r.name === 'spa-elenco');
+check(!!spaHome && !!spaElenco && /Rotta elenco/.test(spaElenco.ariaSnapshot || ''), 'due rotte nel fragment: scansionate entrambe, non collassate in una');
+check(!hasName('spa-riservata'), 'la rotta che rimbalza su una gia\' vista (#/riservata -> #/home) viene saltata dal dedup');
 console.log('— viste vuote (pagina non renderizzata)');
 const bianca = results.find(r => r.name === 'bianca'), tardiva = results.find(r => r.name === 'tardiva');
 check(!!bianca && bianca.vuota === true, 'vista senza contenuto accessibile marcata vuota');

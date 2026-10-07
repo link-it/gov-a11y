@@ -11,6 +11,19 @@
 	(vuota, emptyViews) e come test fallito nel JUnit, e il nuovo gate "failOnEmpty", attivo di default come
 	quelli dei difetti oggettivi, la fa fallire. Si spegne con "failOnEmpty": false nel config.
 
+2026-10-06  Giuliano Pintori <pintori@link.it>
+
+	* [gov-a11y]
+	Il dedup delle pagine tiene conto del fragment quando e' una rotta. Le applicazioni che instradano sul fragment
+	(Angular con useHash, molte SPA storiche) ci tengono l'intera rotta: scartandolo, tutte le viste avevano lo
+	stesso URL normalizzato e dalla seconda in poi venivano saltate come "gia' scansionata", con un messaggio che
+	indicava pero' un URL diverso da quello scartato, e senza alcun errore. Sul cruscotto storico di GovPay
+	significava analizzare 1 pagina su 17; con la correzione sono 15, e le due che restano fuori rimbalzano
+	davvero sulla dashboard per i diritti dell'utenza, ora riconosciute anche come redirect. Entra nella chiave
+	solo il fragment con la forma di una rotta ("#/..." o "#!/..."): le ancore e i parametri che alcuni login
+	lasciano nel fragment ("#state=...&code=...") la renderebbero instabile. Per le applicazioni senza routing sul
+	fragment non cambia nulla. Un test d'integrazione con una SPA che instrada sul fragment copre il caso.
+
 2026-10-06  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]

@@ -1,0 +1,55 @@
+{
+  "$app": "GovPay Console legacy (cruscotto storico)",
+  "$comment": "Cruscotto storico di GovPay: Angular dentro la war govpay-console del core, servito da Tomcat sotto il context path /govpay-console. Da tenere accanto a targets.govpay-console.json, che e' invece la console nuova (progetto a se', servita da container): i due target coprono il prima e il dopo della migrazione, e il confronto fra i due report e' parte del valore di questa misura. ROTTE da wars/web-console/src/main/angular/console/src/app/app.router.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true
+  },
+
+  "govpayConsoleLegacy": {
+    "name": "govpay-console-legacy",
+    "enabled": true,
+
+    "$routing": "L'app usa HashLocationStrategy (useHash: true in app.router.ts), quindi ogni rotta sta nel frammento: /#/pendenze, non /pendenze. Il dedup delle pagine tiene conto del frammento quando e' una rotta (normUrl), quindi le 'pages' sono analizzate tutte. 'crawl' invece resta a 0: la normalizzazione dei link del crawler (normalizeLinks) scarta ancora il frammento, e le viste scoperte collasserebbero su un unico indirizzo.",
+    "$locale": "Lingua fissa: l'app non la sceglie dal browser (nessuna i18n), quindi 'locale' non serve. NB: index.html dichiara <html lang=\"en\"> con l'interfaccia in italiano (difetto app, WCAG 3.1.1).",
+    "loginPath": "/#/dashboard",
+    "contextPath": "/govpay-console/",
+    "sourceHint": "wars/web-console/src/main/angular/console/src/app",
+
+    "$auth": "Autenticazione Basic verso le API di backoffice (Config.js dell'ambiente: BASIC.ENABLED true, SPID/IAM/OAUTH2 false). Il form sta nella dashboard e compare solo quando non si e' autenticati; i selettori sono gli id reali del template dashboard-view.component.html. Le credenziali NON stanno qui: vengono da A11Y_GOVPAYCONSOLELEGACY_USER / _PASS, o dai flag --user/--pass.",
+    "login": {
+      "usernameSelector": "#inputEmail",
+      "passwordSelector": "#inputPassword",
+      "submitSelector": "button[type='submit']"
+    },
+    "$successUrlIncludes": "Volutamente assente: dopo il login l'app resta su #/dashboard, l'URL non cambia, e un controllo sull'indirizzo passerebbe anche a login fallito. La riuscita si vede dal fatto che le viste protette (canActivate: AuthGuardService) rispondono invece di rimbalzare in dashboard.",
+
+    "$spa": "L'app e' una SPA: networkidle non arriva mai in modo affidabile, si attende il DOM e poi un intervallo di settle prima di far girare axe.",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 2500,
+
+    "$pages": "Le viste di elenco e le due di configurazione, tutte GET-navigabili. Le viste di dettaglio si raggiungono solo cliccando una riga: si aggiungono come 'flows' quando la baseline sulle liste e' pulita, con lo stesso schema di targets.govpay-console.json.",
+    "$pagineCheRimbalzano": "Con l'utenza di prova 'tracciati' e 'impostazioni' rimbalzano sulla dashboard e vengono saltate con un avviso: dipende dai diritti dell'operatore, non da un difetto del target. Restano elencate apposta, perche' l'avviso dice che quelle due viste esistono e non sono coperte; con un'utenza che le vede, vengono analizzate senza toccare nulla.",
+    "pages": [
+      { "name": "dashboard",             "path": "/#/dashboard" },
+      { "name": "pendenze",              "path": "/#/pendenze" },
+      { "name": "ricevute",              "path": "/#/rpp" },
+      { "name": "pagamenti",             "path": "/#/pagamenti" },
+      { "name": "riscossioni",           "path": "/#/riscossioni" },
+      { "name": "flussi-rendicontazione","path": "/#/flussiRendicontazione" },
+      { "name": "incassi",               "path": "/#/incassi" },
+      { "name": "giornale-eventi",       "path": "/#/eventi" },
+      { "name": "tracciati",             "path": "/#/tracciati" },
+      { "name": "domini",                "path": "/#/domini" },
+      { "name": "tipi-pendenza",         "path": "/#/tipiPendenza" },
+      { "name": "applicazioni",          "path": "/#/applicazioni" },
+      { "name": "operatori",             "path": "/#/operatori" },
+      { "name": "ruoli",                 "path": "/#/ruoli" },
+      { "name": "intermediari",          "path": "/#/intermediari" },
+      { "name": "profilo",               "path": "/#/profilo" },
+      { "name": "impostazioni",          "path": "/#/impostazioni" }
+    ]
+  }
+}

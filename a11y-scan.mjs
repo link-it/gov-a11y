@@ -591,8 +591,15 @@ async function harvestLinks(page) {
   });
 }
 
-// Normalizza un URL per confronto/dedup: senza hash e senza slash finale.
-function normUrl(u) { try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/$/, '') + x.search; } catch { return u; } }
+// Normalizza un URL per confronto/dedup: senza slash finale, con il fragment quando e' una ROTTA.
+// Le app con HashLocationStrategy (Angular con useHash, molte SPA storiche) tengono li' l'intera
+// rotta: senza, tutte le viste collassano su origin+pathname e il dedup scarta tutto dopo la prima
+// pagina, segnalando "gia' scansionata" indicando pero' un URL diverso. Entra solo il fragment che
+// ha la forma di una rotta ('#/...' o '#!/...'): le ancore ('#main-content') e i parametri che
+// alcuni login lasciano nel fragment ('#state=...&code=...') renderebbero la chiave instabile e
+// farebbero vedere redirect che non ci sono. Per le app senza routing sul fragment non cambia nulla.
+const ROTTA_FRAGMENT = /^#!?\//;
+function normUrl(u) { try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/$/, '') + x.search + (ROTTA_FRAGMENT.test(x.hash) ? x.hash : ''); } catch { return u; } }
 
 // Normalizza in path relativi allo stesso contextPath, scartando asset e link pericolosi.
 function normalizeLinks(hrefs, contextPath) {
