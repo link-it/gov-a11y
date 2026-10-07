@@ -1,11 +1,12 @@
 {
   "$app": "GovHub",
-  "$comment": "GovHub (GovDesk) - Angular 21, shell che ospita le app GovDesk in iframe. Dev: 'npm run start-govhub-proxy' -> http://localhost:5200, backend via proxy /govhub-reverse-proxy (richiede VPN Link.it). Rotte da projects/govhub-app/src/app/app.routes.ts. Le rotte a SLUG (es. /govregistry, /govio, DURC, ANPR...) caricano in iframe le ALTRE app GovDesk: sono escluse di proposito, perche' axe analizza anche gli iframe e ne attribuirebbe le violazioni a GovHub; ogni app avra' il suo target.",
+  "$comment": "GovHub (GovDesk) - Angular 21, lingua dal browser (I18nService): 'locale' it-IT nei defaults, altrimenti il Chromium headless la mostra in inglese e i passi per testo ('Conferma') non trovano nulla. shell che ospita le app GovDesk in iframe. Dev: 'npm run start-govhub-proxy' -> http://localhost:5200, backend via proxy /govhub-reverse-proxy (richiede VPN Link.it). Rotte da projects/govhub-app/src/app/app.routes.ts. Le rotte a SLUG (es. /govregistry, /govio, DURC, ANPR...) caricano in iframe le ALTRE app GovDesk: sono escluse di proposito, perche' axe analizza anche gli iframe e ne attribuirebbe le violazioni a GovHub; ogni app avra' il suo target.",
 
   "defaults": {
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
-    "lighthouse": true
+    "lighthouse": true,
+    "locale": "it-IT"
   },
 
   "govhubLogin": {
