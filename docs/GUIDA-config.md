@@ -37,6 +37,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `failOn` | stringa | `serious` | Gate axe (`critical`\|`serious`\|`moderate`\|`minor`\|`none`) — **globale** |
 | `failOnNameless` | booleano | `true` | Gate: fallisce se elementi interattivi senza nome — **globale**. Attivo di suo: un comando annunciato col solo ruolo è inservibile a chi non vede lo schermo. Si spegne con `false` |
 | `failOnScreenReader` | booleano | `false` | Gate: fallisce se il virtual screen reader produce annunci col solo ruolo — **globale**. Richiede `screenReader` |
+| `failOnEmpty` | booleano | `true` | Gate: fallisce se una vista è stata analizzata **vuota**, cioè con l'albero di accessibilità senza alcun nodo — **globale**. Una vista così non si è renderizzata (backend irraggiungibile, sessione persa, errore dell'app, tempi): su una pagina bianca nessuna regola può fallire, quindi il suo esito pulito è falso. Lo strumento attende una volta (5 s) prima di analizzarla; se resta vuota la segnala nel log, nel report (riga e riquadro dedicato), in `summary.json` (`vuota`, `emptyViews`) e come test fallito nel JUnit. Si spegne con `false` |
 | `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
@@ -46,7 +47,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `locale` | stringa | — | Lingua del browser, es. `"it-IT"` (equiv. CLI `--locale`): imposta `navigator.language` e `Accept-Language`. Serve alle app che scelgono la lingua dell'interfaccia dal browser: il Chromium di CI è in inglese, e senza `locale` si analizzerebbe una variante che gli utenti non vedono. Per-target; quello globale (CLI o `defaults`) vale anche per la scheda di Lighthouse, che non eredita quello del target |
 | `productVersion` | stringa | — | Versione del prodotto in prova, riportata nel report e in `summary.json` — **globale** (equiv. CLI `--product-version`, env `A11Y_PRODUCT_VERSION`). Dichiarativa: nessuno strumento esterno può dedurla |
 
-> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
+> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnEmpty`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
 
 ## Oggetto target

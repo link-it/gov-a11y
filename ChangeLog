@@ -1,3 +1,16 @@
+2026-10-07  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Una vista analizzata senza alcun contenuto accessibile non conta piu' come pulita. Se la pagina non si e'
+	renderizzata (backend irraggiungibile, sessione persa, errore dell'applicazione, tempi) nessuna regola puo'
+	fallire, e il suo "nessuna violazione" faceva passare la scansione: e' successo con tre liste di GovAudit
+	analizzate bianche durante un'interruzione della VPN. Il criterio e' l'albero di accessibilita' senza alcun
+	nodo, che separa nettamente le pagine bianche dalle viste vere piu' piccole (almeno 7 nodi su oltre 400
+	viste esaminate) e non dipende dai livelli facoltativi. Una vista vuota viene attesa una volta (5 s) prima
+	di analizzarla; se resta vuota e' segnalata nel log, nel report (riga e riquadro dedicato), in summary.json
+	(vuota, emptyViews) e come test fallito nel JUnit, e il nuovo gate "failOnEmpty", attivo di default come
+	quelli dei difetti oggettivi, la fa fallire. Si spegne con "failOnEmpty": false nel config.
+
 2026-10-06  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]

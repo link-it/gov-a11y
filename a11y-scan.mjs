@@ -87,6 +87,10 @@ if (args.help || args.h) {
   --fail-on <sev>     Gate axe: fallisci se esistono violazioni >= gravita'. critical|serious|moderate|minor|none (default serious)
   --fail-on-nameless  Gate a11y-tree, ATTIVO per impostazione predefinita: fallisci se esistono elementi
                       interattivi senza nome accessibile. Si spegne con "failOnNameless": false nel config
+  --fail-on-empty     Gate delle viste vuote, ATTIVO per impostazione predefinita: fallisci se una vista
+                      e' stata analizzata senza alcun contenuto accessibile (pagina non renderizzata:
+                      backend irraggiungibile, sessione persa, errore dell'app). Si spegne con
+                      "failOnEmpty": false nel config
   --fail-on-screen-reader  Gate del virtual screen reader: fallisci se esistono annunci col solo ruolo
                       (elementi letti senza nome). Richiede --screen-reader
   --fail-on-mouse-only  Gate tastiera, ATTIVO per impostazione predefinita: fallisci se esistono comandi
@@ -117,7 +121,7 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion.
+  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -167,6 +171,11 @@ const FAIL_ON_MOUSE_ONLY = !!resolveParam(args['fail-on-mouse-only'], null, 'fai
 // Predefinito SPENTO, perche' il livello 3 e' opzionale (moduli aggiuntivi) e si sovrappone in
 // buona parte a 'failOnNameless', che misura la stessa famiglia dall'albero di accessibilita'.
 const FAIL_ON_SCREEN_READER = !!resolveParam(args['fail-on-screen-reader'], null, 'failOnScreenReader', false);
+/* Gate delle viste VUOTE, predefinito ATTIVO. Una vista analizzata senza alcun contenuto accessibile
+   non e' una vista pulita: e' una vista che non si e' renderizzata (backend irraggiungibile, sessione
+   persa, errore dell'app, tempi). Su una pagina bianca nessuna regola puo' fallire, quindi il suo
+   esito "zero violazioni" e' falso, e senza questo gate farebbe passare la scansione. */
+const FAIL_ON_EMPTY = !!resolveParam(args['fail-on-empty'], null, 'failOnEmpty', true);
 const CLI_MOUSE_ONLY = args['no-mouse-only'] ? false : (args['mouse-only'] ? true : undefined);
 let DO_MOUSE_ONLY = resolveParam(CLI_MOUSE_ONLY, null, 'mouseOnly', true) !== false;   // risolti per-target da applyTargetParams
 let MOUSE_ONLY_IGNORE = null;    // selettore CSS dichiarato dall'applicazione nel target
@@ -174,6 +183,8 @@ let MOUSE_ONLY_MAX = 40;
 const MIN_SCORE = (() => { const v = resolveParam(args['min-score'], null, 'minScore', null); return (v === null || v === undefined) ? null : parseFloat(v); })();
 // Quanto si attende che la rete si posi prima di analizzare una vista (vedi recordScan).
 const RETE_A_RIPOSO_MS = 2000;
+// Quanto si attende, una volta, una vista che si presenta senza contenuto accessibile (vedi recordScan).
+const VISTA_VUOTA_ATTESA_MS = 5000;
 // Report HTML (globale: il report è aggregato su tutti i target -> no override per-target). CLI --no-incomplete > defaults.showIncomplete > built-in.
 const SHOW_INCOMPLETE = resolveParam(CLI_INCOMPLETE, null, 'showIncomplete', true) !== false;
 
@@ -747,8 +758,10 @@ const AX_NAMED_RE = /^(\s*)-\s+([a-z]+)\s+"([^"]*)"/;
 // Sorgente: Playwright ariaSnapshot (motore a11y di Chromium: onora la visibilita' CSS).
 async function analyzeAxTree(page) {
   let snap = null;
-  try { snap = await page.locator('body').ariaSnapshot(); } catch { /* ariaSnapshot non disponibile */ }
-  if (!snap) return { nodes: 0, nameless: [] };
+  let illeggibile = false;
+  try { snap = await page.locator('body').ariaSnapshot(); } catch { illeggibile = true; /* ariaSnapshot non disponibile */ }
+  // 'illeggibile': l'albero non si e' potuto leggere, che non e' lo stesso che leggerlo vuoto
+  if (!snap) return illeggibile ? { nodes: 0, nameless: [], illeggibile } : { nodes: 0, nameless: [] };
   const nameless = [];
   const ancestors = [];   // stack {indent, name} per ricostruire un contesto leggibile
   let nodes = 0;
@@ -967,6 +980,15 @@ async function runScreenReader(page) {
 let LH_ESCLUSO_NEL_FLOW = false;
 
 // Esegue axe (e Lighthouse / screen reader) sullo stato CORRENTE del DOM e registra il risultato.
+// Nodi dell'albero di accessibilita' della pagina (null se non leggibile): 0 = nessun contenuto
+// percepibile da una tecnologia assistiva, la firma di una vista che non si e' renderizzata.
+async function nodiAccessibili(page) {
+  try {
+    const snap = await page.locator('body').ariaSnapshot();
+    return (snap || '').split('\n').filter(l => /^\s*-\s+/.test(l)).length;
+  } catch { return null; }
+}
+
 async function recordScan(browser, page, target, name, pageResults, sourceHint) {
   const url = page.url();
   /* axe fotografa il DOM com'e' in quel momento: con una richiesta ancora in volo puo'
@@ -980,6 +1002,14 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
      pagina vuota che verrebbe scambiata per un difetto. Se e' gia' caricata torna subito. */
   await page.waitForLoadState('load').catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
+  /* Vista senza contenuto accessibile: di solito non e' ancora arrivata (un backend lento, una lista
+     che tarda), a volte non arrivera' mai. Si concede un'attesa, una sola, prima di analizzarla; se
+     resta vuota viene analizzata comunque e segnalata come tale (vedi 'vuota' piu' sotto). */
+  if (await nodiAccessibili(page) === 0) {
+    console.warn(`    [vista vuota] ${name}: nessun contenuto accessibile, attendo ${VISTA_VUOTA_ATTESA_MS / 1000}s e riprovo`);
+    await page.waitForTimeout(VISTA_VUOTA_ATTESA_MS);
+    await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
+  }
   /* Fotografia COERENTE: se il documento viene sostituito mentre axe lo percorre — una
      navigazione tardiva, un ridisegno che ricarica la vista — il risultato e' quello di una
      pagina a meta', e si presenta con la firma inconfondibile della pagina vuota (senza
@@ -1015,12 +1045,14 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
   // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
   const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
+  // Albero letto e vuoto: la vista non si e' renderizzata, e il suo esito non vale (vedi FAIL_ON_EMPTY).
+  const vuota = axTree.nodes === 0 && !axTree.illeggibile;
   const soloMouse = DO_MOUSE_ONLY ? await analyzeMouseOnly(page, { ignora: MOUSE_ONLY_IGNORE, massimo: MOUSE_ONLY_MAX }) : { totale: 0, elementi: [] };
   let sr = null;
   if (DO_SR) sr = await runScreenReader(page);
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, axTree, soloMouse, ariaSnapshot, sr,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, axTree, soloMouse, ariaSnapshot, sr, vuota,
   });
   const counts = summarizeImpacts(r.violations);
   const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -1028,6 +1060,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const nm = axTree.nameless.length ? `  a11y-tree: ${axTree.nameless.length} elem. interattivi senza nome` : '';
   const mo = soloMouse.totale ? `  solo-mouse: ${soloMouse.totale} comandi non raggiungibili da tastiera` : '';
   const srN = sr ? `  SR: ${sr.stops} annunci${sr.roleOnly.length ? `, ${sr.roleOnly.length} solo-ruolo` : ''}` : '';
+  if (vuota) console.warn(`  ! [${name}] VISTA VUOTA: nessun contenuto accessibile dopo l'attesa (pagina non renderizzata?). Il suo esito non e' valido`);
   console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${mo}${srN}`);
 }
 
@@ -1904,7 +1937,13 @@ function writeJUnit(results) {
     tests++;
     const blocking = pr.violations.filter(v => (SEVERITY_ORDER[v.impact] || 1) >= FAIL_THRESHOLD);
     const nodes = blocking.reduce((n, v) => n + v.nodes.length, 0);
-    if (blocking.length) {
+    if (pr.vuota && FAIL_ON_EMPTY) {
+      // una vista non renderizzata non e' superata: il suo "nessuna violazione" non dice nulla
+      failures++;
+      cases.push(`    <testcase classname="a11y.${xmlEscape(pr.targetName)}" name="${xmlEscape(pr.name)} (${xmlEscape(pr.url)})">
+      <failure message="vista vuota: nessun contenuto accessibile (pagina non renderizzata?)">L'albero di accessibilita' della vista e' vuoto: l'analisi non ha esaminato nulla.</failure>
+    </testcase>`);
+    } else if (blocking.length) {
       failures++;
       const detail = blocking.map(v => `${v.id} [${v.impact}] x${v.nodes.length}: ${v.help}`).join('\n');
       cases.push(`    <testcase classname="a11y.${xmlEscape(pr.targetName)}" name="${xmlEscape(pr.name)} (${xmlEscape(pr.url)})">
@@ -2043,7 +2082,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   const WCAG = wcagVerificato(TAG_USATI);
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], lighthouse: [] };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
@@ -2056,7 +2095,8 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.falsePositivesTotal += (pr.falsePositives || []).length;
     const srRoleOnly = pr.sr ? pr.sr.roleOnly.length : 0;
     summary.srRoleOnlyTotal += srRoleOnly;
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    if (pr.vuota) summary.emptyViews.push({ target: pr.targetName, name: pr.name, url: pr.url });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
     perTarget[pr.targetName] = perTarget[pr.targetName] || [];
     perTarget[pr.targetName].push(pr);
@@ -2078,7 +2118,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     const nameless = pr.axTree ? pr.axTree.nameless.length : 0;
     const soloMouse = pr.soloMouse ? pr.soloMouse.totale : 0;
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
-    return `<tr><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a></td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
+    return `<tr${pr.vuota ? ' style="background:#fde8e8"' : ''}><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a>${pr.vuota ? ' <span class="crit">VISTA VUOTA</span>' : ''}</td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
       <td>${pr.lhScore != null ? (pr.lhScore * 100).toFixed(0) + '%' : (pr.lhEscluso ? 'escluso' : '-')}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
@@ -2187,6 +2227,14 @@ ul.axtree li{margin:.05rem 0}.axtree details{border:0;background:none;padding:0;
 <p>Totali occorrenze axe: <span class="crit">critical ${summary.totals.critical}</span>, <span class="ser">serious ${summary.totals.serious}</span>, moderate ${summary.totals.moderate}, minor ${summary.totals.minor}
 ${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''}${summary.falsePositivesTotal ? ` — <span class="mod">falsi positivi dichiarati: ${summary.falsePositivesTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_MOUSE_ONLY ? ` — <span class="ser">solo mouse: ${summary.mouseOnlyTotal} comandi non raggiungibili da tastiera</span>` : ''}${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
 
+${summary.emptyViews.length ? `<div class="disclaimer" style="border-left-color:#b00">
+<h2>Viste vuote — ${summary.emptyViews.length}: esito non valido</h2>
+<p>Queste viste sono state analizzate <b>senza alcun contenuto accessibile</b>: la pagina non si è renderizzata
+(backend irraggiungibile, sessione persa, errore dell'applicazione, tempi). Su una pagina vuota nessuna regola può
+fallire, quindi i loro zeri <b>non</b> indicano viste accessibili. Rifare la scansione con l'ambiente in ordine.</p>
+<ul>${summary.emptyViews.map(v => `<li>${esc(v.target)} — <b>${esc(v.name)}</b> — <code>${esc(v.url)}</code></li>`).join('')}</ul>
+</div>` : ''}
+
 ${FALSE_POSITIVES_USATI.length ? `<div class="disclaimer">
 <h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse da "Da verificare"</h2>
 <p>Occorrenze <b>incomplete</b> già esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
@@ -2267,6 +2315,9 @@ function evaluateGate(results, summary) {
   }
   if (FAIL_ON_NAMELESS && summary.namelessTotal > 0) {
     reasons.push(`${summary.namelessTotal} elementi interattivi senza nome accessibile (a11y-tree)`);
+  }
+  if (FAIL_ON_EMPTY && summary.emptyViews && summary.emptyViews.length > 0) {
+    reasons.push(`${summary.emptyViews.length} viste vuote, esito non valido (pagina non renderizzata?): ${summary.emptyViews.map(v => v.name).join(', ')}`);
   }
   return reasons;
 }

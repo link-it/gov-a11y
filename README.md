@@ -74,6 +74,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--fail-on-nameless` | **on** | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile. Si disattiva con `"failOnNameless": false` nel config |
 | `--fail-on-screen-reader` | off | **Gate livello 3**: fallisci se il virtual screen reader produce annunci col solo ruolo |
 | `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
+| `--fail-on-empty` | **on** | **Gate delle viste vuote**: fallisci se una vista è stata analizzata senza alcun contenuto accessibile (albero di accessibilità vuoto: pagina non renderizzata per backend irraggiungibile, sessione persa, errore dell'app). Il suo "nessuna violazione" non vale. Prima di arrendersi lo strumento attende una volta (5 s). Si disattiva con `"failOnEmpty": false` nel config |
 | `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
 | `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve una copia dei **cookie di sessione** del context di scansione (ognuno col suo path) e del suo `sessionStorage`, e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate. Se Lighthouse finisce su un'altra pagina (es. rimandato al login) il punteggio viene scartato e segnalato |
@@ -89,7 +90,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--help` | | Aiuto |
 
 > **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `failOn`,
-> `failOnNameless`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
+> `failOnNameless`, `failOnEmpty`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
 > [`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md).

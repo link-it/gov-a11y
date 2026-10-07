@@ -122,6 +122,17 @@ console.log('— evaluateGate');
 const reasons = M.evaluateGate(RESULTS, summary);
 check(Array.isArray(reasons) && reasons.length >= 1, 'gate fallisce con 1 serious (fail-on=serious di default)');
 
+console.log('— vista vuota (pagina non renderizzata)');
+const VUOTA = [{ target: 'app', targetName: 'App', name: 'lista-bianca', url: 'http://h/app/lista', violations: [], incomplete: [],
+  lhScore: null, axTree: { nodes: 0, nameless: [] }, ariaSnapshot: '', sr: null, vuota: true }];
+const sommarioVuota = M.writeSummaryAndHtml(VUOTA, M.writeAriaTrees(VUOTA));
+check(sommarioVuota.pages[0].vuota === true && sommarioVuota.emptyViews.length === 1, 'summary.json: la vista e\' marcata vuota ed elencata in emptyViews');
+const motiviVuota = M.evaluateGate(VUOTA, sommarioVuota);
+check(motiviVuota.some(m => /viste vuote/.test(m) && /lista-bianca/.test(m)), 'gate: zero violazioni ma vista vuota -> non superato (failOnEmpty predefinito)');
+check(/VISTA VUOTA/.test(readFileSync(join(OUT, 'report.html'), 'utf8')), 'report.html: avviso e riga marcata');
+M.writeJUnit(VUOTA);
+check(/<failure message="vista vuota/.test(readFileSync(join(OUT, 'a11y-junit.xml'), 'utf8')), 'JUnit: la vista vuota e\' un test fallito');
+
 console.log('— loginPath assoluto (login su un\'altra origine)');
 check(M.isAbsUrl('http://localhost:5200/auth/realmdb') && M.isAbsUrl('https://h/x') && !M.isAbsUrl('/auth') && !M.isAbsUrl(undefined), 'isAbsUrl riconosce solo http(s)://');
 eq(M.absUrl('http://localhost:5200/auth/realmdb'), 'http://localhost:5200/auth/realmdb', 'URL assoluto lasciato com\'e\'');

@@ -81,6 +81,15 @@ const server = createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(page('Lingua', `<h1>Lingua</h1><p id="lingua"></p><script>document.getElementById('lingua').textContent = 'lingua=' + navigator.language;</script>`));
   }
+  // vista che non si renderizza (nessun contenuto accessibile) e vista che si disegna in ritardo
+  if (path === '/app/bianca') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end('<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Bianca</title></head><body><div id="root"></div></body></html>');
+  }
+  if (path === '/app/tardiva') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Tardiva</title></head><body><div id="root"></div><script>setTimeout(() => { document.getElementById('root').innerHTML = '<main><h1>Arrivata</h1><p>Contenuto disegnato in ritardo</p></main>'; }, 2500);</script></body></html>`);
+  }
   const html = ROUTES[path] || ROUTES[path + '/'] || page('404', `<h1>404 ${path}</h1>`);
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(html);
 });
@@ -109,7 +118,7 @@ writeFileSync(CFG, JSON.stringify({
     login: { usernameSelector: "input[name='login']", passwordSelector: "input[type='password']", submitSelector: "input.deButton[value='Login']", successUrlIncludes: 'home' },
     postLogin: { steps: [{ clickText: 'Home', optional: true, delayMs: 20 }] },
     crawl: 5, crawlDepth: 1,
-    pages: [{ name: 'home', path: '/app/home' }],
+    pages: [{ name: 'home', path: '/app/home' }, { name: 'bianca', path: '/app/bianca' }, { name: 'tardiva', path: '/app/tardiva' }],
     flows: [
       { name: 'menu', start: '/app/home', steps: [{ scanMenu: [{ item: '#menuct a.voceMenuRC', listRow: "[id^='entry_']", recurse: { depth: 2, max: 20 }, detailMenu: { open: '#divIconMenu_barraTitolo', item: '.context-menu a' }, detailConfig: "[id^='form-add-tab-link']" }], wait: 'networkidle', delayMs: 100 }] },
       { name: 'matite', start: '/app/home', steps: [{ scanMenu: [{ item: '#menuct a.voceMenuRC', listRow: "[id^='entry_']", detailEdit: 'a.edit-link' }], wait: 'networkidle', delayMs: 100 }] },
@@ -221,6 +230,10 @@ check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'session
 console.log('— postMessage (contesto inviato dalla shell che ospita l\'app)');
 const ospitata = results.find(r => r.name === 'flow:ospitata/con-organizzazione');
 check(!!ospitata && /Organizzazione 44/.test(ospitata.ariaSnapshot || ''), "postMessage: l'app riceve il messaggio e mostra il contesto");
+console.log('— viste vuote (pagina non renderizzata)');
+const bianca = results.find(r => r.name === 'bianca'), tardiva = results.find(r => r.name === 'tardiva');
+check(!!bianca && bianca.vuota === true, 'vista senza contenuto accessibile marcata vuota');
+check(!!tardiva && tardiva.vuota === false && /Arrivata/.test(tardiva.ariaSnapshot || ''), 'vista disegnata in ritardo: attesa una volta, poi analizzata piena (non vuota)');
 console.log('— locale del target (lingua del browser)');
 const lingua = results.find(r => r.target === 'app2' && r.name === 'lingua');
 check(!!lingua && /lingua=it-IT/.test(lingua.ariaSnapshot || ''), "pagine: la pagina vede navigator.language = 'locale' del target");
@@ -231,6 +244,7 @@ const trapela = outFiles.filter(f => { const t = readFileSync(join(OUT, f), 'utf
   return t.includes('RSSMRA80A01H501U') || t.includes("Verifica d'ufficio") || t.includes('Verifica d&apos;ufficio'); });
 check(outFiles.length > 3 && trapela.length === 0, `nessun file di output contiene i valori delle variabili${trapela.length ? ' (trapelano in: ' + trapela.join(', ') + ')' : ''}`);
 check(M.evaluateGate(results, summary).length >= 1, 'gate rileva violazioni (button senza nome)');
+check(M.evaluateGate(results, summary).some(m => /viste vuote/.test(m) && /bianca/.test(m) && !/tardiva/.test(m)), 'gate: la vista vuota (e solo lei) fra i motivi');
 
 console.log('— runLighthouse (audit opzionale: happy-path o fallback null)');
 const { chromium } = await import('playwright');
