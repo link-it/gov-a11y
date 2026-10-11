@@ -19,7 +19,8 @@
 #
 # Scansione di accessibilita' delle due console GovWay (govwayMonitor e govwayConsole).
 # Verifica prima le dipendenze richieste dall'esecuzione e si ferma se ne manca una;
-# poi esegue le due scansioni, ciascuna con le proprie credenziali.
+# poi esegue le due scansioni, ciascuna con le proprie credenziali. Con --only ne esegue una
+# soltanto (scan_monitor.sh e scan_console.sh la richiamano cosi').
 #
 set -uo pipefail
 
@@ -31,15 +32,20 @@ CFG_CONSOLE="$RADICE/targets/govway/targets.govway_console.json"
 BASE="${A11Y_BASE_URL:-http://localhost:8080}"
 PREFISSO="report"
 COMPLETA=0
+ONLY=""
 
 uso() {
   cat <<'FINE'
-Uso: scan.sh [--full] [--base URL] [--out PREFISSO] [--product-version VERSIONE]
+Uso: scan.sh [--full] [--only monitor|console] [--base URL] [--out PREFISSO]
+             [--product-version VERSIONE]
 
   --full          Scansione COMPLETA: attiva anche Lighthouse e lo screen reader virtuale,
                   i due componenti lenti (circa un'ora per console). Da usare al rilascio.
                   Senza questa opzione la scansione e' quella rapida per l'integrazione
                   continua: axe e albero di accessibilita', pochi minuti.
+  --only monitor|console
+                  Scansiona una sola delle due console (default: entrambe); servono
+                  solo le sue credenziali. Equivale a scan_monitor.sh / scan_console.sh.
   --base URL      Indirizzo delle console (default: $A11Y_BASE_URL o http://localhost:8080)
   --out PREFISSO  Prefisso delle directory dei report (default: report)
                   -> <PREFISSO>-monitor/ e <PREFISSO>-console/
@@ -52,7 +58,7 @@ Credenziali, dalle variabili d'ambiente (le password sono obbligatorie):
   A11Y_MONITOR_USER (default operatore)      A11Y_MONITOR_PASS
   A11Y_CONSOLE_USER (default amministratore) A11Y_CONSOLE_PASS
 
-Esce con codice diverso da zero se manca una dipendenza o se una delle due scansioni
+Esce con codice diverso da zero se manca una dipendenza o se una delle scansioni eseguite
 non supera il gate di accessibilita'.
 FINE
 }
@@ -60,13 +66,25 @@ FINE
 while [ $# -gt 0 ]; do
   case "$1" in
     --full)      COMPLETA=1; shift ;;
-    --base)      BASE="${2:-}"; shift 2 ;;
-    --out)       PREFISSO="${2:-}"; shift 2 ;;
-    --product-version) A11Y_PRODUCT_VERSION="${2:-}"; export A11Y_PRODUCT_VERSION; shift 2 ;;
+    --only)      ONLY="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+    --base)      BASE="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+    --out)       PREFISSO="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+    --product-version) A11Y_PRODUCT_VERSION="${2:-}"; export A11Y_PRODUCT_VERSION; shift $(( $# > 1 ? 2 : 1 )) ;;
     -h|--help)   uso; exit 0 ;;
     *)           echo "Opzione sconosciuta: $1" >&2; uso >&2; exit 2 ;;
   esac
 done
+
+case "$ONLY" in
+  "")      FAI_MONITOR=1; FAI_CONSOLE=1 ;;
+  monitor) FAI_MONITOR=1; FAI_CONSOLE=0 ;;
+  console) FAI_MONITOR=0; FAI_CONSOLE=1 ;;
+  *)       echo "Valore di --only non valido: '$ONLY' (monitor o console)" >&2; exit 2 ;;
+esac
+
+CFG=(); RICHIESTE=(); REPORT=()
+[ "$FAI_MONITOR" = 1 ] && { CFG+=("$CFG_MONITOR"); RICHIESTE+=(A11Y_MONITOR_PASS); REPORT+=("${PREFISSO}-monitor/"); }
+[ "$FAI_CONSOLE" = 1 ] && { CFG+=("$CFG_CONSOLE"); RICHIESTE+=(A11Y_CONSOLE_PASS); REPORT+=("${PREFISSO}-console/"); }
 
 # I flag valgono sia per la verifica delle dipendenze sia per la scansione: --check-deps
 # guarda cosa serve a QUESTA esecuzione, quindi con flag diversi darebbe un esito diverso.
@@ -81,18 +99,18 @@ fi
 [ -f "$SCANNER" ] || { echo "Scanner non trovato: $SCANNER" >&2; exit 2; }
 
 manca=0
-for v in A11Y_MONITOR_PASS A11Y_CONSOLE_PASS; do
+for v in "${RICHIESTE[@]}"; do
   if [ -z "${!v:-}" ]; then echo "Variabile d'ambiente non impostata: $v" >&2; manca=1; fi
 done
 [ "$manca" = 0 ] || { echo "Imposta le password e riprova ('scan.sh --help')." >&2; exit 2; }
 
 echo "=== gov-a11y — GovWay: scansione $MODO"
-echo "    base: $BASE    report: ${PREFISSO}-monitor/ e ${PREFISSO}-console/"
+echo "    base: $BASE    report: ${REPORT[*]}"
 [ -n "${A11Y_PRODUCT_VERSION:-}" ] && echo "    versione in prova: $A11Y_PRODUCT_VERSION"
 echo
 
 echo "=== Verifica delle dipendenze"
-for cfg in "$CFG_MONITOR" "$CFG_CONSOLE"; do
+for cfg in "${CFG[@]}"; do
   echo "--- $(basename "$cfg")"
   node "$SCANNER" --check-deps --config "$cfg" "${FLAG[@]+"${FLAG[@]}"}" || {
     echo "Dipendenze mancanti per $(basename "$cfg"): scansione non avviata." >&2
@@ -104,22 +122,26 @@ done
 # i report, e l'esito complessivo e' il peggiore dei due.
 esito=0
 
-echo
-echo "=== govwayMonitor"
-A11Y_MONITOR_USER="${A11Y_MONITOR_USER:-operatore}" \
-node "$SCANNER" --base "$BASE" --config "$CFG_MONITOR" --out "${PREFISSO}-monitor" "${FLAG[@]+"${FLAG[@]}"}"
-uscita_monitor=$?
-[ "$uscita_monitor" = 0 ] || esito=1
+if [ "$FAI_MONITOR" = 1 ]; then
+  echo
+  echo "=== govwayMonitor"
+  A11Y_MONITOR_USER="${A11Y_MONITOR_USER:-operatore}" \
+  node "$SCANNER" --base "$BASE" --config "$CFG_MONITOR" --out "${PREFISSO}-monitor" "${FLAG[@]+"${FLAG[@]}"}"
+  uscita_monitor=$?
+  [ "$uscita_monitor" = 0 ] || esito=1
+fi
 
-echo
-echo "=== govwayConsole"
-A11Y_CONSOLE_USER="${A11Y_CONSOLE_USER:-amministratore}" \
-node "$SCANNER" --base "$BASE" --config "$CFG_CONSOLE" --out "${PREFISSO}-console" "${FLAG[@]+"${FLAG[@]}"}"
-uscita_console=$?
-[ "$uscita_console" = 0 ] || esito=1
+if [ "$FAI_CONSOLE" = 1 ]; then
+  echo
+  echo "=== govwayConsole"
+  A11Y_CONSOLE_USER="${A11Y_CONSOLE_USER:-amministratore}" \
+  node "$SCANNER" --base "$BASE" --config "$CFG_CONSOLE" --out "${PREFISSO}-console" "${FLAG[@]+"${FLAG[@]}"}"
+  uscita_console=$?
+  [ "$uscita_console" = 0 ] || esito=1
+fi
 
 echo
 echo "=== Esito"
-echo "    govwayMonitor : $([ "$uscita_monitor" = 0 ] && echo 'gate superato' || echo "FALLITO (codice $uscita_monitor)")   ->  ${PREFISSO}-monitor/report.html"
-echo "    govwayConsole : $([ "$uscita_console" = 0 ] && echo 'gate superato' || echo "FALLITO (codice $uscita_console)")   ->  ${PREFISSO}-console/report.html"
+[ "$FAI_MONITOR" = 1 ] && echo "    govwayMonitor : $([ "$uscita_monitor" = 0 ] && echo 'gate superato' || echo "FALLITO (codice $uscita_monitor)")   ->  ${PREFISSO}-monitor/report.html"
+[ "$FAI_CONSOLE" = 1 ] && echo "    govwayConsole : $([ "$uscita_console" = 0 ] && echo 'gate superato' || echo "FALLITO (codice $uscita_console)")   ->  ${PREFISSO}-console/report.html"
 exit "$esito"
