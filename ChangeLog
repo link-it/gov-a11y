@@ -1,10 +1,23 @@
+2026-10-07  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Una vista analizzata senza alcun contenuto accessibile non conta più come pulita. Se la pagina non si è
+	renderizzata (backend irraggiungibile, sessione persa, errore dell'applicazione, tempi) nessuna regola può
+	fallire, e il suo "nessuna violazione" faceva passare la scansione: è successo con tre liste di GovAudit
+	analizzate bianche durante un'interruzione della VPN. Il criterio è l'albero di accessibilità senza alcun
+	nodo, che separa nettamente le pagine bianche dalle viste vere più piccole (almeno 7 nodi su oltre 400
+	viste esaminate) e non dipende dai livelli facoltativi. Una vista vuota viene attesa una volta (5 s) prima
+	di analizzarla; se resta vuota è segnalata nel log, nel report (riga e riquadro dedicato), in summary.json
+	(vuota, emptyViews) e come test fallito nel JUnit, e il nuovo gate "failOnEmpty", attivo di default come
+	quelli dei difetti oggettivi, la fa fallire. Si spegne con "failOnEmpty": false nel config.
+
 2026-10-06  Giuliano Pintori <pintori@link.it>
 
 	* [gov-a11y]
-	Il dedup delle pagine tiene conto del fragment quando e' una rotta. Le applicazioni che instradano sul fragment
+	Il dedup delle pagine tiene conto del fragment quando è una rotta. Le applicazioni che instradano sul fragment
 	(Angular con useHash, molte SPA storiche) ci tengono l'intera rotta: scartandolo, tutte le viste avevano lo
-	stesso URL normalizzato e dalla seconda in poi venivano saltate come "gia' scansionata", con un messaggio che
-	indicava pero' un URL diverso da quello scartato, e senza alcun errore. Sul cruscotto storico di GovPay
+	stesso URL normalizzato e dalla seconda in poi venivano saltate come "già scansionata", con un messaggio che
+	indicava però un URL diverso da quello scartato, e senza alcun errore. Sul cruscotto storico di GovPay
 	significava analizzare 1 pagina su 17; con la correzione sono 15, e le due che restano fuori rimbalzano
 	davvero sulla dashboard per i diritti dell'utenza, ora riconosciute anche come redirect. Entra nella chiave
 	solo il fragment con la forma di una rotta ("#/..." o "#!/..."): le ancore e i parametri che alcuni login

@@ -27,6 +27,8 @@ defaults:
   failOnNameless: true        # fallisce se elementi interattivi senza nome accessibile (PREDEFINITO: true)
   failOnScreenReader: false   # fallisce se il virtual screen reader annuncia elementi col solo ruolo
   failOnMouseOnly: true       # fallisce se esistono comandi utilizzabili col solo mouse (PREDEFINITO: true)
+  failOnEmpty: true           # fallisce se una vista e' analizzata vuota: albero di accessibilita' senza nodi,
+                              # pagina non renderizzata (PREDEFINITO: true; attende una volta 5 s prima)
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---
   noFlows: false              # non eseguire i flows
