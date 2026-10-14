@@ -101,6 +101,33 @@
         ]
       },
       {
+        "name": "allarmi-nuovo",
+        "$note": "Allarmi > Aggiungi: il form cambia interamente secondo il plugin scelto (sezioni e parametri propri di ciascuno), e il flow menu vede solo gli allarmi gia' configurati. scanOptions sceglie uno alla volta tutti i plugin installati, scoperti a runtime, e scansiona il form che ne risulta; 'Salva' non viene mai premuto. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
+        "start": "/govwayConsole/",
+        "skipIfMissing": "a.voceMenuRC[title='Allarmi']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
+        "steps": [
+          { "click": "a.voceMenuRC[title='Allarmi']", "wait": "networkidle", "delayMs": 600, "desc": "apri Allarmi dal menu" },
+          { "click": "input[type='submit'][value='Aggiungi'], input[type='button'][value='Aggiungi']", "wait": "networkidle", "delayMs": 600, "desc": "Aggiungi: form senza plugin" },
+          { "scan": "form" },
+          { "scanOptions": { "selector": "select[name='allPlugin']", "name": "plugin", "skip": "^-$" }, "wait": "networkidle", "delayMs": 600 }
+        ]
+      },
+      {
+        "name": "allarmi-azioni-riga",
+        "$note": "Elenco degli Allarmi: il menu delle azioni di riga (tre puntini) e la vista 'Visualizza runtime' che apre. Il flow menu entra nel dettaglio della prima riga, che puo' non avere azioni (allarme passivo): qui si apre il primo menu di riga presente, quale che sia l'allarme. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
+        "start": "/govwayConsole/",
+        "skipIfMissing": "a.voceMenuRC[title='Allarmi']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          { "click": "a.voceMenuRC[title='Allarmi']", "wait": "networkidle", "delayMs": 600, "desc": "apri Allarmi dal menu" },
+          { "click": "[id^='spanIconMenu_']", "delayMs": 400, "desc": "apri il menu azioni della prima riga che ne ha uno" },
+          { "scan": "menu-aperto" },
+          { "click": ".context-menu a >> visible=true", "wait": "networkidle", "delayMs": 800, "desc": "prima azione del menu (Visualizza runtime)" },
+          { "scan": "azione" }
+        ]
+      },
+      {
         "name": "auditing-filtro-date",
         "$note": "Il pannello del datepicker (jQuery UI) e' nel DOM ma nascosto: si apre dando il fuoco al campo, altrimenti axe lo salta e non viene mai esaminato.",
         "start": "/govwayConsole/auditing.do",

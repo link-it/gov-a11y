@@ -403,6 +403,77 @@
         ]
       },
       {
+        "name": "allarmi-lista",
+        "$note": "Stato Allarmi: aperta dall'URL la pagina mostra solo il riepilogo degli stati e il filtro, l'elenco compare dopo 'Cerca'. Si entra dalla voce di menu, come un utente. La voce esiste solo nelle installazioni con gli allarmi: senza, questo flow e i successivi sugli allarmi vengono saltati.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/list/statoAllarmi.xhtml",
+        "steps": [
+          { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
+          { "scan": "filtro" },
+          { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
+          { "wait": "a[id$='dettaglio-iconLink']", "timeoutMs": 8000, "desc": "attendi l'elenco degli allarmi" },
+          { "scan": "elenco" }
+        ]
+      },
+      {
+        "name": "allarme-dettaglio",
+        "$note": "Dettaglio di un allarme ATTIVO (icona 'alarm' nella colonna Modalita'): solo questi hanno il tab dei parametri, quindi la riga si sceglie per modalita' e non per posizione. I tab sono scoperti a runtime (scanTabs). Dal tab Stato si apre l'Archivio Stati e il dettaglio della sua prima voce.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
+        "steps": [
+          { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
+          { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
+          { "click": "tr.rich-table-row:has(i:text-is('alarm')) a[id$='dettaglio-iconLink']", "wait": "networkidle", "delayMs": 1500, "desc": "dettaglio del primo allarme attivo" },
+          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1200 },
+          { "click": ".rich-tab-header >> nth=0", "wait": "networkidle", "delayMs": 1000, "desc": "torna al tab Stato" },
+          { "click": "a[id$='history-iconLink']", "wait": "networkidle", "delayMs": 1500, "desc": "Archivio Stati" },
+          { "scan": "archivio-stati" },
+          { "click": "a[id$='dettaglio-iconLink']", "wait": "networkidle", "delayMs": 1500, "optional": true, "desc": "dettaglio della prima voce dell'archivio (se presente)" },
+          { "scan": "archivio-stati-dettaglio" }
+        ]
+      },
+      {
+        "name": "allarme-dettaglio-passivo",
+        "$note": "Dettaglio di un allarme PASSIVO (icona 'alarm_off'): senza il tab dei parametri e con un tab Stato diverso. Se non ci sono allarmi passivi il click fallisce e il flow si interrompe con un avviso.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
+        "steps": [
+          { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
+          { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
+          { "click": "tr.rich-table-row:has(i:text-is('alarm_off')) a[id$='dettaglio-iconLink']", "wait": "networkidle", "delayMs": 1500, "desc": "dettaglio del primo allarme passivo" },
+          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1200 }
+        ]
+      },
+      {
+        "name": "allarme-modifica-stato",
+        "$note": "Matita 'Modifica Stato' dell'elenco: form con il nuovo stato, il dettaglio e l'acknowledge. 'Salva' non viene premuto. La matita compare solo per gli allarmi il cui stato e' modificabile manualmente: se manca, il flow si interrompe con un avviso.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/includes/formAllarmeStato.xhtml",
+        "steps": [
+          { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
+          { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
+          { "click": "a[id$='edit-iconLink']:has-text('Modifica Stato')", "wait": "networkidle", "delayMs": 1500, "desc": "Modifica Stato del primo allarme che lo consente" },
+          { "scan": "form" }
+        ]
+      },
+      {
+        "name": "allarme-criteri-acknowledge",
+        "$note": "Matita 'Modifica Criteri Acknowledge' dell'elenco: form dei criteri, con la finestra informativa del campo. 'Salva' non viene premuto. La matita compare solo per gli allarmi con criteri modificabili: se manca, il flow si interrompe con un avviso.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/includes/formAllarmeStato.xhtml",
+        "steps": [
+          { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
+          { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
+          { "click": "a[id$='edit-iconLink']:has-text('Modifica Criteri')", "wait": "networkidle", "delayMs": 1500, "desc": "Modifica Criteri Acknowledge del primo allarme che lo consente" },
+          { "scan": "form" }
+        ]
+      },
+      {
         "name": "eventi-filtro-date",
         "$note": "Il calendario (rich:calendar) esiste solo con 'Periodo = Personalizzato': senza questo passo i selettori di data non vengono mai esaminati. Il pannello viene poi aperto, per scansionarlo da dentro.",
         "start": "/govwayMonitor/eventi/pages/list/eventi.jsf",
