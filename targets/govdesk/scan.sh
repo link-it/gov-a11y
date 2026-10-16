@@ -19,9 +19,10 @@
 #
 # Scansione di accessibilita' delle applicazioni GovDesk in sviluppo locale: GovHub e le app che
 # ospita, ognuna sulla sua porta. Scansiona le app avviate e salta le altre. Per ogni app legge
-# dall'app stessa la versione (about-config.json) e la modalita' (STANDALONE in app-config.json):
+# dall'app stessa la versione (about-config.json) e la modalità (STANDALONE in app-config.json):
 # un'app incorporata si autentica con la sessione di GovHub, che deve essere avviato; un'app
-# standalone usa il proprio login e il target "-standalone", se esiste.
+# standalone usa il proprio login (realm e scelta dell'organizzazione) e il target "-standalone",
+# che esiste per tutte le app. Le app si possono avviare in modalità diverse fra loro.
 #
 set -uo pipefail
 
@@ -31,8 +32,9 @@ DIR_TARGET="$RADICE/targets/govdesk"
 HOST="http://localhost"
 PORTA_GOVHUB=5200
 
-# app:porta, nell'ordine di scansione. Il config e' targets.<app>.json (e targets.<app>-standalone.json
-# per la modalita' standalone). Le porte sono quelle di 'npm run start-<app>-proxy'.
+# app:porta, nell'ordine di scansione. Il config è targets.<app>.json in modalità incorporata e
+# targets.<app>-standalone.json in modalità standalone (GovHub è sempre standalone e ne ha uno solo).
+# Le porte sono quelle di 'npm run start-<app>-proxy'.
 APP=(govhub:5200 govanis:5212 govanist:5213 govdurc:5218 govtitcatasto:5217 govwaas:5216 govanpr:5209 govinad:5201 govisee:5207 govregistroimprese:5215 govcasellariogiudiziale:5219 govaudit:5203 govregistry:5208 govcatalogo:5220)
 
 PREFISSO="report"
@@ -68,8 +70,11 @@ Credenziali, dalle variabili d'ambiente (obbligatorie), valide per tutte le app:
   A11Y_GOVDESK_USER   A11Y_GOVDESK_PASS
 (un'app puo' averne di proprie con A11Y_<CHIAVE TARGET>_USER / _PASS, es. A11Y_GOVWAAS_USER)
 
-Prerequisiti: VPN Link.it, le app avviate con 'npm run start-<app>-proxy'; per le app
-incorporate (STANDALONE: false) anche GovHub su :5200.
+Prerequisiti: VPN Link.it, le app avviate con 'npm run start-<app>-proxy'. Ogni app gira:
+  - incorporata (STANDALONE: false, predefinito): serve anche GovHub su :5200 per il login;
+  - standalone (STANDALONE: true in assets/config/app-config.json): ha il proprio login per
+    realm e la propria scelta dell'organizzazione, GovHub non serve.
+Lo script riconosce la modalità di ogni app avviata e usa il target corrispondente.
 
 Esce con 0 se tutte le app scansionate superano il gate, 1 se almeno una non lo supera,
 2 se mancano credenziali o dipendenze, se un'app chiesta con --solo non e' avviata o se
@@ -77,12 +82,14 @@ non c'e' nessuna app da scansionare.
 FINE
 }
 
+# shift di 2 solo se il valore c'è: con l'opzione scritta per ultima e senza valore, 'shift 2'
+# fallirebbe senza consumare nulla e il ciclo non terminerebbe più.
 while [ $# -gt 0 ]; do
   case "$1" in
     --full)      COMPLETA=1; shift ;;
-    --solo)      SOLO="${2:-}"; shift 2 ;;
-    --out)       PREFISSO="${2:-}"; shift 2 ;;
-    --product-version) VERSIONE_CLI="${2:-}"; shift 2 ;;
+    --solo)      SOLO="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+    --out)       PREFISSO="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+    --product-version) VERSIONE_CLI="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     --esegui)    ESEGUI=1; shift ;;
     -h|--help)   uso; exit 0 ;;
     *)           echo "Opzione sconosciuta: $1" >&2; uso >&2; exit 2 ;;
