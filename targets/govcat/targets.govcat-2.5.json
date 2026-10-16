@@ -1,0 +1,270 @@
+{
+  "$app": "GovCat 2.5.x",
+  "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'); la select-org e' SEMPRE presente -> postLogin. navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle. Versione 2.5.x: flussi del servizio sul nuovo wizard; per la 2.4.x usare targets.govcat.json.",
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "showIncomplete": false
+  },
+  "govcat": {
+    "name": "govcat",
+    "enabled": true,
+    "loginPath": "/",
+    "contextPath": "/",
+    "sourceHint": "frontend/angular/projects/apicat-app/src",
+    "extraHTTPHeaders": {
+      "X-GovCat-principal": "lorenzo.gestore"
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 8000,
+    "postLogin": {
+      "steps": [
+        { "goto": "/servizi", "wait": "domcontentloaded", "delayMs": 2500, "desc": "trigger select-org" },
+        { "clickText": "Ministero Interno", "optional": true, "delayMs": 700, "desc": "scegli org" },
+        { "clickText": "Conferma", "optional": true, "delayMs": 2500, "desc": "conferma org" }
+      ]
+    },
+    "pages": [
+      {
+        "name": "servizi",
+        "path": "/servizi"
+      },
+      {
+        "name": "servizi-new",
+        "path": "/servizi/new"
+      },
+      {
+        "name": "adesioni",
+        "path": "/adesioni"
+      },
+      {
+        "name": "adesioni-new",
+        "path": "/adesioni/new/edit"
+      },
+      {
+        "name": "client",
+        "path": "/client"
+      },
+      {
+        "name": "domini",
+        "path": "/domini"
+      },
+      {
+        "name": "soggetti",
+        "path": "/soggetti"
+      },
+      {
+        "name": "organizzazioni",
+        "path": "/organizzazioni"
+      },
+      {
+        "name": "utenti",
+        "path": "/utenti"
+      },
+      {
+        "name": "gruppi",
+        "path": "/gruppi"
+      },
+      {
+        "name": "classi-utente",
+        "path": "/classi-utente"
+      },
+      {
+        "name": "dashboard",
+        "path": "/dashboard"
+      },
+      {
+        "name": "organizzazioni-new",
+        "path": "/organizzazioni/new"
+      },
+      {
+        "name": "utenti-new",
+        "path": "/utenti/new"
+      },
+      {
+        "name": "client-new",
+        "path": "/client/new"
+      },
+      {
+        "name": "soggetti-new",
+        "path": "/soggetti/new"
+      },
+      {
+        "name": "classi-utente-new",
+        "path": "/classi-utente/new"
+      },
+      {
+        "name": "domini-new",
+        "path": "/domini/new"
+      }
+    ],
+    "$flowsNote": "Versione per GovCat 2.5.x (wizard servizi, Services.wizardNewLayout=true). Discovery dinamico (nessun id cablato). SERVIZIO: la lista e' raggruppata (1o click .card h2.card-title = apre il gruppo, 2o = apre il primo servizio -> VETRINA /servizi/:id/view); dalla vetrina 'Altre azioni' -> 'Gestione' apre il WIZARD /servizi/:id sulla fase corrente (al posto del dettaglio classico con le tab di sezione della 2.4.x). Fase 1 (prima [role=tab]): pulsanti di sezione .lnk-section-nav-chip aprono Referenti/Allegati/Gruppi. API: nella fase corrente il sub-step 'In compilazione' (.tl-row con aria-expanded) contiene la lista API; da ogni riga: matita (aria-label 'Modifica informazioni generali'), 'Configura' (icona bi-gear) e graffetta (aria-label 'Allegati'). Gli step dipendono da stato e permessi del primo servizio: sono optional. ADESIONE: invariata rispetto alla 2.4.x. Regola flows: solo navigazione, mai SALVA. Le viste per-id dipendono dai dati dell'utente (principal lorenzo.gestore).",
+    "flows": [
+      {
+        "name": "servizio-vetrina-wizard",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "scan": "servizio-vetrina" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 4000, "desc": "Gestione -> wizard /servizi/:id (fase corrente)" },
+          { "scan": "servizio-wizard" }
+        ]
+      },
+      {
+        "name": "servizio-wizard-fase1",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-workflow-wizard",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 4000, "desc": "Gestione -> wizard /servizi/:id (fase corrente)" },
+          { "click": "[role='tab']", "wait": "domcontentloaded", "delayMs": 2500, "desc": "tab Fase 1 (Informazioni generali)" },
+          { "scan": "servizio-wizard-fase1" },
+          { "click": ".phase-section-edit-toggle", "optional": true, "delayMs": 2500, "desc": "form Informazioni generali (solo apertura, prima di aprire le altre sezioni)" },
+          { "scan": "servizio-wizard-info-form" },
+          { "click": ".lnk-section-nav-chip:has-text('Referenti')", "optional": true, "delayMs": 1500, "desc": "apri sezione Referenti" },
+          { "scan": "servizio-wizard-referenti" },
+          { "click": ".lnk-section-nav-chip:has-text('Allegati')", "optional": true, "delayMs": 1500, "desc": "apri sezione Allegati" },
+          { "scan": "servizio-wizard-allegati" },
+          { "click": ".lnk-section-nav-chip:has-text('Gruppi')", "optional": true, "delayMs": 1500, "desc": "apri sezione Gruppi" },
+          { "scan": "servizio-wizard-gruppi" }
+        ]
+      },
+      {
+        "name": "servizio-wizard-api",
+        "start": "/servizi",
+        "skipIfMissing": ".card h2.card-title",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
+        "steps": [
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
+          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 4000, "desc": "Gestione -> wizard /servizi/:id (fase corrente)" },
+          { "click": ".tl-row[aria-expanded='false']:has-text('In compilazione')", "optional": true, "delayMs": 2000, "desc": "espandi il sub-step In compilazione se chiuso" },
+          { "scan": "servizio-wizard-api" },
+          { "click": "button[aria-label='Modifica informazioni generali']", "optional": true, "delayMs": 5000, "desc": "matita API (solo apertura)" },
+          { "scan": "servizio-wizard-api-modifica" },
+          { "click": ".api-row button:has-text('Chiudi')", "optional": true, "delayMs": 1500, "desc": "chiudi pannello" },
+          { "click": ".api-row button:has(.bi-gear)", "optional": true, "delayMs": 5000, "desc": "configura API della fase (solo apertura)" },
+          { "scan": "servizio-wizard-api-configura" },
+          { "click": ".api-row button:has-text('Chiudi')", "optional": true, "delayMs": 1500, "desc": "chiudi pannello" },
+          { "click": ".api-row button[aria-label='Allegati']", "optional": true, "delayMs": 2500, "desc": "allegati dell API" },
+          { "scan": "servizio-wizard-api-allegati" }
+        ]
+      },
+      {
+        "name": "adesione-vetrina-modifica",
+        "start": "/adesioni",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/adesioni",
+        "steps": [
+          { "click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima adesione -> vetrina /adesioni/:id/view" },
+          { "scan": "adesione-vetrina" },
+          { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "apri menu 'Altre azioni'" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Configura')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Configura -> modifica/wizard /adesioni/:id" },
+          { "scan": "adesione-modifica" }
+        ]
+      },
+      {
+        "name": "organizzazione-dettaglio-modifica",
+        "start": "/organizzazioni",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/organizzazioni",
+        "steps": [
+          {"click": ".item-row-link:has(:text-is('Ente'))", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri un'organizzazione non intermediata (mostra la lista utenti)"},
+          {"scan": "organizzazione-dettaglio"},
+          {"click": ".ou-tools button:has-text('Aggiungi')", "optional": true, "delayMs": 1500, "desc": "dialog aggiungi utente"},
+          {"scan": "organizzazione-utente-aggiungi"},
+          {"fill": {"selector": "#utente-org-principal-search", "value": "zz"}, "optional": true, "delayMs": 1500, "desc": "ricerca per mostrare il comando Nuovo utente"},
+          {"click": "ng-dropdown-panel button:has-text('Nuovo utente')", "optional": true, "delayMs": 1500, "desc": "dialog: vista nuovo utente"},
+          {"scan": "organizzazione-utente-nuovo"},
+          {"click": ".ud-ft button:has-text('Annulla')", "optional": true, "delayMs": 1000, "desc": "chiudi dialog"},
+          {"click": ".ou-table button[aria-label='Modifica ruolo utente']", "optional": true, "delayMs": 1500, "desc": "dialog modifica ruolo utente"},
+          {"scan": "organizzazione-utente-ruolo"},
+          {"click": ".ud-ft button:has-text('Annulla')", "optional": true, "delayMs": 1000, "desc": "chiudi dialog"},
+          {"click": "button[aria-label='Modifica']", "delayMs": 2500, "desc": "modifica (solo apertura)"},
+          {"scan": "organizzazione-modifica"}
+        ]
+      },
+      {
+        "name": "utente-dettaglio-modifica",
+        "start": "/utenti",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/utenti",
+        "steps": [
+          {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
+          {"scan": "utente-dettaglio"},
+          {"click": "button[aria-label='Modifica']", "delayMs": 2500, "desc": "modifica (solo apertura)"},
+          {"scan": "utente-modifica"}
+        ]
+      },
+      {
+        "name": "client-dettaglio-modifica",
+        "start": "/client",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/clients",
+        "steps": [
+          {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
+          {"scan": "client-dettaglio"},
+          {"click": "button:has(.bi-pencil)", "delayMs": 2500, "desc": "modifica (solo apertura)"},
+          {"scan": "client-modifica"}
+        ]
+      },
+      {
+        "name": "soggetto-dettaglio-modifica",
+        "start": "/soggetti",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/soggetti",
+        "steps": [
+          {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
+          {"scan": "soggetto-dettaglio"},
+          {"click": "button[aria-label='Modifica']", "delayMs": 2500, "desc": "modifica (solo apertura)"},
+          {"scan": "soggetto-modifica"}
+        ]
+      },
+      {
+        "name": "classe-utente-dettaglio-modifica",
+        "start": "/classi-utente",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/classi-utente",
+        "steps": [
+          {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
+          {"scan": "classe-utente-dettaglio"},
+          {"click": "button[aria-label='Modifica']", "delayMs": 2500, "desc": "modifica (solo apertura)"},
+          {"scan": "classe-utente-modifica"}
+        ]
+      },
+      {
+        "name": "dominio-dettaglio-modifica",
+        "start": "/domini",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/domini",
+        "steps": [
+          {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
+          {"scan": "dominio-dettaglio"},
+          {"click": "button[aria-label='Modifica']", "delayMs": 2500, "desc": "modifica (solo apertura)"},
+          {"scan": "dominio-modifica"}
+        ]
+      },
+      {
+        "name": "client-nuovo-compilato",
+        "start": "/client/new",
+        "skipIfMissing": "#id_organizzazione",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/clients",
+        "steps": [
+          {"fill": {"selector": "#id_organizzazione", "value": "Ente"}, "optional": true, "delayMs": 2000, "desc": "cerca organizzazione"},
+          {"click": "ng-dropdown-panel .ng-option", "optional": true, "delayMs": 2500, "desc": "scegli la prima organizzazione (compare il soggetto se più d'uno)"},
+          {"select": {"selector": ".client-auth-form ng-select", "value": "Http basic", "exact": true}, "optional": true, "delayMs": 1500, "desc": "tipo di autenticazione (mostra il rate limiting)"},
+          {"scan": "client-nuovo-compilato"}
+        ]
+      }
+    ]
+  }
+}
