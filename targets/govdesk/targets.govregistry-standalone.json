@@ -1,0 +1,283 @@
+{
+  "$app": "GovRegistry (standalone)",
+
+  "$comment": "GovRegistry (Impostazioni) in modalità STANDALONE: true (app-config.json, o config.json in assets a runtime). Senza GovHub: l'app ha login per realm (/auth/<realm>, come GovHub), scelta dell'organizzazione (/select-organization), sidebar, menu utente, profilo e dashboard propri (stessa implementazione di GovAnis, commit cb5b1e9). Dev: 'npm run start-govregistry-proxy' in govregistry-app-v2 -> http://localhost:5208 con STANDALONE: true, backend via proxy /govhub-reverse-proxy (VPN Link.it). GovHub NON serve. Variante incorporata (STANDALONE: false, via GovHub): targets.govregistry.json, da cui vengono pagine e flow dell'app. Rotte da projects/govregistry-app/src/app/app.routes.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+
+  "govregistryLogin": {
+    "name": "govregistry-standalone-login",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govregistry-app/src/app/features/login",
+    "$note": "Target SENZA autenticazione: la pagina di login del realm, che gli altri target attraversano ma non analizzano. Con /auth/login (nessun realm) il login fallisce: va sempre indicato il realm.",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 4000,
+    "pages": [
+      { "name": "login", "path": "/auth/realmdb" }
+    ]
+  },
+
+  "govregistrySceltaOrg": {
+    "name": "govregistry-standalone-scelta-organizzazione",
+    "enabled": true,
+    "lighthouse": false,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govregistry-app/src/app/features/select-organization",
+    "$note": "Login SENZA scegliere l'organizzazione, per analizzare la pagina di scelta: si apre '/' e l'app vi rimanda da sé (/select-organization, navigazione interna). Aperta direttamente, /select-organization rimanda al login anche con la sessione valida (organizationChooserPageGuard fuori dalla sessione: difetto app, come in GovAnis); per lo stesso motivo Lighthouse è escluso.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "pages": [
+      { "name": "scelta-organizzazione", "path": "/" }
+    ]
+  },
+
+  "govregistry": {
+    "name": "govregistry-standalone",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govregistry-app/src/app",
+    "$locale": "L'app sceglie la lingua da navigator.language: senza 'locale' il Chromium headless la mostrerebbe in inglese.",
+    "$auth": "Login per realm su /auth/<realm>, come GovHub. Credenziali MAI qui: env A11Y_USER / A11Y_PASS (valgono per tutti i target del file) oppure A11Y_<CHIAVE>_USER / _PASS per singolo target. Ruoli: come nel target incorporato (vedi lì '$auth').",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "$postLogin": "Utente multi-organizzazione: dopo il login si arriva a /select-organization (pulsanti con il nome dell'organizzazione + 'Conferma'). Mono-organizzazione = assegnata in automatico: i passi sono optional.",
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "conferma l'organizzazione" }
+      ]
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "$pages": "In standalone la dashboard / resta visibile (rootRedirectGuard reindirizza solo con STANDALONE: false); /profile è la pagina del profilo. Le altre pagine sono quelle del target incorporato.",
+    "pages": [
+      { "name": "dashboard", "path": "/" },
+      { "name": "profilo", "path": "/profile" },
+      { "name": "applicazioni", "path": "/applications" },
+      { "name": "applicazione-nuovo", "path": "/applications/new" },
+      { "name": "utenti", "path": "/users" },
+      { "name": "utente-nuovo", "path": "/users/new" },
+      { "name": "gruppi", "path": "/groups" },
+      { "name": "gruppo-nuovo", "path": "/groups/new" },
+      { "name": "organizzazioni", "path": "/organizations" },
+      { "name": "organizzazione-nuovo", "path": "/organizations/new" },
+      { "name": "client", "path": "/clients" },
+      { "name": "client-nuovo", "path": "/clients/new" }
+    ],
+    "$flows": "Lighthouse escluso dai flow: ricarica l'URL e misurerebbe la vista di partenza. Solo navigazione: mai 'Esci' (chiude la sessione); 'Guida utente' è un link esterno (non seguito). I primi cinque flow (menu utente, cambio organizzazione, supporto, Informazioni, barra laterale chiusa) sono quelli comuni alle app in standalone; gli altri vengono dal target incorporato, con le stesse avvertenze riportate in '$flowsApp'.",
+    "$flowsApp": "ATTENZIONE: l'utente di scansione è sysadmin su dati REALI. Solo navigazione: i flow cliccano SOLTANTO la prima riga di una lista, 'Modifica' (che rende il dettaglio un form senza scrivere nulla), il pulsante 'Filtri' e 'Aggiungi Autorizzazione' (dialog); MAI Salva, Aggiungi, Elimina, Reimposta password, Reset MFA, Avvia configurazione, Configura, Dispose tutto, Riprova, Genera. Pulsanti agganciati per ruolo e nome ESATTO (role=button[name=\"...\" s]), mai per sottostringa: l'aria-label c'è solo su alcuni e il testo include l'icona. Dove i 'Modifica' sono due, il primo è quello dell'intestazione. Verificato (2026-10-06): aprire dettagli, 'Modifica', i form /new e il dialog non invia alcuna richiesta di scrittura. Lighthouse escluso dove ricaricando misurerebbe la vista di partenza (form di modifica, dialog, filtri); resta sui dettagli, che hanno un URL proprio. Il primo elemento di ogni lista dipende dai dati e può cambiare.",
+    "flows": [
+      {
+        "name": "menu-utente",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govregistry-app/src/app/core/ui/profile-menu",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "scan": "menu-utente-aperto" }
+        ]
+      },
+      {
+        "name": "cambia-organizzazione",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govregistry-app/src/app/core/ui/profile-menu",
+        "$note": "Dialog di cambio organizzazione: si apre e si analizza, senza confermare.",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "clickText": "Cambia organizzazione", "exact": true, "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog di cambio organizzazione" },
+          { "scan": "dialog-cambia-organizzazione" }
+        ]
+      },
+      {
+        "name": "contatta-supporto",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govregistry-app/src/app/core/ui/profile-menu",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "clickText": "Contatta il supporto", "exact": true, "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog del supporto" },
+          { "scan": "dialog-supporto" }
+        ]
+      },
+      {
+        "name": "informazioni",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button:has-text('Informazioni')",
+        "sourceHint": "projects/govregistry-app/src/app/core/ui/about",
+        "steps": [
+          { "click": "button:has-text('Informazioni')", "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog Informazioni" },
+          { "scan": "dialog-informazioni" }
+        ]
+      },
+      {
+        "name": "sidebar-chiusa",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label='Chiudi la barra laterale']",
+        "sourceHint": "projects/govregistry-app/src/app/core/layout/sidebar-layout",
+        "steps": [
+          { "click": "button[aria-label='Chiudi la barra laterale']", "delayMs": 1000, "desc": "chiudi la barra laterale" },
+          { "scan": "barra-laterale-chiusa" }
+        ]
+      },
+      {
+        "name": "utenti-filtri",
+        "start": "/users",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-search-bar",
+        "sourceHint": "projects/govregistry-app/src/app/features/users",
+        "steps": [
+          { "click": "lnk-search-bar button[aria-label='Filtri']", "delayMs": 1500, "desc": "apri il pannello dei filtri (non applicarli)" },
+          { "scan": "pannello-filtri" }
+        ]
+      },
+      {
+        "name": "applicazione-dettaglio",
+        "start": "/applications",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/applications",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /applications/:id" },
+          { "scan": "dettaglio-applicazione" }
+        ]
+      },
+      {
+        "name": "applicazione-modifica",
+        "start": "/applications",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/applications",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /applications/:id" },
+          { "click": "role=button[name=\"Modifica\" s]", "delayMs": 2000, "desc": "Modifica: il dettaglio diventa un form (Salva/Annulla). NON salvare" },
+          { "scan": "modifica-applicazione" }
+        ]
+      },
+      {
+        "name": "utente-dettaglio",
+        "start": "/users",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/users",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /users/:id" },
+          { "scan": "dettaglio-utente" }
+        ]
+      },
+      {
+        "name": "utente-modifica",
+        "start": "/users",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/users",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /users/:id" },
+          { "click": "role=button[name=\"Modifica\" s]", "delayMs": 2000, "desc": "Modifica: il dettaglio diventa un form (Salva/Annulla). NON salvare" },
+          { "scan": "modifica-utente" }
+        ]
+      },
+      {
+        "name": "gruppo-dettaglio",
+        "start": "/groups",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/groups",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /groups/:id" },
+          { "scan": "dettaglio-gruppo" }
+        ]
+      },
+      {
+        "name": "gruppo-modifica",
+        "start": "/groups",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/groups",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /groups/:id" },
+          { "click": "role=button[name=\"Modifica\" s]", "delayMs": 2000, "desc": "Modifica: il dettaglio diventa un form (Salva/Annulla). NON salvare" },
+          { "scan": "modifica-gruppo" }
+        ]
+      },
+      {
+        "name": "organizzazione-dettaglio",
+        "start": "/organizations",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/organizations",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /organizations/:id" },
+          { "scan": "dettaglio-organizzazione" }
+        ]
+      },
+      {
+        "name": "organizzazione-modifica",
+        "start": "/organizations",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/organizations",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /organizations/:id" },
+          { "click": "role=button[name=\"Modifica\" s]", "delayMs": 2000, "desc": "Modifica: il dettaglio diventa un form (Salva/Annulla). NON salvare" },
+          { "scan": "modifica-organizzazione" }
+        ]
+      },
+      {
+        "name": "client-dettaglio",
+        "start": "/clients",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/clients",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /clients/:id" },
+          { "scan": "dettaglio-client" }
+        ]
+      },
+      {
+        "name": "client-modifica",
+        "start": "/clients",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/clients",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /clients/:id" },
+          { "click": "role=button[name=\"Modifica\" s]", "delayMs": 2000, "desc": "Modifica: il dettaglio diventa un form (Salva/Annulla). NON salvare" },
+          { "scan": "modifica-client" }
+        ]
+      },
+      {
+        "name": "utente-aggiungi-autorizzazione",
+        "start": "/users",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govregistry-app/src/app/features/users/user-authorizations",
+        "$note": "Dialog di assegnazione di un'autorizzazione: si apre e si analizza, MAI 'Aggiungi'.",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /users/:id" },
+          { "click": "role=button[name=\"Aggiungi Autorizzazione\" s]", "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog Aggiungi Autorizzazione. NON confermare" },
+          { "scan": "dialog-aggiungi-autorizzazione" }
+        ]
+      }
+    ]
+  }
+}

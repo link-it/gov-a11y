@@ -1,0 +1,207 @@
+{
+  "$app": "GovAudit (standalone)",
+
+  "$comment": "GovAudit in modalità STANDALONE: true (app-config.json, o config.json in assets a runtime). Senza GovHub: l'app ha login per realm (/auth/<realm>, come GovHub), scelta dell'organizzazione (/select-organization), sidebar, menu utente, profilo e dashboard propri (stessa implementazione di GovAnis, commit cb5b1e9). Dev: 'npm run start-govaudit-proxy' in govaudit-app-v2 -> http://localhost:5203 con STANDALONE: true, backend via proxy /govhub-reverse-proxy (VPN Link.it). GovHub NON serve. Variante incorporata (STANDALONE: false, via GovHub): targets.govaudit.json, da cui vengono pagine e flow dell'app. Rotte da projects/govaudit-app/src/app/app.routes.ts.",
+
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+
+  "govauditLogin": {
+    "name": "govaudit-standalone-login",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govaudit-app/src/app/features/login",
+    "$note": "Target SENZA autenticazione: la pagina di login del realm, che gli altri target attraversano ma non analizzano. Con /auth/login (nessun realm) il login fallisce: va sempre indicato il realm.",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 4000,
+    "pages": [
+      { "name": "login", "path": "/auth/realmdb" }
+    ]
+  },
+
+  "govauditSceltaOrg": {
+    "name": "govaudit-standalone-scelta-organizzazione",
+    "enabled": true,
+    "lighthouse": false,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govaudit-app/src/app/features/select-organization",
+    "$note": "Login SENZA scegliere l'organizzazione, per analizzare la pagina di scelta: si apre '/' e l'app vi rimanda da sé (/select-organization, navigazione interna). Aperta direttamente, /select-organization rimanda al login anche con la sessione valida (organizationChooserPageGuard fuori dalla sessione: difetto app, come in GovAnis); per lo stesso motivo Lighthouse è escluso.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "pages": [
+      { "name": "scelta-organizzazione", "path": "/" }
+    ]
+  },
+
+  "govaudit": {
+    "name": "govaudit-standalone",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govaudit-app/src/app",
+    "$locale": "L'app sceglie la lingua da navigator.language: senza 'locale' il Chromium headless la mostrerebbe in inglese.",
+    "$auth": "Login per realm su /auth/<realm>, come GovHub. Credenziali MAI qui: env A11Y_USER / A11Y_PASS (valgono per tutti i target del file) oppure A11Y_<CHIAVE>_USER / _PASS per singolo target. Ruoli: come nel target incorporato (vedi lì '$auth').",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "$postLogin": "Utente multi-organizzazione: dopo il login si arriva a /select-organization (pulsanti con il nome dell'organizzazione + 'Conferma'). Mono-organizzazione = assegnata in automatico: i passi sono optional.",
+    "postLogin": {
+      "steps": [
+        { "clickText": "Comune DB", "exact": true, "optional": true, "delayMs": 800, "desc": "scegli l'organizzazione" },
+        { "clickText": "Conferma", "exact": true, "optional": true, "wait": "domcontentloaded", "delayMs": 3000, "desc": "conferma l'organizzazione" }
+      ]
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "$pages": "In standalone la dashboard / resta visibile (rootRedirectGuard reindirizza solo con STANDALONE: false); /profile è la pagina del profilo. Le altre pagine sono quelle del target incorporato.",
+    "pages": [
+      { "name": "dashboard", "path": "/" },
+      { "name": "profilo", "path": "/profile" },
+      { "name": "audit", "path": "/audit" },
+      { "name": "audit-batch", "path": "/audit-batch" },
+      { "name": "sessioni", "path": "/audit-sessions" },
+      { "name": "report", "path": "/audit-reports" },
+      { "name": "report-nuovo", "path": "/audit-reports/new" },
+      { "name": "allarmi", "path": "/alarms" },
+      { "name": "allarme-nuovo", "path": "/alarms/new" }
+    ],
+    "$flows": "Lighthouse escluso dai flow: ricarica l'URL e misurerebbe la vista di partenza. Solo navigazione: mai 'Esci' (chiude la sessione); 'Guida utente' è un link esterno (non seguito). I primi cinque flow (menu utente, cambio organizzazione, supporto, Informazioni, barra laterale chiusa) sono quelli comuni alle app in standalone; gli altri vengono dal target incorporato, con le stesse avvertenze riportate in '$flowsApp'.",
+    "$flowsApp": "Solo navigazione: MAI salvare, creare, modificare o eliminare (il dettaglio di un allarme ha 'Elimina' e 'Modifica'; i form di report e allarmi salvano configurazioni reali), MAI esportare ('Esporta' degli audit scarica un file). Il pannello dei filtri si apre dal pulsante dei filtri della barra di ricerca (non dalla lente 'Cerca') e si analizza senza applicare filtri. Il dettaglio si apre dalla prima riga della lista: se la lista è vuota il flow viene saltato; i dati sono quelli dell'organizzazione e possono cambiare. Lighthouse escluso sul pannello dei filtri (ricaricando misurerebbe la lista chiusa); resta attivo sui dettagli, che hanno un URL proprio.",
+    "flows": [
+      {
+        "name": "menu-utente",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govaudit-app/src/app/core/ui/profile-menu",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "scan": "menu-utente-aperto" }
+        ]
+      },
+      {
+        "name": "cambia-organizzazione",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govaudit-app/src/app/core/ui/profile-menu",
+        "$note": "Dialog di cambio organizzazione: si apre e si analizza, senza confermare.",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "clickText": "Cambia organizzazione", "exact": true, "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog di cambio organizzazione" },
+          { "scan": "dialog-cambia-organizzazione" }
+        ]
+      },
+      {
+        "name": "contatta-supporto",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govaudit-app/src/app/core/ui/profile-menu",
+        "steps": [
+          { "click": "button[aria-label^='Menu utente']", "wait": "[role=menuitem]", "delayMs": 800, "desc": "apri il menu utente" },
+          { "clickText": "Contatta il supporto", "exact": true, "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog del supporto" },
+          { "scan": "dialog-supporto" }
+        ]
+      },
+      {
+        "name": "informazioni",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button:has-text('Informazioni')",
+        "sourceHint": "projects/govaudit-app/src/app/core/ui/about",
+        "steps": [
+          { "click": "button:has-text('Informazioni')", "wait": "[role=dialog]", "delayMs": 1500, "desc": "apri il dialog Informazioni" },
+          { "scan": "dialog-informazioni" }
+        ]
+      },
+      {
+        "name": "sidebar-chiusa",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label='Chiudi la barra laterale']",
+        "sourceHint": "projects/govaudit-app/src/app/core/layout/sidebar-layout",
+        "steps": [
+          { "click": "button[aria-label='Chiudi la barra laterale']", "delayMs": 1000, "desc": "chiudi la barra laterale" },
+          { "scan": "barra-laterale-chiusa" }
+        ]
+      },
+      {
+        "name": "audit-filtri",
+        "start": "/audit",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-search-bar",
+        "sourceHint": "projects/govaudit-app/src/app/features/outbound",
+        "steps": [
+          { "click": "lnk-search-bar button[aria-label='Filtri']", "wait": "lnk-organization-select", "delayMs": 1000, "desc": "apri il pannello dei filtri" },
+          { "scan": "pannello-filtri" }
+        ]
+      },
+      {
+        "name": "audit-dettaglio",
+        "start": "/audit",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govaudit-app/src/app/features/outbound",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo audit -> /audit/:id" },
+          { "scan": "dettaglio-audit" }
+        ]
+      },
+      {
+        "name": "audit-batch-dettaglio",
+        "start": "/audit-batch",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govaudit-app/src/app/features/outbound",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo batch -> /audit-batch/:id" },
+          { "scan": "dettaglio-batch" }
+        ]
+      },
+      {
+        "name": "sessioni-dettaglio",
+        "start": "/audit-sessions",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govaudit-app/src/app/features/outbound",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima sessione -> /audit-sessions/:id" },
+          { "scan": "dettaglio-sessione" }
+        ]
+      },
+      {
+        "name": "report-dettaglio",
+        "start": "/audit-reports",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govaudit-app/src/app/features/reports",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo report -> /audit-reports/:id" },
+          { "scan": "dettaglio-report" }
+        ]
+      },
+      {
+        "name": "allarmi-dettaglio",
+        "start": "/alarms",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govaudit-app/src/app/features/alarms",
+        "steps": [
+          { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo allarme -> /alarms/:id (NON toccare Elimina/Modifica)" },
+          { "scan": "dettaglio-allarme" }
+        ]
+      }
+    ]
+  }
+}
