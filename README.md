@@ -54,7 +54,9 @@ node a11y-scan.mjs --base http://localhost:8080 --config ./targets/govway/target
 ```
 
 I config **reali** dei prodotti sono in [`targets/<progetto>/`](targets/) — `govway/` (target unificato +
-console/monitor separati), `govpay/`, `govcat/`. Gli **esempi/template** annotati sono in
+console/monitor separati), `govpay/`, `govcat/`, `govdesk/`, `keycloak/` (temi di login Keycloak GovDesk:
+l'ambiente di prova lo prepara il repo dei temi con `a11y/container.sh`, vedi
+[`targets/keycloak/README.md`](targets/keycloak/README.md)). Gli **esempi/template** annotati sono in
 [`examples/targets/`](examples/targets/).
 
 I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = gate fallito,
@@ -76,6 +78,10 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
 | `--fail-on-empty` | **on** | **Gate delle viste vuote**: fallisci se una vista è stata analizzata senza alcun contenuto accessibile (albero di accessibilità vuoto: pagina non renderizzata per backend irraggiungibile, sessione persa, errore dell'app). Il suo "nessuna violazione" non vale. Prima di arrendersi lo strumento attende una volta (5 s). Si disattiva con `"failOnEmpty": false` nel config |
 | `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
+| `--reflow` | off | **1.4.10**: la vista a 320px di larghezza non deve scorrere in orizzontale |
+| `--text-spacing` | off | **1.4.12**: con la spaziatura del testo aumentata nessun testo viene tagliato |
+| `--keyboard-walk` | off | **2.4.7 / 2.4.11 / 2.1.2**: percorso col tasto Tab (focus visibile, non coperto, nessuna trappola) e ordine di focus |
+| `--no-reflow` / `--no-text-spacing` / `--no-keyboard-walk` | — | Spengono i tre controlli precedenti anche se attivi in config |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
 | `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve una copia dei **cookie di sessione** del context di scansione (ognuno col suo path) e del suo `sessionStorage`, e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate. Se Lighthouse finisce su un'altra pagina (es. rimandato al login) il punteggio viene scartato e segnalato |
 | `--min-score <0..1>` | — | Gate Lighthouse (implica `--lighthouse`) |
@@ -89,7 +95,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
-> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `failOn`,
+> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `reflow`, `textSpacing`, `keyboardWalk`, `languageParts`, `failOn`,
 > `failOnNameless`, `failOnEmpty`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
@@ -163,7 +169,8 @@ Ogni chiave di primo livello (che non inizia con `$`) è un **target**. Schema:
 
 **Step dei flow / postLogin**: `goto`, `fill:{selector,value}`, `upload:{selector,files}`, `select:{selector,value}` (opzione
 per testo, su `<select>` o tendina), `clickText`(+`exact`),
-`click`, `postMessage`(messaggio alla finestra della pagina, come dalla shell che ospita l'app), `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
+`click`, `focus`, `press`(tasto), `clearCookies`, `back`, `reload`, `script`(funzione JS accanto al config, solo nei flow),
+`postMessage`(messaggio alla finestra della pagina, come dalla shell che ospita l'app), `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
 smetta di cambiare per quel tratto, es. un grafico disegnato da script), `delayMs`, `timeoutMs`,
 `optional` (non interrompe il flow), `scan`, `scanTabs`, `scanOptions`, `scanCharts`, `scanMenu`. Usa **selettori
 stabili** (id non generati, `title`, testo, classe), mai id JSF `j_idNN`. In `fill` e `select` il
@@ -180,7 +187,8 @@ non cablato**. Schema completo di ogni opzione: **[`docs/GUIDA-config.md`](docs/
 Esempio completo annotato: **[`examples/targets/targets.example.json`](examples/targets/targets.example.json)**
 (SPA header-auth + app a form). Config **reali** dei prodotti in **[`targets/`](targets/)**:
 `targets/govcat/` (SPA header-auth + select-org), `targets/govpay/` (SPA Angular),
-`targets/govway/` (JSF/RichFaces: unificato + console/monitor separati, con `scanMenu`/`recurse`).
+`targets/govway/` (JSF/RichFaces: unificato + console/monitor separati, con `scanMenu`/`recurse`),
+`targets/keycloak/` (pagine pubbliche, un flow per scenario, passi `script` per email, TOTP e WebAuthn).
 
 ## Output prodotti (dir `--out`)
 

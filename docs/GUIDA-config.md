@@ -34,6 +34,10 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `mouseOnly` | booleano | `true` | Cerca i comandi con un gestore del clic **non raggiungibili da tastiera** |
 | `mouseOnlyIgnore` | selettore CSS | — | Esclusioni dal controllo precedente, dichiarate dall'applicazione (es. contenitori con gestione delegata che non sono comandi) |
 | `mouseOnlyMax` | intero | `40` | Quanti elementi elencare per vista nel report (il conteggio resta completo) |
+| `reflow` | booleano | `false` | **1.4.10**: porta la vista a 320px di larghezza e segnala lo scorrimento orizzontale, con gli elementi che sbordano (equiv. CLI `--reflow` / `--no-reflow`) |
+| `textSpacing` | booleano | `false` | **1.4.12**: applica interlinea 1.5, spaziatura lettere 0.12em, parole 0.16em, paragrafi 2em e segnala il testo tagliato (`overflow: hidden`, ellissi) (equiv. CLI `--text-spacing`) |
+| `keyboardWalk` | booleano | `false` | **2.4.7 / 2.4.11 / 2.1.2**: percorre la vista col tasto Tab dall'inizio (fino a 45 fermate) e segnala focus senza indicatore visibile (né outline né box-shadow), focus coperto da un altro elemento, focus bloccato. Registra l'ordine di focus in `tabOrder` (evidenza per il 2.4.3). Un passo `scan` con `"keyboard": false` lo salta per quella vista (equiv. CLI `--keyboard-walk`) |
+| `languageParts` | oggetto | — | **3.1.2**: espressioni regolari per lingua, `{ "it": ["Accedendo accetti"], "en": ["\\b(the\|your)\\b"] }`. Un testo (o un `aria-label`, `placeholder`, `title`, valore di un pulsante) che corrisponde a un'espressione della lingua L, dentro una parte di pagina la cui lingua (l'attributo `lang` più vicino) non è L, è una violazione |
 | `failOn` | stringa | `serious` | Gate axe (`critical`\|`serious`\|`moderate`\|`minor`\|`none`) — **globale** |
 | `failOnNameless` | booleano | `true` | Gate: fallisce se elementi interattivi senza nome — **globale**. Attivo di suo: un comando annunciato col solo ruolo è inservibile a chi non vede lo schermo. Si spegne con `false` |
 | `failOnScreenReader` | booleano | `false` | Gate: fallisce se il virtual screen reader produce annunci col solo ruolo — **globale**. Richiede `screenReader` |
@@ -46,6 +50,10 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 | `locale` | stringa | — | Lingua del browser, es. `"it-IT"` (equiv. CLI `--locale`): imposta `navigator.language` e `Accept-Language`. Serve alle app che scelgono la lingua dell'interfaccia dal browser: il Chromium di CI è in inglese, e senza `locale` si analizzerebbe una variante che gli utenti non vedono. Per-target; quello globale (CLI o `defaults`) vale anche per la scheda di Lighthouse, che non eredita quello del target |
 | `productVersion` | stringa | — | Versione del prodotto in prova, riportata nel report e in `summary.json` — **globale** (equiv. CLI `--product-version`, env `A11Y_PRODUCT_VERSION`). Dichiarativa: nessuno strumento esterno può dedurla |
+
+> I controlli `reflow`, `textSpacing`, `keyboardWalk` e `languageParts` producono violazioni nel formato di axe
+> (id `gova11y-…`, tag del criterio WCAG): compaiono nel report, in JUnit, SARIF e Sonar e contano per `failOn`.
+> Sono spenti di default perché cambierebbero gli esiti delle applicazioni già in scansione.
 
 > `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnEmpty`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
@@ -149,7 +157,7 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 
 | Step | Effetto |
 |---|---|
-| `{ "goto": "<path>" }` | Naviga a un URL |
+| `{ "goto": "<path>" }` | Naviga a un URL: un path è relativo a `--base`, un URL assoluto (`http(s)://…`) si apre così com'è (es. un link ricevuto per email, un IdP su un'altra origine). Anche `start` del flow accetta un URL assoluto |
 | `{ "click": "<selettore CSS>" }` | Click (supporta `:has()`, `:text-is()`, `:text-matches()` di Playwright). In `:text-matches("…")` Playwright interpreta gli escape della stringa: nel JSON una classe come `\s` va scritta `\\\\s` (il valore deve contenere `\\s`), altrimenti diventa una semplice `s` e la regex non trova nulla |
 | `{ "clickText": "<testo>", "exact": true }` | Click sul primo elemento con quel testo |
 | `{ "fill": { "selector": "…", "value": "…" } }` | Compila un campo |
@@ -159,6 +167,11 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "postMessage": { … } }` | Invia il messaggio (qualsiasi valore JSON) alla finestra della pagina con `window.postMessage`, come la **shell che ospita l'app in un iframe**. Serve alle app incorporate che ricevono dalla shell il contesto (es. l'organizzazione scelta in GovHub): scansionate sulla loro porta, senza la shell, resterebbero ferme in attesa. Funziona con le app che non verificano la provenienza del messaggio. Va ripetuto in ogni flow che ne ha bisogno (ogni flow parte da una sessione nuova) |
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
 | `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
+| `{ "focus": "<selettore>" }` | Porta il focus sull'elemento |
+| `{ "press": "<tasto>" }` | Preme un tasto (`Enter`, `Escape`, `Tab`, `Shift+Tab`, …) sull'elemento con il focus. Con `focus` riproduce l'uso da tastiera di un comando, per analizzare lo stato che ne risulta (un menu aperto con Invio, chiuso con Esc) |
+| `{ "clearCookies": true }` | Cancella i cookie della sessione del flow |
+| `{ "back": true }` / `{ "reload": true }` | Torna alla pagina precedente / ricarica. Con `clearCookies` portano l'app negli stati di sessione scaduta o persa |
+| `{ "script": "file.mjs#funzione", "args": { … } }` | Esegue una funzione JavaScript accanto al config, per le viste che nessun passo dichiarativo raggiunge (vedi sotto). **Solo nei flow** |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
 | `{ "scanTabs": "<selettore>" }` | Scopre i tab a runtime, clicca e scansiona ognuno |
 | `{ "scanOptions": { "selector": "…", "name": "…", "skip": "<regex>" } }` | Scopre a runtime le opzioni di un `<select>` nativo, le sceglie una alla volta e scansiona lo stato prodotto da ognuna. `name` antepone un prefisso al nome delle viste, `skip` esclude le opzioni il cui testo corrisponde (es. il segnaposto). Accetta anche la sola stringa del selettore |
@@ -176,6 +189,48 @@ Modificatori comuni per ogni step: `delayMs` (attesa extra), `timeoutMs`, `optio
 fallisce non interrompe il flow), `desc` (etichetta nei log), `sourceHint`.
 
 Se un flow non ha step `scan`/`scanTabs`/`scanCharts`, scansiona lo **stato finale**.
+
+#### Passo `script`
+
+Per le viste che i passi dichiarativi non raggiungono: un'email da leggere e un suo link da seguire,
+un codice TOTP da calcolare, un autenticatore WebAuthn virtuale, una chiamata alle API di
+amministrazione. La logica resta nella cartella del target, lo strumento non ne sa nulla.
+
+- `"script": "passi.mjs#funzione"`; senza `#` si usa l'`export default`.
+- Il file si risolve sulla **directory del config e deve stare al suo interno**: un percorso che
+  ne esce (o assoluto) interrompe il flow.
+- La funzione riceve un oggetto con:
+
+| Campo | |
+|---|---|
+| `page` | la pagina del flow |
+| `args` | il valore di `args` del passo (`{}` se assente) |
+| `base` | il `--base` |
+| `target`, `browser` | il target e il browser Playwright |
+| `scan(nome, { page, sourceHint })` | analizza lo stato corrente; la vista si chiama `flow:<flow>/<nome>` come con il passo `scan`. Con `page` analizza un'altra pagina |
+| `newPage()` | apre una sessione separata (stesse opzioni del flow: locale, header, viewport), chiusa a fine flow. Serve per un secondo utente o una visita senza cookie |
+| `runStep(passo, page?)` | esegue un passo dichiarativo dentro lo script |
+
+Opzioni di `scan(nome, { … })`:
+
+| Opzione | |
+|---|---|
+| `page` | analizza questa pagina invece di quella del flow |
+| `keyboard: false` | salta il percorso col Tab (`keyboardWalk`) per questa vista: serve quando lo script vuole ancora usare lo stato corrente (un menu aperto), che il Tab cambierebbe |
+| `problemi` | verifiche fatte dallo script, aggiunte come violazioni della vista: `[{ "criterio": "2.1.1", "messaggio": "Il menu non si apre con Invio", "selettore": "#menu", "impatto": "serious" }]` (`impatto` predefinito `serious`). Diventano violazioni `gova11y-script-<criterio>` |
+
+```js
+// targets/<app>/passi.mjs
+export async function dueViste({ page, scan, newPage, base, args }) {
+  await scan('prima');
+  const altra = await newPage();
+  await altra.goto(base + args.path);
+  await scan('seconda', { page: altra });
+}
+```
+
+Un errore nello script vale come quello di un altro passo: interrompe il flow, salvo `optional: true`.
+Dopo lo script si applicano i modificatori `wait`/`delayMs`.
 
 #### Valori dei campi da variabili d'ambiente (`env`)
 

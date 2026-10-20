@@ -1,3 +1,37 @@
+2026-10-19  Giuseppe Tagliente <giuseppe.tagliente@link.it>
+
+	* [gov-a11y]
+	Nuovo target "keycloak" per i temi di login Keycloak GovDesk (repo govdesk-kc-theme): tutte le pagine
+	per i temi completi (targets.keycloak.json, 54 viste fra login, registrazione, password dimenticata,
+	azioni richieste, TOTP, WebAuthn, broker, logout e template email), la sola pagina di login per le
+	varianti spid, spid-cie, okta (targets.keycloak-login.json). Come gli altri target scansiona soltanto:
+	Keycloak con i temi montati, Mailpit e i realm di prova li prepara il repo dei temi (a11y/container.sh);
+	targets/keycloak/scan.sh verifica che l'ambiente sia pronto e scansiona un tema. Credenziali
+	(A11Y_KC_ADMIN_USER, A11Y_KC_ADMIN_PASS, A11Y_KC_PASS) da .env, le stesse usate per preparare Keycloak. Le viste che i passi dichiarativi non raggiungono (email, codici TOTP, autenticatore WebAuthn
+	virtuale, API di amministrazione, menu SPID e lingua da tastiera) stanno in keycloak.steps.mjs. Guida
+	completa in targets/keycloak/README.md.
+	Nuovi controlli fuori da axe, spenti di default e accesi per target: "reflow" (1.4.10, vista a 320px),
+	"textSpacing" (1.4.12, testo tagliato con spaziatura aumentata), "keyboardWalk" (2.4.7, 2.4.11, 2.1.2,
+	percorso col tasto Tab, con l'ordine di focus registrato) e "languageParts" (3.1.2, espressioni per
+	lingua dichiarate dal target). Escono come violazioni nel formato di axe (id gova11y-...) e contano per
+	il gate. Uno script di flow puo' aggiungere le proprie verifiche a una vista con scan(nome, { problemi }).
+	Per i target senza login a form il log non dice piu' "login ok" con un'utenza mai usata.
+
+2026-10-19  Giuseppe Tagliente <giuseppe.tagliente@link.it>
+
+	* [gov-a11y]
+	Nuovo passo di flow "script": esegue una funzione JavaScript che sta accanto al config ("file.mjs#funzione",
+	senza '#' l'export default), per le viste che nessun passo dichiarativo raggiunge: un'email da leggere e il
+	suo link da seguire, un codice TOTP da calcolare, un autenticatore WebAuthn virtuale, una chiamata alle API
+	di amministrazione. Serve al tema di login Keycloak, e la logica specifica resta nella cartella del target.
+	La funzione riceve la pagina del flow, gli "args" del passo, scan(nome) per analizzare lo stato corrente (o
+	quello di un'altra pagina) e newPage() per aprire una sessione separata, chiusa con il flow. Il file deve
+	stare nella directory del config: un percorso che ne esce interrompe il flow.
+	Nuovi passi "focus" e "press" (uso da tastiera di un comando, es. un menu aperto con Invio e chiuso con
+	Esc) e "clearCookies", "back", "reload" (stati di sessione scaduta o persa). "goto" e "start" del flow
+	accettano anche un URL assoluto, aperto così com'è invece di essere accodato a --base.
+	Test d'integrazione per tutti i nuovi passi.
+
 2026-10-07  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]

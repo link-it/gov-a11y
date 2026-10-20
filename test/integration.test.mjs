@@ -60,6 +60,8 @@ const ROUTES = {
   '/app/ospitata': page('Ospitata', `<h1>App ospitata</h1><p id="ctx">In attesa dell'organizzazione</p><script>window.addEventListener('message', e => { const m = e.data; if (m && m.type === 'GOVAPP' && m.payload && m.payload.action === 'ORGANIZATION') document.getElementById('ctx').textContent = 'Organizzazione ' + m.payload.data.id; });</script>`),
   // SPA che instrada sul fragment (Angular useHash): '#/riservata' rimbalza su '#/home'
   '/app/spa': page('SPA', `<main><h1 id="titolo">...</h1></main><script>function rotta() { if (location.hash === '#/riservata') { location.hash = '#/home'; return; } document.getElementById('titolo').textContent = 'Rotta ' + location.hash.slice(2); } window.addEventListener('hashchange', rotta); rotta();</script>`),
+  // comando da tastiera: Invio apre il menu, Esc lo chiude e riporta il focus al bottone
+  '/app/tasti': page('Tasti', `<main><h1>Tasti</h1><button id="apri" type="button" aria-expanded="false">Menu</button><ul id="voci" hidden><li><a href="/app/home">Voce</a></li></ul></main><script>const b = document.getElementById('apri'), v = document.getElementById('voci'); b.addEventListener('click', () => { v.hidden = false; b.setAttribute('aria-expanded', 'true'); }); document.addEventListener('keydown', e => { if (e.key === 'Escape') { v.hidden = true; b.setAttribute('aria-expanded', 'false'); b.focus(); } });</script>`),
   '/app/form': page('Form', `<form><input id="q" type="text"><button type="button">Cerca</button></form><div id="risultato">pronto</div>`),
   // modulo con campo di testo, <select> nativa e combobox ARIA: i valori scelti vengono riportati a schermo
   '/app/anagrafe': page('Anagrafe', `<h1>Interrogazione</h1>
@@ -82,6 +84,19 @@ const server = createServer((req, res) => {
   if (path === '/app2/lingua') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(page('Lingua', `<h1>Lingua</h1><p id="lingua"></p><script>document.getElementById('lingua').textContent = 'lingua=' + navigator.language;</script>`));
+  }
+  // controlli fuori da axe (target app3): riflusso, spaziatura, focus, lingua delle parti
+  const app3 = {
+    '/app3/ok': `<main><h1>Pulita</h1><p>Testo breve.</p><a href="/app3/larga">Collegamento</a></main>`,
+    '/app3/larga': `<main><h1>Larga</h1><div id="larga" style="width:600px">contenuto largo</div></main>`,
+    '/app3/taglio': `<main><h1>Taglio</h1><div id="stretta" style="width:120px;height:18px;overflow:hidden;white-space:nowrap">testo che con la spaziatura esce</div></main>`,
+    '/app3/focus': `<style>#nofocus:focus{outline:none;box-shadow:none}</style><main><h1>Focus</h1><button id="nofocus" type="button">Senza focus</button><button id="confocus" type="button">Con focus</button></main>`,
+    '/app3/lingua': `<main><h1>Login</h1><p id="frase">Accedendo accetti i termini</p><p lang="it">Accedendo accetti, ma con lang</p></main>`,
+  };
+  if (app3[path]) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    const lang = path === '/app3/lingua' ? 'en' : 'it';
+    return res.end(`<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>App3</title></head><body>${app3[path]}</body></html>`);
   }
   // vista che non si renderizza (nessun contenuto accessibile) e vista che si disegna in ritardo
   if (path === '/app/bianca') {
@@ -114,6 +129,18 @@ const AUTH = `http://127.0.0.1:${authServer.address().port}`;
 const OUT = mkdtempSync(join(tmpdir(), 'gova11y-int-'));
 const CFG = join(OUT, 'targets.json');
 writeFileSync(join(OUT, 'archivio-prova.zip'), 'PK'); // risolto relativo alla directory del config
+// script per i passi 'script': due viste dalla stessa funzione, la seconda in una sessione separata
+writeFileSync(join(OUT, 'passi.mjs'), `export async function dueViste({ page, scan, newPage, base, args }) {
+  await scan('prima');
+  const altra = await newPage();
+  await altra.goto(base + args.path);
+  await scan('seconda', { page: altra });
+}
+export async function conProblemi({ scan }) {
+  await scan('problemi', { problemi: [{ criterio: '2.1.1', messaggio: 'il menu non si apre con Invio', selettore: '#apri' }] });
+}
+export default async function ({ page }) { await page.evaluate(() => { const p = document.createElement('p'); p.textContent = 'Eseguito default'; document.body.append(p); }); }
+`);
 writeFileSync(CFG, JSON.stringify({
   app: {
     name: 'MockApp', enabled: true, loginPath: '/app/', contextPath: '/app/',
@@ -150,11 +177,36 @@ writeFileSync(CFG, JSON.stringify({
         { postMessage: { type: 'GOVAPP', payload: { action: 'ORGANIZATION', data: { id: 44 } } }, wait: '#ctx:has-text("Organizzazione 44")' },
         { scan: 'con-organizzazione' },
       ] },
+      // passi da tastiera: focus + Invio apre il menu, Esc lo chiude
+      { name: 'tasti', start: '/app/tasti', steps: [
+        { focus: '#apri' }, { press: 'Enter', wait: '#voci:not([hidden])' }, { scan: 'menu-aperto' },
+        { press: 'Escape', wait: '#apri[aria-expanded="false"]' }, { scan: 'menu-chiuso' },
+      ] },
+      // storia di navigazione e goto assoluto (altra origine)
+      { name: 'storia', start: '/app/home', steps: [
+        { goto: '/app/cfg' }, { back: true }, { reload: true }, { clearCookies: true }, { scan: 'tornato' },
+        { goto: `${AUTH}/login` }, { scan: 'altra-origine' },
+      ] },
+      // passo 'script': funzione con nome e due viste, export default, script fuori dalla directory del config
+      { name: 'script', start: '/app/home', steps: [
+        { script: './passi.mjs#dueViste', args: { path: '/app/cfg' } },
+        { script: 'passi.mjs' }, { scan: 'default' },
+        { script: 'passi.mjs#conProblemi' },
+      ] },
+      { name: 'script-fuori', start: '/app/home', steps: [{ script: '../fuori.mjs' }, { scan: 'mai' }] },
       // variabile non impostata: il flow va saltato prima di eseguire qualsiasi passo
       { name: 'senza-env', start: '/app/anagrafe', steps: [
         { fill: { selector: '#cf', env: 'A11Y_INT_ASSENTE' } }, { scan: 'mai' },
       ] },
     ],
+  },
+  // controlli fuori da axe, accesi dal config del target
+  app3: {
+    name: 'MockApp3', enabled: true, loginPath: '/app3/ok',
+    reflow: true, textSpacing: true, keyboardWalk: true,
+    languageParts: { it: ['Accedendo accetti'] },
+    pages: [{ name: 'ok', path: '/app3/ok' }, { name: 'larga', path: '/app3/larga' }, { name: 'taglio', path: '/app3/taglio' },
+      { name: 'focus', path: '/app3/focus' }, { name: 'lingua', path: '/app3/lingua' }],
   },
   // login su un'altra origine (loginPath assoluto), pagine su --base autenticate dal cookie condiviso
   app2: {
@@ -213,6 +265,39 @@ console.log('— select + scanOptions (opzioni scoperte a runtime)');
 check(hasName('flow:opzioni/scelta-singola'), 'step select: opzione scelta per testo e stato scansionato');
 check(hasName('flow:opzioni/tipo-scelta-uno') && hasName('flow:opzioni/tipo-scelta-due'), 'scanOptions: una vista per ogni opzione, con prefisso');
 check(!hasName('flow:opzioni/tipo-opzione1'), "scanOptions: l'opzione esclusa da 'skip' non viene scansionata");
+console.log('— passi da tastiera (focus/press)');
+const aperto = results.find(r => r.name === 'flow:tasti/menu-aperto'), chiuso = results.find(r => r.name === 'flow:tasti/menu-chiuso');
+check(!!aperto && /Voce/.test(aperto.ariaSnapshot || ''), 'focus + Invio: menu aperto e scansionato');
+check(!!chiuso && !/Voce/.test(chiuso.ariaSnapshot || ''), 'Esc: menu chiuso nello stato scansionato');
+console.log('— storia di navigazione e goto assoluto');
+const tornato = results.find(r => r.name === 'flow:storia/tornato');
+check(!!tornato && tornato.url === `${BASE}/app/home`, 'back + reload + clearCookies: tornato alla pagina precedente');
+const altra = results.find(r => r.name === 'flow:storia/altra-origine');
+check(!!altra && altra.url === `${AUTH}/login`, "goto con URL assoluto: aperto fuori da --base");
+console.log("— passo 'script'");
+const prima = results.find(r => r.name === 'flow:script/prima'), seconda = results.find(r => r.name === 'flow:script/seconda');
+check(!!prima && prima.url === `${BASE}/app/home`, 'scan() dallo script: stato corrente della pagina del flow');
+check(!!seconda && seconda.url === `${BASE}/app/cfg`, 'scan({ page }) su una sessione aperta con newPage()');
+const daDefault = results.find(r => r.name === 'flow:script/default');
+check(!!daDefault && /Eseguito default/.test(daDefault.ariaSnapshot || ''), "senza '#': eseguito l'export default");
+check(!hasName('flow:script-fuori/mai'), 'script fuori dalla directory del config: flow interrotto');
+const problemi = results.find(r => r.name === 'flow:script/problemi');
+check(!!problemi && problemi.violations.some(v => v.id === 'gova11y-script-211' && v.tags.includes('wcag2a') && v.nodes[0].failureSummary === 'il menu non si apre con Invio'),
+  "scan({ problemi }): la verifica dello script diventa una violazione 2.1.1");
+console.log('— controlli fuori da axe (reflow, spaziatura, Tab, lingua)');
+const app3 = n => results.find(r => r.target === 'app3' && r.name === n);
+const ids = n => (app3(n)?.violations || []).filter(v => v.id.startsWith('gova11y-')).map(v => v.id);
+check(!!app3('ok') && ids('ok').length === 0, `vista pulita: nessuna violazione aggiuntiva (${ids('ok')})`);
+check(ids('larga').includes('gova11y-reflow-320'), '1.4.10: elemento largo 600px a 320px segnalato');
+check(app3('larga')?.violations.find(v => v.id === 'gova11y-reflow-320')?.nodes.some(n => n.target[0] === 'div#larga'), "1.4.10: indicato l'elemento che sborda");
+check(ids('taglio').includes('gova11y-text-spacing'), '1.4.12: testo tagliato con spaziatura aumentata segnalato');
+check(ids('focus').includes('gova11y-focus-visible'), '2.4.7: bottone senza indicatore del focus segnalato');
+const fv = app3('focus')?.violations.find(v => v.id === 'gova11y-focus-visible');
+check(!!fv && fv.nodes.length === 1 && fv.nodes[0].target[0] === 'button#nofocus', '2.4.7: segnalato solo il bottone senza focus, non quello con outline');
+check(JSON.stringify(app3('focus')?.tabOrder || []).includes('button#confocus'), 'ordine di focus registrato (tabOrder)');
+check(ids('lingua').includes('gova11y-language-of-parts'), '3.1.2: testo italiano in pagina inglese segnalato');
+check(app3('lingua')?.violations.find(v => v.id === 'gova11y-language-of-parts')?.nodes.length === 1, '3.1.2: il testo con lang="it" non viene segnalato');
+check(!(results.find(r => r.target === 'app' && r.name === 'home')?.violations || []).some(v => v.id.startsWith('gova11y-')), 'target senza i controlli accesi: nessuna violazione aggiuntiva');
 console.log('— recordScan produce dati a11y');
 check(results.some(r => Array.isArray(r.violations)), 'ogni risultato ha violations[]');
 

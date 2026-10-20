@@ -1,0 +1,87 @@
+{
+  "$app": "Tema Keycloak (pagina di login)",
+  "$comment": "Temi di login Keycloak GovDesk (repo govdesk-kc-theme). Keycloak 26 in modalita' dev con la cartella dei temi montata; realm 'a11y-test' / 'a11y-idp' creati da a11y/setup.py del repo dei temi con il tema in prova. L'ambiente (Keycloak, Mailpit, realm) lo prepara il repo dei temi (a11y/container.sh <tema>): questo target scansiona soltanto. Vedi README.md in questa cartella.",
+  "$auth": "Nessun login a livello di target: le pagine di Keycloak sono pubbliche e ogni scenario e' un flow, con la sua sessione pulita. Utenti, client e password li crea setup.py del repo dei temi; la password arriva da A11Y_KC_PASS, mai scritta qui.",
+  "$redirect": "redirect_uri punta a http://127.0.0.1:8090 (porta predefinita dell'ambiente di prova). Conta solo dopo un login riuscito, quando nessuna vista viene piu' analizzata: con un'altra porta non cambia l'esito.",
+  "$scope": "Varianti che cambiano solo login.ftl (govdesk-spid, govdesk-spid-cie, govdesk-okta): pagina di login in italiano e inglese, errore di login, menu lingua e SPID da tastiera. Le altre pagine sono quelle del tema padre govdesk.",
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "locale": "it-IT",
+    "reflow": true,
+    "textSpacing": true,
+    "keyboardWalk": true,
+    "$languageParts": "3.1.2: testi italiani fissi del tema (devono stare dentro lang=\"it\" nelle pagine in inglese) e parole inglesi frequenti (traduzioni mancanti nelle pagine in italiano). Stesse espressioni del test locale del repo dei temi (a11y/run.js).",
+    "languageParts": {
+      "it": [
+        "Accedendo accetti",
+        "Entra con SPID",
+        "Sede legale",
+        "Maggiori informazioni",
+        "Non hai SPID",
+        "Serve aiuto",
+        "SPID è il sistema",
+        "Clicca qui",
+        "Entra con CIE"
+      ],
+      "en": [
+        "\\b(the|your|you|please|update|submit|sign in|cancel|confirm|delete|continue|information|required|enter|choose|select|another|back to|log ?out|device|unable|scan|register)\\b"
+      ]
+    }
+  },
+  "keycloak": {
+    "name": "keycloak-login",
+    "enabled": true,
+    "loginPath": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+    "contextPath": "/realms/a11y-test/",
+    "sourceHint": "login/login.ftl",
+    "pages": [
+      {
+        "name": "login-en",
+        "path": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration&ui_locales=en"
+      }
+    ],
+    "flows": [
+      {
+        "name": "login",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login.ftl",
+        "$note": "Pagina di login con i provider SPID iniettati e le verifiche da tastiera dei menu lingua e SPID (keycloak.steps.mjs#paginaLogin).",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#paginaLogin"
+          }
+        ]
+      },
+      {
+        "name": "login-errore",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "skipIfMissing": "#username",
+        "skipIfMissingTimeoutMs": 3000,
+        "$note": "Saltato nelle varianti senza form username/password (solo IdP).",
+        "steps": [
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "x"
+            }
+          },
+          {
+            "fill": {
+              "selector": "#password",
+              "value": "y"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "errore"
+          }
+        ]
+      }
+    ]
+  }
+}
