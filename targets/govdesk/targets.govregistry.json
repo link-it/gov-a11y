@@ -3,6 +3,7 @@
   "$comment": "GovRegistry (Impostazioni, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Login e lingua clonati dal target di GovAnis; l'app e' pero' di GESTIONE dei dati di configurazione REALI della piattaforma: applicazioni, utenti, gruppi, organizzazioni, client (lista /<sezione>, dettaglio /<sezione>/:id, creazione /<sezione>/new). Dev: 'npm run start-govregistry-proxy' in govregistry-app-v2 -> http://localhost:5208, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5208) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govregistry-app/src/app/app.routes.ts.",
 
   "defaults": {
+    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -33,6 +34,8 @@
 
     "navWait": "domcontentloaded",
     "navDelayMs": 5000,
+    "$mouseOnlyIgnore": "Area 'Cerca...' di lnk-search-bar: apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (WCAG 2.1.1 soddisfatto da un comando equivalente).",
+    "mouseOnlyIgnore": "lnk-search-bar > div[tabindex='-1']",
 
     "$pages": "Le cinque liste e i cinque form di creazione /<sezione>/new (vuoti: si analizzano, MAI salvare; in organizzazione-nuovo anche MAI 'Genera'). Con STANDALONE: false la rotta / reindirizza a /users: per questo non e' elencata.",
     "pages": [

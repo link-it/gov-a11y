@@ -856,6 +856,23 @@ async function analyzeMouseOnly(page, opzioni) {
         role: e.getAttribute('role') || null,
         testo: (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || null,
       });
+      /* Popup delle combobox ARIA 1.2 (ng-select, mat-autocomplete...): il fuoco resta sulla
+         combobox e le opzioni si scelgono con le frecce (aria-activedescendant), quindi le opzioni
+         e il pannello che le contiene hanno un gestore del clic ma non devono essere focalizzabili. */
+      const popupCombobox = [];
+      document.querySelectorAll('[role="combobox"][aria-controls], [role="combobox"][aria-owns]').forEach((c) => {
+        `${c.getAttribute('aria-controls') || ''} ${c.getAttribute('aria-owns') || ''}`.split(/\s+/)
+          .filter(Boolean).forEach((id) => { const p = document.getElementById(id); if (p) popupCombobox.push(p); });
+      });
+      const inPopupCombobox = (e) => popupCombobox.some((p) => p.contains(e) || e.contains(p));
+      /* Sfondo di un dialog aperto (cdk-overlay-backdrop, MUI Backdrop...): elemento senza ruolo
+         ne' testo che chiude il dialog al clic; da tastiera la stessa azione e' Esc (verifica
+         manuale, come per tutti i widget compositi). Non solo aria-modal: Angular Material 17+
+         non lo imposta e rende inerte il resto della pagina con aria-hidden. */
+      const dialogModali = Array.from(document.querySelectorAll(
+        '[aria-modal="true"], [role="dialog"], [role="alertdialog"], dialog[open]')).filter(visibile);
+      const sfondoDialog = (e) => dialogModali.length > 0 && !e.getAttribute('role')
+        && !(e.textContent || '').trim() && !dialogModali.some((d) => d.contains(e) || e.contains(d));
       const candidati = [];
       const esamina = (e) => {
         if (!(e instanceof Element) || !visibile(e)) return;
@@ -868,6 +885,8 @@ async function analyzeMouseOnly(page, opzioni) {
         if (e.getAttribute('role') && e.getAttribute('tabindex') === '-1') return;
         if (e.closest(focalizzabile)) return;                             // dentro un comando
         if (e.querySelector(focalizzabile)) return;                       // contenitore con delega
+        if (inPopupCombobox(e)) return;                                   // opzioni via aria-activedescendant
+        if (sfondoDialog(e)) return;                                      // sfondo del dialog: Esc
         if (ignora) { try { if (e.matches(ignora) || e.closest(ignora)) return; } catch (x) { /* selettore non valido: si ignora l'esclusione */ } }
         candidati.push(descrivi(e));
       };

@@ -3,6 +3,7 @@
   "$comment": "GovRegistroImprese (Registro Imprese, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis: stessa libreria core/ui (organizzazione, ufficio). Due funzioni: /examiner (accertamento puntuale di un'impresa) e /massive-examiner (lista dei lotti caricati, dettaglio /:id). Form dinamico: tipo di accertamento (profilo sintetico | profilo camerale completo) -> modalita' (per CF, per numero REA + provincia, per denominazione: solo nel profilo sintetico) -> campi di ricerca. Dev: 'npm run start-govregistroimprese-proxy' in govregistroimprese-app -> http://localhost:5215, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5215) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govregistroimprese-app/src/app/app.routes.ts.",
 
   "defaults": {
+    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -33,6 +34,8 @@
 
     "navWait": "domcontentloaded",
     "navDelayMs": 5000,
+    "$mouseOnlyIgnore": "Area 'Cerca...' di lnk-search-bar: apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (WCAG 2.1.1 soddisfatto da un comando equivalente).",
+    "mouseOnlyIgnore": "lnk-search-bar > div[tabindex='-1']",
 
     "$pages": "Con STANDALONE: false la rotta / (dashboard) reindirizza alla prima funzione consentita dai ruoli (rootRedirectGuard), cioe' /examiner: per questo non e' elencata (verrebbe deduplicata).",
     "pages": [

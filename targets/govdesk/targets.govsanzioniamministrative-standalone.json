@@ -1,0 +1,319 @@
+{
+  "$app": "GovSanzioniAmministrative (standalone)",
+  "$comment": "GovSanzioniAmministrative (Sanzioni Amministrative) in modalita' STANDALONE: true. Generato dal target standalone di GovCasellarioGiudiziale (app gemella: stessa shell, lista /examine e dettaglio /examine/:id).json, o config.json in assets a runtime). Senza GovHub: l'app ha login per realm (/auth/<realm>, come GovHub), scelta dell'organizzazione (/select-organization), sidebar, menu utente, profilo e dashboard propri (stessa implementazione di GovAnis, commit cb5b1e9). Dev: 'npm run start-govsanzioniamministrative-proxy' in govsanzioniamministrative-app -> http://localhost:5222 con STANDALONE: true, backend via proxy /govhub-reverse-proxy (VPN Link.it). GovHub NON serve. Variante incorporata (STANDALONE: false, via GovHub): targets.govsanzioniamministrative.json, da cui vengono pagine e flow dell'app. Rotte da projects/govsanzioniamministrative-app/src/app/app.routes.ts.",
+  "defaults": {
+    "falsePositives": "falsePositives.govdesk.json",
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "screenReader": true,
+    "lighthouse": true,
+    "locale": "it-IT"
+  },
+  "govsanzioniamministrativeLogin": {
+    "name": "govsanzioniamministrative-standalone-login",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govsanzioniamministrative-app/src/app/features/login",
+    "$note": "Target SENZA autenticazione: la pagina di login del realm, che gli altri target attraversano ma non analizzano. Con /auth/login (nessun realm) il login fallisce: va sempre indicato il realm.",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 4000,
+    "pages": [
+      {
+        "name": "login",
+        "path": "/auth/realmdb"
+      }
+    ]
+  },
+  "govsanzioniamministrativeSceltaOrg": {
+    "name": "govsanzioniamministrative-standalone-scelta-organizzazione",
+    "enabled": true,
+    "lighthouse": false,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govsanzioniamministrative-app/src/app/features/select-organization",
+    "$note": "Login SENZA scegliere l'organizzazione, per analizzare la pagina di scelta: si apre '/' e l'app vi rimanda da sé (/select-organization, navigazione interna). Aperta direttamente, /select-organization rimanda al login anche con la sessione valida (organizationChooserPageGuard fuori dalla sessione: difetto app, come in GovAnis); per lo stesso motivo Lighthouse è escluso.",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "pages": [
+      {
+        "name": "scelta-organizzazione",
+        "path": "/"
+      }
+    ]
+  },
+  "govsanzioniamministrative": {
+    "name": "govsanzioniamministrative-standalone",
+    "enabled": true,
+    "loginPath": "/auth/realmdb",
+    "contextPath": "/",
+    "sourceHint": "projects/govsanzioniamministrative-app/src/app",
+    "$locale": "L'app sceglie la lingua da navigator.language: senza 'locale' il Chromium headless la mostrerebbe in inglese.",
+    "$auth": "Login per realm su /auth/<realm>, come GovHub. Credenziali MAI qui: env A11Y_USER / A11Y_PASS (valgono per tutti i target del file) oppure A11Y_<CHIAVE>_USER / _PASS per singolo target. Ruoli: come nel target incorporato (vedi lì '$auth').",
+    "login": {
+      "usernameSelector": "#username",
+      "passwordSelector": "#password",
+      "submitSelector": "button[type='submit']",
+      "successUrlIncludes": "select-organization"
+    },
+    "$postLogin": "Utente multi-organizzazione: dopo il login si arriva a /select-organization (pulsanti con il nome dell'organizzazione + 'Conferma'). Mono-organizzazione = assegnata in automatico: i passi sono optional.",
+    "postLogin": {
+      "steps": [
+        {
+          "clickText": "Comune DB",
+          "exact": true,
+          "optional": true,
+          "delayMs": 800,
+          "desc": "scegli l'organizzazione"
+        },
+        {
+          "clickText": "Conferma",
+          "exact": true,
+          "optional": true,
+          "wait": "domcontentloaded",
+          "delayMs": 3000,
+          "desc": "conferma l'organizzazione"
+        }
+      ]
+    },
+    "navWait": "domcontentloaded",
+    "navDelayMs": 5000,
+    "$mouseOnlyIgnore": "Area 'Cerca...' di lnk-search-bar: apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (WCAG 2.1.1 soddisfatto da un comando equivalente).",
+    "mouseOnlyIgnore": "lnk-search-bar > div[tabindex='-1']",
+    "$pages": "In standalone la dashboard / resta visibile (rootRedirectGuard reindirizza solo con STANDALONE: false); /profile è la pagina del profilo. Le altre pagine sono quelle del target incorporato.",
+    "pages": [
+      {
+        "name": "dashboard",
+        "path": "/"
+      },
+      {
+        "name": "profilo",
+        "path": "/profile"
+      },
+      {
+        "name": "richieste",
+        "path": "/examine"
+      }
+    ],
+    "$flows": "Lighthouse escluso dai flow: ricarica l'URL e misurerebbe la vista di partenza. Solo navigazione: mai 'Esci' (chiude la sessione); 'Guida utente' è un link esterno (non seguito). I primi cinque flow (menu utente, cambio organizzazione, supporto, Informazioni, barra laterale chiusa) sono quelli comuni alle app in standalone; gli altri vengono dal target incorporato, con le stesse avvertenze riportate in '$flowsApp'.",
+    "$flowsApp": "Flow di funzione copiati dal target incorporato targets.govsanzioniamministrative.json (stessa app, stesse rotte); i flow generici (menu utente, organizzazione, supporto, informazioni, sidebar) sono quelli della shell standalone comune alle app GovDesk.",
+    "flows": [
+      {
+        "name": "menu-utente",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/core/ui/profile-menu",
+        "steps": [
+          {
+            "click": "button[aria-label^='Menu utente']",
+            "wait": "[role=menuitem]",
+            "delayMs": 800,
+            "desc": "apri il menu utente"
+          },
+          {
+            "scan": "menu-utente-aperto"
+          }
+        ]
+      },
+      {
+        "name": "cambia-organizzazione",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/core/ui/profile-menu",
+        "$note": "Dialog di cambio organizzazione: si apre e si analizza, senza confermare.",
+        "steps": [
+          {
+            "click": "button[aria-label^='Menu utente']",
+            "wait": "[role=menuitem]",
+            "delayMs": 800,
+            "desc": "apri il menu utente"
+          },
+          {
+            "clickText": "Cambia organizzazione",
+            "exact": true,
+            "wait": "[role=dialog]",
+            "delayMs": 1500,
+            "desc": "apri il dialog di cambio organizzazione"
+          },
+          {
+            "scan": "dialog-cambia-organizzazione"
+          }
+        ]
+      },
+      {
+        "name": "contatta-supporto",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label^='Menu utente']",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/core/ui/profile-menu",
+        "steps": [
+          {
+            "click": "button[aria-label^='Menu utente']",
+            "wait": "[role=menuitem]",
+            "delayMs": 800,
+            "desc": "apri il menu utente"
+          },
+          {
+            "clickText": "Contatta il supporto",
+            "exact": true,
+            "wait": "[role=dialog]",
+            "delayMs": 1500,
+            "desc": "apri il dialog del supporto"
+          },
+          {
+            "scan": "dialog-supporto"
+          }
+        ]
+      },
+      {
+        "name": "informazioni",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button:has-text('Informazioni')",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/core/ui/about",
+        "steps": [
+          {
+            "click": "button:has-text('Informazioni')",
+            "wait": "[role=dialog]",
+            "delayMs": 1500,
+            "desc": "apri il dialog Informazioni"
+          },
+          {
+            "scan": "dialog-informazioni"
+          }
+        ]
+      },
+      {
+        "name": "sidebar-chiusa",
+        "start": "/",
+        "lighthouse": false,
+        "skipIfMissing": "button[aria-label='Chiudi la barra laterale']",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/core/layout/sidebar-layout",
+        "steps": [
+          {
+            "click": "button[aria-label='Chiudi la barra laterale']",
+            "delayMs": 1000,
+            "desc": "chiudi la barra laterale"
+          },
+          {
+            "scan": "barra-laterale-chiusa"
+          }
+        ]
+      },
+      {
+        "name": "nuova-richiesta",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-request-list-header",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/features/examine-single",
+        "$note": "Form della nuova richiesta aperto (pannello #request-form-panel), vuoto. Non si invia.",
+        "steps": [
+          {
+            "clickText": "Nuovo accertamento",
+            "exact": true,
+            "wait": "#request-form-panel.open",
+            "delayMs": 1500,
+            "desc": "apri il form della nuova richiesta"
+          },
+          {
+            "scan": "form-nuova-richiesta"
+          }
+        ]
+      },
+      {
+        "name": "nuova-richiesta-caso-uso",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-request-list-header",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/features/examine-single",
+        "$note": "Tendina dei casi d'uso aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM. I campi si abilitano in cascata: organizzazione -> ufficio -> caso d'uso (che dipende dall'ufficio).",
+        "steps": [
+          {
+            "clickText": "Nuovo accertamento",
+            "exact": true,
+            "wait": "#request-form-panel.open",
+            "delayMs": 1500,
+            "desc": "apri il form della nuova richiesta"
+          },
+          {
+            "select": {
+              "selector": "#request-form-panel lnk-organization-select ng-select",
+              "value": "Comune DB",
+              "exact": true
+            },
+            "delayMs": 2000,
+            "desc": "organizzazione (abilita e carica gli uffici)"
+          },
+          {
+            "select": {
+              "selector": "#request-form-panel lnk-office-select ng-select",
+              "value": "Tributi",
+              "exact": true
+            },
+            "delayMs": 2000,
+            "desc": "ufficio (abilita e carica i casi d'uso)"
+          },
+          {
+            "click": "lnk-form-select[controlname='use_case'] ng-select",
+            "wait": "[role=option]",
+            "delayMs": 1000,
+            "desc": "apri la tendina del caso d'uso"
+          },
+          {
+            "scan": "tendina-caso-uso"
+          }
+        ]
+      },
+      {
+        "name": "ricerca-cf",
+        "start": "/examine",
+        "lighthouse": false,
+        "skipIfMissing": "lnk-request-list-header",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/core/ui/form/fiscal-code-search",
+        "$note": "Dialog 'ricerca del codice fiscale' (lente accanto al campo CF del soggetto): calcola il CF dai dati anagrafici. Si apre e si analizza, senza compilarlo.",
+        "steps": [
+          {
+            "clickText": "Nuovo accertamento",
+            "exact": true,
+            "wait": "#request-form-panel.open",
+            "delayMs": 1500,
+            "desc": "apri il form della nuova richiesta"
+          },
+          {
+            "click": "lnk-form-fiscal-code button",
+            "wait": "mat-dialog-container",
+            "delayMs": 1500,
+            "desc": "apri il dialog di ricerca del CF"
+          },
+          {
+            "scan": "dialog-ricerca-cf"
+          }
+        ]
+      },
+      {
+        "name": "dettaglio-richiesta",
+        "start": "/examine",
+        "skipIfMissing": "lnk-item-row button",
+        "sourceHint": "projects/govsanzioniamministrative-app/src/app/features/examine-single",
+        "steps": [
+          {
+            "click": "lnk-item-row button",
+            "wait": "domcontentloaded",
+            "delayMs": 3000,
+            "desc": "apri la prima richiesta -> /examine/:id"
+          },
+          {
+            "scan": "dettaglio-richiesta"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -3,6 +3,7 @@
   "$comment": "GovAnist (ANIST, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis: stessa struttura (libreria core/ui comune), funzione /examine invece di /examiner e quattro tipi di richiesta invece di due. Dev: 'npm run start-govanist-proxy' in govanist-app-v2 -> http://localhost:5213, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5213) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govanist-app/src/app/app.routes.ts.",
 
   "defaults": {
+    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,

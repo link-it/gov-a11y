@@ -3,6 +3,7 @@
   "$comment": "GovAudit (audit e report, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Login e lingua clonati dal target di GovAnis; l'app e' pero' di GESTIONE: cinque sezioni a lista con filtri e dettaglio (/audit, /audit-batch, /audit-sessions, /audit-reports, /alarms, dettaglio /<sezione>/:id) e i form di creazione di report e allarmi (/audit-reports/new, /alarms/new). Dev: 'npm run start-govaudit-proxy' in govaudit-app-v2 -> http://localhost:5203, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5203) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govaudit-app/src/app/app.routes.ts.",
 
   "defaults": {
+    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -33,6 +34,8 @@
 
     "navWait": "domcontentloaded",
     "navDelayMs": 5000,
+    "$mouseOnlyIgnore": "Area 'Cerca...' di lnk-search-bar (con i filtri attivi mostra i filtri impostati): apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (WCAG 2.1.1 soddisfatto da un comando equivalente).",
+    "mouseOnlyIgnore": "lnk-search-bar > div[tabindex='-1']",
 
     "$pages": "Le cinque liste e i due form di creazione (vuoti: si analizzano, MAI salvare). Con STANDALONE: false la rotta / reindirizza alla prima sezione consentita dai ruoli: per questo non e' elencata.",
     "pages": [
