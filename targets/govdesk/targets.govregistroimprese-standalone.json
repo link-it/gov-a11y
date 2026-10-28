@@ -4,7 +4,6 @@
   "$comment": "GovRegistroImprese (Registro Imprese) in modalità STANDALONE: true (app-config.json, o config.json in assets a runtime). Senza GovHub: l'app ha login per realm (/auth/<realm>, come GovHub), scelta dell'organizzazione (/select-organization), sidebar, menu utente, profilo e dashboard propri (stessa implementazione di GovAnis, commit cb5b1e9). Dev: 'npm run start-govregistroimprese-proxy' in govregistroimprese-app -> http://localhost:5215 con STANDALONE: true, backend via proxy /govhub-reverse-proxy (VPN Link.it). GovHub NON serve. Variante incorporata (STANDALONE: false, via GovHub): targets.govregistroimprese.json, da cui vengono pagine e flow dell'app. Rotte da projects/govregistroimprese-app/src/app/app.routes.ts.",
 
   "defaults": {
-    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -148,7 +147,7 @@
         "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
         "steps": [
           { "click": "#lnk-app-forms-fields-organization", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
-          { "scan": "tendina-organizzazione" }
+          { "scan": "tendina-organizzazione", "include": "ng-dropdown-panel" }
         ]
       },
       {

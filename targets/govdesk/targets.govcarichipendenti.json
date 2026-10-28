@@ -2,7 +2,6 @@
   "$app": "GovCarichiPendenti",
   "$comment": "GovCarichiPendenti (Carichi pendenti, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovCasellarioGiudiziale (app gemella, stesso flusso /requests + polling /outcomes): /examine e' la LISTA delle richieste, con il form della nuova richiesta che si apre dal pulsante in intestazione (organizzazione, ufficio, distretto, procura, dati del soggetto); il dettaglio e' /examine/:id. Dev: 'npm run start-govcarichipendenti-proxy' in govcarichipendenti-app -> http://localhost:5221, backend via proxy /govhub-reverse-proxy (VPN Link.it). Login su GovHub (:5200, deve essere avviato). Rotte da projects/govcarichipendenti-app/src/app/app.routes.ts.",
   "defaults": {
-    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -114,7 +113,8 @@
             "desc": "apri la tendina del distretto"
           },
           {
-            "scan": "tendina-distretto"
+            "scan": "tendina-distretto",
+            "include": "ng-dropdown-panel"
           }
         ]
       },

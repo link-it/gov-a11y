@@ -1261,7 +1261,12 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   for (let tentativo = 0; tentativo < 3; tentativo++) {
     const marcatore = `gw-${Date.now()}-${tentativo}`;
     await page.evaluate(m => { window.__gwMarcatore = m; }, marcatore).catch(() => {});
-    r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    /* 'include' (selettore CSS) limita l'analisi a una parte della vista: serve negli stati in cui
+       un elemento sovrapposto (una tendina aperta) copre per costruzione cio' che ha sotto, che
+       axe non potrebbe misurare e che si analizza comunque nella vista a riposo. */
+    let builder = new AxeBuilder({ page }).withTags(TAGS);
+    if (extra.include) builder = builder.include(extra.include);
+    r = await builder.analyze();
     const dopo = await page.evaluate(() => ({ marcatore: window.__gwMarcatore, stato: document.readyState })).catch(() => ({}));
     if (dopo.marcatore === marcatore && dopo.stato === 'complete') break;
     console.warn(`    [vista non ferma durante l'analisi] ${name}: rifaccio (tentativo ${tentativo + 2}/3)`);
@@ -1592,7 +1597,7 @@ async function runFlows(browser, target, pageResults) {
         // Step 'scan': scansiona lo stato CORRENTE (permette piu' scan in un flow, es. i tab di un dettaglio).
         if (step.scan !== undefined) {
           const name = step.scan ? `flow:${flow.name}/${step.scan}` : `flow:${flow.name}`;
-          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint, { keyboard: step.keyboard });
+          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint, { keyboard: step.keyboard, include: step.include });
           scanned = true;
           continue;
         }

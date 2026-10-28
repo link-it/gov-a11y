@@ -173,6 +173,7 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "back": true }` / `{ "reload": true }` | Torna alla pagina precedente / ricarica. Con `clearCookies` portano l'app negli stati di sessione scaduta o persa |
 | `{ "script": "file.mjs#funzione", "args": { … } }` | Esegue una funzione JavaScript accanto al config, per le viste che nessun passo dichiarativo raggiunge (vedi sotto). **Solo nei flow** |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
+| `{ "scan": "<etichetta>", "include": "<selettore CSS>" }` | Come sopra, ma axe analizza **solo** la parte indicata: per gli stati in cui un elemento sovrapposto (es. una tendina aperta) copre per costruzione il resto della vista, che si analizza comunque a riposo |
 | `{ "scanTabs": "<selettore>" }` | Scopre i tab a runtime, clicca e scansiona ognuno |
 | `{ "scanOptions": { "selector": "…", "name": "…", "skip": "<regex>" } }` | Scopre a runtime le opzioni di un `<select>` nativo, le sceglie una alla volta e scansiona lo stato prodotto da ognuna. `name` antepone un prefisso al nome delle viste, `skip` esclude le opzioni il cui testo corrisponde (es. il segnaposto). Accetta anche la sola stringa del selettore |
 | `{ "scanCharts": { … } }` | Enumera icone-report di una griglia, genera e scansiona ognuna |

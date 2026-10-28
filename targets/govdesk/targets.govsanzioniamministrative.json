@@ -2,7 +2,6 @@
   "$app": "GovSanzioniAmministrative",
   "$comment": "GovSanzioniAmministrative (Sanzioni amministrative, persona giuridica, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovCasellarioGiudiziale (app gemella): /examine e' la LISTA delle richieste, con il form della nuova richiesta che si apre dal pulsante in intestazione (organizzazione, ufficio, caso d'uso, protocollo, dati della persona giuridica); il dettaglio e' /examine/:id. Dev: 'npm run start-govsanzioniamministrative-proxy' in govsanzioniamministrative-app -> http://localhost:5222, backend via proxy /govhub-reverse-proxy (VPN Link.it). Login su GovHub (:5200, deve essere avviato). Rotte da projects/govsanzioniamministrative-app/src/app/app.routes.ts.",
   "defaults": {
-    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -114,7 +113,8 @@
             "desc": "apri la tendina del caso d'uso"
           },
           {
-            "scan": "tendina-caso-uso"
+            "scan": "tendina-caso-uso",
+            "include": "ng-dropdown-panel"
           }
         ]
       },

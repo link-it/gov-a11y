@@ -3,7 +3,6 @@
   "$comment": "GovRegistry (Impostazioni, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Login e lingua clonati dal target di GovAnis; l'app e' pero' di GESTIONE dei dati di configurazione REALI della piattaforma: applicazioni, utenti, gruppi, organizzazioni, client (lista /<sezione>, dettaglio /<sezione>/:id, creazione /<sezione>/new). Dev: 'npm run start-govregistry-proxy' in govregistry-app-v2 -> http://localhost:5208, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5208) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govregistry-app/src/app/app.routes.ts.",
 
   "defaults": {
-    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,

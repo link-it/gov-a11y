@@ -3,7 +3,6 @@
   "$comment": "GovIsee (ISEE, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis: stessa libreria core/ui (organizzazione, ufficio, CF, ricerca CF). Quattro funzioni: /attestation (attestazione ISEE) e /indicator (indicatori ISEE), con le versioni massive /attestation-bulk e /indicator-bulk (liste dei lotti caricati, dettaglio /:id). Dev: 'npm run start-govisee-proxy' in govisee-app-v2 -> http://localhost:5207, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5207) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govisee-app/src/app/app.routes.ts.",
 
   "defaults": {
-    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -56,7 +55,7 @@
         "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
         "steps": [
           { "click": "#lnk-app-forms-fields-organization", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
-          { "scan": "tendina-organizzazione" }
+          { "scan": "tendina-organizzazione", "include": "ng-dropdown-panel" }
         ]
       },
       {

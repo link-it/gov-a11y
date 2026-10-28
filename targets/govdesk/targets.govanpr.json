@@ -3,7 +3,6 @@
   "$comment": "GovAnpr (ANPR, GovDesk) - Angular, incorporata in GovHub (iframe), STANDALONE: false. Clonato dal target di GovAnis per login, lingua e struttura; il form pero' e' proprio di ANPR (form-anpr: organizzazione, ufficio, motivazione, tipo di accertamento/verifica, ID ANPR, data), non quello comune delle altre app. Quattro funzioni: /examiner e /verifier (puntuali, con la pagina /result), /massive-examiner e /massive-verifier (liste dei lotti caricati, dettaglio /:id). Dev: 'npm run start-govanpr-proxy' in govanpr-app-v2 -> http://localhost:5209, backend via proxy /govhub-reverse-proxy (VPN Link.it). Si scansiona l'app sulla SUA porta (--base http://localhost:5209) con la sessione aperta su GovHub (loginPath assoluto su :5200, che deve essere avviato): i cookie dipendono dall'host, non dalla porta. L'interfaccia e' quella incorporata (solo il contenuto, nessuna sidebar), senza la shell di GovHub, che ha il suo target. Rotte da projects/govanpr-app/src/app/app.routes.ts.",
 
   "defaults": {
-    "falsePositives": "falsePositives.govdesk.json",
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
@@ -56,7 +55,7 @@
         "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
         "steps": [
           { "click": "form-field-anpr-organization-select ng-select", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
-          { "scan": "tendina-organizzazione" }
+          { "scan": "tendina-organizzazione", "include": "ng-dropdown-panel" }
         ]
       },
       {
