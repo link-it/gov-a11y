@@ -51,8 +51,8 @@ di un flusso.
 
 **Contrasti fuori vista**: axe misura il contrasto su quel che è a schermo, e un testo sotto il bordo
 di un contenitore che scorre (lo stato vuoto in fondo a una colonna, "scorri per caricare altri
-risultati") esce come `incomplete` (`elmPartiallyObscured`) anche se nulla lo copre. Per questi casi lo
-strumento porta l'elemento in vista, rimisura il solo `color-contrast` e rimette lo scorrimento com'era:
+risultati"), o coperto in parte da una barra fissa come il campo di scrittura di una chat, esce come
+`incomplete` (`elmPartiallyObscured`). Per questi casi lo strumento porta l'elemento al centro della vista, rimisura il solo `color-contrast` e rimette lo scorrimento com'era:
 l'occorrenza diventa un passato o una violazione, e resta da verificare solo se è coperta anche in vista.
 Durante la rimisura gli scroll infiniti sono in pausa (callback degli `IntersectionObserver` ed eventi
 `scroll`, fermati in cattura prima dei gestori della pagina), così la lista non carica altre righe. Gira per ultima sulla vista, dopo gli altri controlli.

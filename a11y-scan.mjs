@@ -840,9 +840,9 @@ const INIT_SOLO_MOUSE = `(() => {
 
 /* Contrasti fuori vista. axe misura il contrasto su quel che e' a schermo: un testo che sta sotto il
    bordo di un contenitore che scorre (lo stato vuoto in fondo alla colonna, "Scorri per caricare
-   altri risultati" in coda a una lista) esce come 'incomplete' con elmPartiallyObscured, anche se
-   sopra non ha niente. Non e' un'incertezza sul colore ma sulla geometria: l'elemento si porta in
-   vista, si rimisura il solo 'color-contrast' su di lui e lo scorrimento torna com'era. Cosi' axe
+   altri risultati" in coda a una lista) o coperto in parte da una barra fissa esce come 'incomplete'
+   con elmPartiallyObscured. Non e' un'incertezza sul colore ma sulla geometria: l'elemento si porta
+   al centro della vista, si rimisura il solo 'color-contrast' su di lui e lo scorrimento torna com'era. Cosi' axe
    decide davvero: passato, violazione, o ancora da verificare se resta coperto anche in vista.
    Va in fondo all'analisi della vista: scorrere puo' far caricare altro (scroll infinito), e gli
    altri controlli devono aver gia' fotografato la vista a riposo. */
@@ -880,15 +880,13 @@ async function rimisuraContrastiFuoriVista(page, incomplete, violations) {
   for (const nodo of candidati) {
     // Il selettore di axe e' corto ("p") e vale per il DOM di quell'analisi: l'elemento si
     // ritrova fra quelli che corrispondono confrontando l'HTML registrato da axe, e si marca.
-    // Solo cio' che sta davvero fuori dalla finestra: un elemento in vista ma coperto (una barra
-    // fissa sopra) resta da verificare, perche' li' l'incertezza e' reale.
+    // Anche un elemento in vista ma coperto in parte da una barra fissa (il campo di scrittura in
+    // fondo a una chat) si porta al centro: scorrendo esce da sotto la barra. Se resta coperto
+    // anche li' (un velo modale), axe lo lascia da verificare, e l'incertezza e' reale.
     const scorrimenti = await page.evaluate(([sel, html]) => {
       const inizio = html.slice(0, 120);
       const el = Array.from(document.querySelectorAll(sel)).find(e => e.outerHTML.slice(0, 120) === inizio);
       if (!el) return null;
-      const r = el.getBoundingClientRect();
-      const inVista = r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth;
-      if (inVista) return null;
       const salvati = [];
       for (let a = el.parentElement; a; a = a.parentElement) if (a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth) salvati.push([a, a.scrollTop, a.scrollLeft]);
       window.__gwScorrimenti = { salvati, x: scrollX, y: scrollY, el };
