@@ -50,8 +50,8 @@
 
     "navWait": "domcontentloaded",
     "navDelayMs": 3000,
-    "$mouseOnlyIgnore": "Etichette dei campi da precompilare nel selettore servizi del dossier (service-selector): il clic sull'etichetta attiva la checkbox 'precompila' accanto, che e' focalizzabile e ha un aria-label: da tastiera la stessa azione e' sulla checkbox (WCAG 2.1.1 soddisfatto da un comando equivalente).",
-    "mouseOnlyIgnore": "lnk-service-selector label.cursor-pointer",
+    "$mouseOnlyIgnore": "Etichette dei campi da precompilare nel selettore servizi del dossier (service-selector): il clic sull'etichetta attiva la checkbox 'precompila' accanto, che e' focalizzabile e ha un aria-label: da tastiera la stessa azione e' sulla checkbox (WCAG 2.1.1 soddisfatto da un comando equivalente). Area 'Cerca...' di lnk-search-bar nelle impostazioni del Modello AI: apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (come negli altri target GovDesk).",
+    "mouseOnlyIgnore": "lnk-service-selector label.cursor-pointer, lnk-search-bar > div[tabindex='-1']",
 
     "$pages": "Viste proprie di GovHub raggiungibili da URL. /ai-model e' protetta da aiModelGuard (visibile solo se l'utente puo' usare l'AI: altrimenti rimanda alla dashboard e viene deduplicata). /select-organization resta raggiungibile anche dopo la scelta (cambio organizzazione). La LISTA dossier non e' qui ma nel flow dossier-lista: vedi $flows.",
     "pages": [
@@ -59,6 +59,10 @@
       { "name": "profilo", "path": "/profile" },
       { "name": "dossier-nuovo", "path": "/dossier/create" },
       { "name": "ai-model", "path": "/ai-model" },
+      { "name": "ai-impostazioni-configurazioni", "path": "/ai-model/settings/configurations" },
+      { "name": "ai-impostazioni-configurazione-nuova", "path": "/ai-model/settings/configurations/new" },
+      { "name": "ai-impostazioni-mcp", "path": "/ai-model/settings/mcp" },
+      { "name": "ai-impostazioni-mcp-nuovo", "path": "/ai-model/settings/mcp/new" },
       { "name": "scelta-organizzazione", "path": "/select-organization" }
     ],
 
@@ -141,6 +145,78 @@
           { "scan": "dossier-anis-compilato" },
           { "clickText": "Esegui ricerca", "exact": true, "wait": "domcontentloaded", "waitQuietMs": 2000, "timeoutMs": 30000, "delayMs": 2000, "desc": "esegui il dossier -> /dossier/:id/results/:executionId" },
           { "scan": "dossier-anis-risultati" }
+        ]
+      },
+      {
+        "name": "ai-model-pannello",
+        "start": "/ai-model",
+        "skipIfMissing": "lnk-ai-model-sidebar button:has(ng-icon[name='lucideMessageSquare']) >> visible=true",
+        "sourceHint": "projects/govhub-app/src/app/features/ai-model/components/conversation-side-panel",
+        "lighthouse": false,
+        "$note": "Modello AI: apre la conversazione piu' recente dalla sidebar, poi il pannello laterale dal menu della conversazione (voce con la graffetta) sul tab File e sul tab Citazioni. Solo lettura: nessun messaggio inviato. Il tab File chiama GET /conversations/{id}/files (UPLOAD e OUTBOX). Le conversazioni sono dell'utente: senza conversazioni il flow si salta.",
+        "steps": [
+          { "click": "lnk-ai-model-sidebar button:has(ng-icon[name='lucideMessageSquare']) >> visible=true", "wait": "networkidle", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri la conversazione piu' recente -> /ai-model/:id" },
+          { "click": "textarea", "delayMs": 500, "desc": "puntatore sul compositore: col mouse fermo sul titolo in sidebar il titolo scorre (marquee) e axe non ne calcola il contrasto" },
+          { "scan": "conversazione" },
+          { "click": "button[aria-haspopup='menu']:has(ng-icon[name='lucideEllipsis'])", "wait": "[role=menuitem]", "delayMs": 500, "desc": "menu della conversazione" },
+          { "scan": "menu-conversazione", "keyboard": false },
+          { "click": "[role=menuitem]:has(ng-icon[name='bootstrapPaperclip'])", "wait": "lnk-conversation-side-panel", "delayMs": 1500, "desc": "voce 'Visualizza allegati e citazioni' -> pannello laterale, tab File" },
+          { "scan": "pannello-file", "include": "lnk-conversation-side-panel", "$include": "In modalita' sovrapposta il pannello copre i fumetti della conversazione (bgOverlap): si analizza solo il pannello, la conversazione e' analizzata a riposo nella vista 'conversazione'." },
+          { "script": "govhub.steps.mjs#cercaFile", "args": { "testo": "pdf" } },
+          { "click": "#lnk-side-tab-citations", "delayMs": 1000, "desc": "tab Citazioni del pannello" },
+          { "scan": "pannello-citazioni", "include": "lnk-conversation-side-panel", "$include": "In modalita' sovrapposta il pannello copre i fumetti della conversazione (bgOverlap): si analizza solo il pannello, la conversazione e' analizzata a riposo nella vista 'conversazione'." }
+        ]
+      },
+      {
+        "name": "ai-model-citazione",
+        "start": "/ai-model",
+        "skipIfMissing": "lnk-ai-model-sidebar button:has(ng-icon[name='lucideMessageSquare']) >> visible=true",
+        "sourceHint": "projects/govhub-app/src/app/features/ai-model/components/citation-detail",
+        "lighthouse": false,
+        "$note": "Modello AI: citazione aperta dal testo della risposta (segno button.lnk-cite) nel pannello laterale, con la fonte espansa. Lo script cerca, fra le conversazioni piu' recenti, la prima che ha citazioni (vedi govhub.steps.mjs); se nessuna ne ha, la vista non c'e'.",
+        "steps": [
+          { "script": "govhub.steps.mjs#citazioneAperta", "args": { "massimo": 15 } }
+        ]
+      },
+      {
+        "name": "ai-model-dialog",
+        "start": "/ai-model",
+        "skipIfMissing": "lnk-ai-model-sidebar button:has(ng-icon[name='lucideMessageSquare']) >> visible=true",
+        "sourceHint": "projects/govhub-app/src/app/features/ai-model/pages/ai-model-chat",
+        "lighthouse": false,
+        "$note": "Rinomina ed elimina dal menu della conversazione, SENZA confermare: il titolo resta uguale (nessuna richiesta al server, vedi ConversationRenameService.commit) e la dialog di eliminazione si chiude con Esc.",
+        "steps": [
+          { "click": "lnk-ai-model-sidebar button:has(ng-icon[name='lucideMessageSquare']) >> visible=true", "wait": "networkidle", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri la conversazione piu' recente" },
+          { "click": "button[aria-haspopup='menu']:has(ng-icon[name='lucideEllipsis'])", "wait": "[role=menuitem]", "delayMs": 500, "desc": "menu della conversazione" },
+          { "click": "[role=menuitem]:has(ng-icon[name='bootstrapPencil'])", "wait": "lnk-ai-model-sidebar input", "delayMs": 800, "desc": "rinomina: il titolo diventa un campo nella sidebar" },
+          { "scan": "rinomina-in-corso", "keyboard": false },
+          { "press": "Escape", "delayMs": 500, "desc": "annulla la rinomina" },
+          { "click": "button[aria-haspopup='menu']:has(ng-icon[name='lucideEllipsis'])", "wait": "[role=menuitem]", "delayMs": 500, "desc": "menu della conversazione" },
+          { "click": "[role=menuitem]:has(ng-icon[name='bootstrapTrash'])", "wait": "mat-dialog-container", "delayMs": 800, "desc": "elimina: dialog di conferma (non si conferma)" },
+          { "scan": "dialog-elimina", "include": "mat-dialog-container", "$include": "Dialog modale: la pagina sotto e' coperta dal velo, si analizza la dialog (la conversazione a riposo e' nel flow ai-model-pannello)." },
+          { "press": "Escape", "delayMs": 500, "desc": "chiudi la dialog senza eliminare" }
+        ]
+      },
+      {
+        "name": "ai-impostazioni-configurazione-dettaglio",
+        "start": "/ai-model/settings/configurations",
+        "skipIfMissing": "a[href^='/ai-model/settings/configurations/']",
+        "sourceHint": "projects/govhub-app/src/app/features/ai-model/pages/ai-model-settings/configurations",
+        "lighthouse": false,
+        "steps": [
+          { "click": "a[href^='/ai-model/settings/configurations/']", "wait": "networkidle", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri la prima configurazione (solo lettura)" },
+          { "scan": "configurazione-dettaglio" }
+        ]
+      },
+      {
+        "name": "ai-impostazioni-mcp-dettaglio",
+        "start": "/ai-model/settings/mcp",
+        "skipIfMissing": "a[href^='/ai-model/settings/mcp/']:not([href$='/new'])",
+        "sourceHint": "projects/govhub-app/src/app/features/ai-model/pages/ai-model-settings/mcp",
+        "lighthouse": false,
+        "steps": [
+          { "click": "a[href^='/ai-model/settings/mcp/']:not([href$='/new'])", "wait": "networkidle", "timeoutMs": 15000, "delayMs": 1500, "desc": "apri il primo server MCP (solo lettura: niente 'scopri strumenti' ne' elimina)" },
+          { "scan": "mcp-dettaglio" }
         ]
       }
     ]

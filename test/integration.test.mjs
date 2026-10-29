@@ -92,6 +92,9 @@ const server = createServer((req, res) => {
     '/app3/taglio': `<main><h1>Taglio</h1><div id="stretta" style="width:120px;height:18px;overflow:hidden;white-space:nowrap">testo che con la spaziatura esce</div></main>`,
     '/app3/focus': `<style>#nofocus:focus{outline:none;box-shadow:none}</style><main><h1>Focus</h1><button id="nofocus" type="button">Senza focus</button><button id="confocus" type="button">Con focus</button></main>`,
     '/app3/lingua': `<main><h1>Login</h1><p id="frase">Accedendo accetti i termini</p><p lang="it">Accedendo accetti, ma con lang</p></main>`,
+    // testi sotto il bordo di un contenitore che scorre; la sentinella, se vista (IntersectionObserver)
+    // o raggiunta scorrendo (evento scroll, come ngx-infinite-scroll), "carica altro" e scende ancora
+    '/app3/sotto': `<main><h1>Sotto</h1><div id="scorre" style="height:300px;overflow:auto"><div style="height:600px"></div><p id="leggibile">Testo leggibile in fondo</p><p id="chiaro" style="color:#c8c8c8">Testo troppo chiaro</p><p id="sentinella">Scorri per caricare altri risultati</p></div><script>new IntersectionObserver(v => { if (v[0].isIntersecting) { const p = document.createElement('p'); p.style.height = '400px'; p.textContent = 'caricato altro'; document.getElementById('scorre').insertBefore(p, document.getElementById('sentinella')); } }).observe(document.getElementById('sentinella')); const scorre = document.getElementById('scorre'); scorre.addEventListener('scroll', () => { if (scorre.scrollTop + scorre.clientHeight > scorre.scrollHeight - 100) { const p = document.createElement('p'); p.style.height = '400px'; p.textContent = 'caricato allo scroll'; scorre.insertBefore(p, document.getElementById('sentinella')); } });</script></main>`,
   };
   if (app3[path]) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -206,7 +209,7 @@ writeFileSync(CFG, JSON.stringify({
     reflow: true, textSpacing: true, keyboardWalk: true,
     languageParts: { it: ['Accedendo accetti'] },
     pages: [{ name: 'ok', path: '/app3/ok' }, { name: 'larga', path: '/app3/larga' }, { name: 'taglio', path: '/app3/taglio' },
-      { name: 'focus', path: '/app3/focus' }, { name: 'lingua', path: '/app3/lingua' }],
+      { name: 'focus', path: '/app3/focus' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' }],
   },
   // login su un'altra origine (loginPath assoluto), pagine su --base autenticate dal cookie condiviso
   app2: {
@@ -298,6 +301,11 @@ check(JSON.stringify(app3('focus')?.tabOrder || []).includes('button#confocus'),
 check(ids('lingua').includes('gova11y-language-of-parts'), '3.1.2: testo italiano in pagina inglese segnalato');
 check(app3('lingua')?.violations.find(v => v.id === 'gova11y-language-of-parts')?.nodes.length === 1, '3.1.2: il testo con lang="it" non viene segnalato');
 check(!(results.find(r => r.target === 'app' && r.name === 'home')?.violations || []).some(v => v.id.startsWith('gova11y-')), 'target senza i controlli accesi: nessuna violazione aggiuntiva');
+// contrasti fuori vista: rimisurati portando l'elemento in vista, con lo scroll infinito in pausa
+const sotto = app3('sotto');
+check(!!sotto && !(sotto.incomplete || []).some(r => r.id === 'color-contrast'), 'contrasto fuori vista: rimisurato in vista, niente resta da verificare (sentinella compresa)');
+check(!!sotto && sotto.violations.some(v => v.id === 'color-contrast' && v.nodes.some(n => /Testo troppo chiaro/.test(n.html))), 'contrasto fuori vista: il testo troppo chiaro diventa una violazione');
+check(!!sotto && !sotto.violations.some(v => v.id === 'color-contrast' && v.nodes.some(n => /leggibile|Scorri/.test(n.html))), 'contrasto fuori vista: i testi conformi non sono violazioni');
 console.log('— recordScan produce dati a11y');
 check(results.some(r => Array.isArray(r.violations)), 'ogni risultato ha violations[]');
 

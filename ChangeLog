@@ -1,3 +1,21 @@
+2026-10-29  Giuseppe Tagliente <giuseppe.tagliente@link.it>
+
+	* [gov-a11y]
+	Contrasti fuori vista rimisurati: un testo che axe lascia "da verificare" perche' sta sotto il bordo di un
+	contenitore che scorre (elmPartiallyObscured) viene portato in vista, il solo color-contrast si rimisura su
+	di lui e lo scorrimento torna com'era. Esce come passato o come violazione; resta da verificare solo
+	quello che e' coperto anche in vista. Durante la rimisura gli scroll infiniti della pagina sono in pausa
+	(callback degli IntersectionObserver ed eventi scroll), cosi' la riga "scorri per caricare altri
+	risultati" non carica altro. Gira
+	per ultima sulla vista, dopo gli altri controlli.
+	Lo scan() degli script di flow accetta "include" come il passo scan dichiarativo.
+	GovDesk: nuove viste del Modello AI di GovHub (conversazione, menu, pannello File con ricerca, tab
+	Citazioni, popover e citazione aperta, rinomina ed elimina senza confermare, impostazioni: configurazioni
+	e server MCP, elenco, nuovo e dettaglio), con lo script govhub.steps.mjs che cerca una conversazione con
+	citazioni. Pannello filtri di govaudit e govregistry e pannelli della chat analizzati con "include": la
+	lista sotto e' analizzata a riposo. Dettaglio organizzazione di govregistry: attesa dello stato
+	asincrono prima della scansione (heading-order non determinabile).
+
 2026-10-19  Giuseppe Tagliente <giuseppe.tagliente@link.it>
 
 	* [gov-a11y]

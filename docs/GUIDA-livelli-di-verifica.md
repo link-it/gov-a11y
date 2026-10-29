@@ -49,6 +49,14 @@ di un flusso.
   falsi positivi si possono registrare, con la prova che le giustifica, così che "da verificare"
   continui a significare *ancora da verificare*: vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md).
 
+**Contrasti fuori vista**: axe misura il contrasto su quel che è a schermo, e un testo sotto il bordo
+di un contenitore che scorre (lo stato vuoto in fondo a una colonna, "scorri per caricare altri
+risultati") esce come `incomplete` (`elmPartiallyObscured`) anche se nulla lo copre. Per questi casi lo
+strumento porta l'elemento in vista, rimisura il solo `color-contrast` e rimette lo scorrimento com'era:
+l'occorrenza diventa un passato o una violazione, e resta da verificare solo se è coperta anche in vista.
+Durante la rimisura gli scroll infiniti sono in pausa (callback degli `IntersectionObserver` ed eventi
+`scroll`, fermati in cattura prima dei gestori della pagina), così la lista non carica altre righe. Gira per ultima sulla vista, dopo gli altri controlli.
+
 **Gate**: `--fail-on <gravità>` (default `serious`) fa fallire la run se esistono violazioni di
 gravità pari o superiore. È il gate principale, quello adatto a bloccare una pipeline.
 

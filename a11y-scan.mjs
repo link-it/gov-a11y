@@ -838,6 +838,105 @@ const INIT_SOLO_MOUSE = `(() => {
   };
 })()`;
 
+/* Contrasti fuori vista. axe misura il contrasto su quel che e' a schermo: un testo che sta sotto il
+   bordo di un contenitore che scorre (lo stato vuoto in fondo alla colonna, "Scorri per caricare
+   altri risultati" in coda a una lista) esce come 'incomplete' con elmPartiallyObscured, anche se
+   sopra non ha niente. Non e' un'incertezza sul colore ma sulla geometria: l'elemento si porta in
+   vista, si rimisura il solo 'color-contrast' su di lui e lo scorrimento torna com'era. Cosi' axe
+   decide davvero: passato, violazione, o ancora da verificare se resta coperto anche in vista.
+   Va in fondo all'analisi della vista: scorrere puo' far caricare altro (scroll infinito), e gli
+   altri controlli devono aver gia' fotografato la vista a riposo. */
+const FUORI_VISTA = new Set(['elmPartiallyObscured', 'elmPartiallyObscuring']);
+
+/* Pausa degli scroll infiniti durante la rimisura: il testo in coda alla lista ("Scorri per
+   caricare altri risultati") e' proprio dove lo scroll infinito carica, e portarlo in vista farebbe
+   arrivare altre righe, che lo spingono di nuovo fuori (o lo sostituiscono con l'attesa). Con
+   window.__gwPausaIO si scartano le due cose a cui reagiscono le librerie: i callback degli
+   IntersectionObserver e gli eventi 'scroll' (ngx-infinite-scroll), fermati in cattura sulla
+   finestra prima di ogni altro gestore. Tolta la pausa la vista e' di nuovo quella di prima, e
+   non carica niente. Installato prima degli script di pagina, come INIT_SOLO_MOUSE. */
+const INIT_PAUSA_IO = `(() => {
+  addEventListener('scroll', e => { if (window.__gwPausaIO) e.stopImmediatePropagation(); }, true);
+  const Originale = window.IntersectionObserver;
+  if (!Originale) return;
+  window.IntersectionObserver = class extends Originale {
+    constructor(callback, opzioni) {
+      super((voci, osservatore) => { if (!window.__gwPausaIO) callback(voci, osservatore); }, opzioni);
+    }
+  };
+})();`;
+
+async function rimisuraContrastiFuoriVista(page, incomplete, violations) {
+  const regola = (incomplete || []).find(r => r.id === 'color-contrast');
+  if (!regola) return { incomplete, violations, rimisurati: 0 };
+
+  const candidati = regola.nodes.filter(n => n.target.length === 1 && (n.any || []).some(c => FUORI_VISTA.has(c.data?.messageKey)));
+  if (!candidati.length) return { incomplete, violations, rimisurati: 0 };
+
+  const restano = new Set(regola.nodes);
+  const nuoveViolazioni = [];
+  let rimisurati = 0;
+
+  for (const nodo of candidati) {
+    // Il selettore di axe e' corto ("p") e vale per il DOM di quell'analisi: l'elemento si
+    // ritrova fra quelli che corrispondono confrontando l'HTML registrato da axe, e si marca.
+    // Solo cio' che sta davvero fuori dalla finestra: un elemento in vista ma coperto (una barra
+    // fissa sopra) resta da verificare, perche' li' l'incertezza e' reale.
+    const scorrimenti = await page.evaluate(([sel, html]) => {
+      const inizio = html.slice(0, 120);
+      const el = Array.from(document.querySelectorAll(sel)).find(e => e.outerHTML.slice(0, 120) === inizio);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const inVista = r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth;
+      if (inVista) return null;
+      const salvati = [];
+      for (let a = el.parentElement; a; a = a.parentElement) if (a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth) salvati.push([a, a.scrollTop, a.scrollLeft]);
+      window.__gwScorrimenti = { salvati, x: scrollX, y: scrollY, el };
+      window.__gwPausaIO = true;
+      el.setAttribute('data-gw-rimisura', '');
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      return true;
+    }, [nodo.target[0], nodo.html || '']).catch(() => null);
+    if (!scorrimenti) continue;
+
+    try {
+      // Solo l'elemento marcato (e il suo testo): passato se axe non ha piu' dubbi ne' violazioni
+      const esito = await new AxeBuilder({ page }).withRules(['color-contrast']).include('[data-gw-rimisura]').analyze();
+      const nodi = r => r.flatMap(x => x.nodes || []);
+      const violati = nodi(esito.violations);
+      const passato = !violati.length && !nodi(esito.incomplete).length && nodi(esito.passes).length > 0;
+      if (passato || violati.length) {
+        restano.delete(nodo);
+        rimisurati++;
+        if (violati.length) nuoveViolazioni.push({ ...esito.violations[0], nodes: violati });
+      }
+    } finally {
+      await page.evaluate(() => {
+        const s = window.__gwScorrimenti;
+        if (!s) return;
+        s.el.removeAttribute('data-gw-rimisura');
+        for (const [a, top, left] of s.salvati) { a.scrollTop = top; a.scrollLeft = left; }
+        scrollTo(s.x, s.y);
+        delete window.__gwScorrimenti;
+        // La pausa resta finche' l'osservatore non ha consegnato le notifiche dello scorrimento
+        return new Promise(fine => requestAnimationFrame(() => requestAnimationFrame(() => { window.__gwPausaIO = false; fine(); })));
+      }).catch(() => {});
+    }
+  }
+
+  const altre = incomplete.filter(r => r !== regola);
+  const nodi = regola.nodes.filter(n => restano.has(n));
+  const regolaViolata = violations.find(v => v.id === 'color-contrast');
+  const piuViolazioni = nuoveViolazioni.flatMap(v => v.nodes);
+  let violazioni = violations;
+  if (piuViolazioni.length) {
+    violazioni = regolaViolata
+      ? violations.map(v => (v === regolaViolata ? { ...v, nodes: [...v.nodes, ...piuViolazioni] } : v))
+      : [...violations, { ...nuoveViolazioni[0], nodes: piuViolazioni }];
+  }
+  return { incomplete: nodi.length ? [...altre, { ...regola, nodes: nodi }] : altre, violations: violazioni, rimisurati, violati: piuViolazioni.length };
+}
+
 async function analyzeMouseOnly(page, opzioni) {
   const { ignora = null, massimo = 40 } = opzioni || {};
   try {
@@ -1282,7 +1381,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   // ridisegno parziale sostituisce interi rami, e gli elementi da confrontare sparivano. Su
   // una vista di govwayMonitor questo bastava a far figurare 38 occorrenze fra quelle da
   // verificare, pur essendo coperte dal registro su tutte le altre viste.
-  const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
+  let { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   let lhScore = null;
   if (DO_LH && !LH_ESCLUSO_NEL_FLOW) {
     const sessione = await lhPreparaSessione(page, target);
@@ -1308,6 +1407,13 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   if (DO_KEYBOARD && extra.keyboard !== false) {
     const k = await prova('keyboardWalk', () => analyzeKeyboard(page));
     if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
+  }
+  // In fondo, per ultima: scorre la vista (vedi rimisuraContrastiFuoriVista)
+  const rimisura = await prova('contrasti fuori vista', () => rimisuraContrastiFuoriVista(page, incomplete, r.violations));
+  if (rimisura?.rimisurati) {
+    incomplete = rimisura.incomplete;
+    r.violations = rimisura.violations;
+    console.log(`    [contrasto] ${rimisura.rimisurati} elementi fuori vista rimisurati in vista${rimisura.violati ? `: ${rimisura.violati} violazioni` : ', tutti conformi'}`);
   }
   r.violations = [...r.violations, ...aggiuntive];
   pageResults.push({
@@ -1574,6 +1680,7 @@ async function runFlows(browser, target, pageResults) {
     const nuovaPagina = async () => {
       const c = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
       if (DO_MOUSE_ONLY) await c.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
+      await c.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
       contesti.push(c);
       return c.newPage();
     };
@@ -1999,8 +2106,8 @@ async function runFlows(browser, target, pageResults) {
               page, browser, target, base: BASE, args: step.args || {},
               newPage: nuovaPagina,
               runStep: (s, p = page) => runStep(p, s),
-              scan: async (nome, { page: p = page, sourceHint, problemi, keyboard } = {}) => {
-                await recordScan(browser, p, target, nome ? `flow:${flow.name}/${nome}` : `flow:${flow.name}`, pageResults, sourceHint || step.sourceHint || flow.sourceHint, { problemi, keyboard });
+              scan: async (nome, { page: p = page, sourceHint, problemi, keyboard, include } = {}) => {
+                await recordScan(browser, p, target, nome ? `flow:${flow.name}/${nome}` : `flow:${flow.name}`, pageResults, sourceHint || step.sourceHint || flow.sourceHint, { problemi, keyboard, include });
                 scanned = true;
               },
             });
@@ -2049,6 +2156,7 @@ async function scan() {
     console.log(`\n== ${target.name} (${absUrl(target.loginPath)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
+    await ctx.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
     const page = await ctx.newPage();
 
     const logged = await login(page, target);

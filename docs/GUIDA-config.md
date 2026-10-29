@@ -217,6 +217,7 @@ Opzioni di `scan(nome, { … })`:
 | Opzione | |
 |---|---|
 | `page` | analizza questa pagina invece di quella del flow |
+| `include` | selettore CSS: axe analizza solo quella parte della vista, come `include` del passo `scan` |
 | `keyboard: false` | salta il percorso col Tab (`keyboardWalk`) per questa vista: serve quando lo script vuole ancora usare lo stato corrente (un menu aperto), che il Tab cambierebbe |
 | `problemi` | verifiche fatte dallo script, aggiunte come violazioni della vista: `[{ "criterio": "2.1.1", "messaggio": "Il menu non si apre con Invio", "selettore": "#menu", "impatto": "serious" }]` (`impatto` predefinito `serious`). Diventano violazioni `gova11y-script-<criterio>` |
 

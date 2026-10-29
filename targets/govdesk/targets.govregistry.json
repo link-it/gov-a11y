@@ -60,7 +60,7 @@
         "sourceHint": "projects/govregistry-app/src/app/features/users",
         "steps": [
           { "click": "lnk-search-bar button[aria-label='Filtri']", "delayMs": 1500, "desc": "apri il pannello dei filtri (non applicarli)" },
-          { "scan": "pannello-filtri" }
+          { "scan": "pannello-filtri", "include": "form.absolute.z-50", "$include": "La tendina dei filtri copre per costruzione le righe della lista (axe: bgOverlap, contrasto non calcolabile). In questo stato si analizza solo la tendina; la lista e' analizzata a riposo nella vista della pagina." }
         ]
       },
       {
@@ -136,6 +136,7 @@
         "sourceHint": "projects/govregistry-app/src/app/features/organizations",
         "steps": [
           { "click": "lnk-item-row button", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo elemento -> /organizations/:id" },
+          { "waitQuietMs": 2000, "timeoutMs": 15000, "desc": "attendi lo stato dell'organizzazione (Operazioni Batch, sysadmin): arriva in modo asincrono e inserisce blocchi prima dei titoli successivi; scansionando prima, axe non ritrova quei titoli (heading-order 'Unable to determine previous heading')" },
           { "scan": "dettaglio-organizzazione" }
         ]
       },

@@ -57,7 +57,7 @@
         "sourceHint": "projects/govaudit-app/src/app/features/outbound",
         "steps": [
           { "click": "lnk-search-bar button[aria-label='Filtri']", "wait": "lnk-organization-select", "delayMs": 1000, "desc": "apri il pannello dei filtri" },
-          { "scan": "pannello-filtri" }
+          { "scan": "pannello-filtri", "include": "form.absolute.z-50", "$include": "La tendina dei filtri copre per costruzione le righe della lista (axe: bgOverlap, contrasto non calcolabile). In questo stato si analizza solo la tendina; la lista e' analizzata a riposo nella vista della pagina." }
         ]
       },
       {
