@@ -115,6 +115,9 @@ if (args.help || args.h) {
                       (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
   --locale <tag>      Lingua del browser (es. it-IT): navigator.language e Accept-Language. Le app che
                       scelgono la lingua dal browser si mostrano come la vedono i loro utenti
+  --login-base <url>  Indirizzo dell'applicazione su cui si fa il login, quando non è quella di --base
+                      (es. le app ospitate da una shell che le autentica): il loginPath relativo si
+                      accoda a questo invece che a --base. Cambia ambiente senza toccare il config
   --product-version <v>  Versione del prodotto in prova (o env A11Y_PRODUCT_VERSION). Dichiarativa:
                       compare nel report e in summary.json, cosi' l'esito e' riferibile a una versione
   --insecure          Ignora errori certificato HTTPS (default true)
@@ -126,8 +129,8 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion,
-  reflow, textSpacing, keyboardWalk, languageParts.
+  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, loginBase,
+  productVersion, reflow, textSpacing, keyboardWalk, languageParts.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -232,6 +235,8 @@ let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefine
    perche' la scheda di Lighthouse vive nel context di default e non eredita quella del target. */
 const LOCALE_GLOBALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, null, 'locale', null);
 let LOCALE = LOCALE_GLOBALE;
+const CLI_LOGIN_BASE = typeof args['login-base'] === 'string' ? args['login-base'] : undefined;
+let LOGIN_BASE = resolveParam(CLI_LOGIN_BASE, null, 'loginBase', null);
 /* '--no-lighthouse' vince su 'minScore': senza questa precedenza la sola presenza della soglia nel
    config riaccenderebbe l'audit, e una scansione rapida in CI durerebbe quanto una completa. */
 let DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, null, 'lighthouse', false) || MIN_SCORE !== null);
@@ -261,6 +266,7 @@ function applyTargetParams(target) {
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
   LOCALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, target, 'locale', null);
+  LOGIN_BASE = resolveParam(CLI_LOGIN_BASE, target, 'loginBase', null);
   DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null);
   /* Controllo dei comandi utilizzabili col solo mouse: attivo salvo diversa indicazione.
      Le eccezioni sono un fatto dell'APPLICAZIONE, non dello strumento: si dichiarano nel
@@ -554,14 +560,21 @@ function credsFor(target) {
    ognuna sulla sua porta e autenticate dalla sessione di GovHub (localhost:5200). I cookie
    dipendono dall'host e non dalla porta, quindi la sessione aperta sull'origine del login vale
    anche per le pagine scansionate su --base. In quel caso contextPath e pagina di partenza del
-   crawl, che il login relativo forniva per difetto, ricadono sulla radice di --base. */
+   crawl, che il login relativo forniva per difetto, ricadono sulla radice di --base.
+   Lo stesso si ottiene con un loginPath relativo e 'loginBase' (CLI --login-base): l'indirizzo
+   dell'applicazione di login sta fuori dal percorso, e lo stesso config vale in sviluppo e in
+   collaudo cambiando solo l'opzione. Si accoda come --base, senza risolvere l'URL, così può
+   contenere anche un percorso (https://host/govhub). Un loginPath assoluto resta com'è. */
 const isAbsUrl = p => typeof p === 'string' && /^https?:\/\//i.test(p);
 const absUrl = p => (isAbsUrl(p) ? p : BASE + (p || ''));
-const defaultCtxPath = target => target.contextPath || (isAbsUrl(target.loginPath) ? '/' : target.loginPath) || '/';
+const loginAltrove = (target, loginBase = LOGIN_BASE) => isAbsUrl(target.loginPath) || !!loginBase;
+const loginUrl = (target, loginBase = LOGIN_BASE) =>
+  (!isAbsUrl(target.loginPath) && loginBase ? String(loginBase).replace(/\/+$/, '') + (target.loginPath || '') : absUrl(target.loginPath));
+const defaultCtxPath = (target, loginBase = LOGIN_BASE) => target.contextPath || (loginAltrove(target, loginBase) ? '/' : target.loginPath) || '/';
 
 async function login(page, target) {
   if (!target.login) return true;   // target senza form: auth via header/SSO
-  const url = absUrl(target.loginPath);
+  const url = loginUrl(target);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   const l = target.login;
   const { user, pass } = credsFor(target);
@@ -1951,7 +1964,7 @@ async function runFlows(browser, target, pageResults) {
           const menus = Array.isArray(raw) ? raw
             : (typeof raw === 'string' ? [{ item: raw }]
               : [{ item: raw.menuItem || raw.item || '#menuct a.voceMenuRC', open: raw.open, listRow: raw.listRow, skip: raw.skip }]);
-          const start = flow.start ? BASE + flow.start : absUrl(target.loginPath);
+          const start = flow.start ? BASE + flow.start : loginUrl(target);
           const to = step.timeoutMs || 8000;
           for (const m of menus) {
             const menuSel = m.item || m.menuItem || '#menuct a.voceMenuRC';
@@ -2132,6 +2145,10 @@ async function runFlows(browser, target, pageResults) {
 async function scan() {
   const targets = loadTargets();
   if (!targets.length) { console.error('Nessun target abilitato.'); process.exit(2); }
+  for (const t of targets) {
+    const lb = resolveParam(CLI_LOGIN_BASE, t, 'loginBase', null);
+    if (lb && !isAbsUrl(lb)) { console.error(`loginBase del target ${t.key} non è un URL http(s): ${lb}`); process.exit(2); }
+  }
 
   // Lighthouse può essere abilitato per-target: la porta di debug serve se ANCHE UN SOLO target lo usa.
   // '--no-lighthouse' vince anche qui: senza questa precedenza la sola soglia nel config lo terrebbe
@@ -2151,7 +2168,7 @@ async function scan() {
 
   for (const target of targets) {
     applyTargetParams(target);   // risolve tags/crawl/lighthouse/screen-reader/... per QUESTO target
-    console.log(`\n== ${target.name} (${absUrl(target.loginPath)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
+    console.log(`\n== ${target.name} (${loginUrl(target)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
     await ctx.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
@@ -2171,7 +2188,7 @@ async function scan() {
     const ctxPath = defaultCtxPath(target);
     const configPages = (target.pages || []).map(p => ({ path: p.path, name: p.name, depth: 0 }));
     const queue = [...configPages];
-    if (CRAWL > 0 && queue.length === 0) queue.push({ path: isAbsUrl(target.loginPath) ? '/' : target.loginPath, name: 'landing', depth: 0 });
+    if (CRAWL > 0 && queue.length === 0) queue.push({ path: loginAltrove(target) ? '/' : target.loginPath, name: 'landing', depth: 0 });
     const visited = new Set();
     const scannedFinal = new Set();   // dedup per URL EFFETTIVO (dopo redirect)
     let crawlCount = 0;
@@ -2760,7 +2777,7 @@ function evaluateGate(results, summary) {
 export {
   analyzeAxTree, analyzeMouseOnly, INIT_SOLO_MOUSE, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
   // pure / helper
-  parseArgs, resolveParam, credsFor, loadTargets, isAbsUrl, absUrl, defaultCtxPath, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
+  parseArgs, resolveParam, credsFor, loadTargets, isAbsUrl, absUrl, loginUrl, loginAltrove, defaultCtxPath, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
   // browser

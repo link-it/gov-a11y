@@ -219,6 +219,12 @@ writeFileSync(CFG, JSON.stringify({
     pages: [{ name: 'protetta', path: '/app2/protetta' }, { name: 'lingua', path: '/app2/lingua' }],
     flows: [{ name: 'lingua', start: '/app2/lingua', steps: [{ scan: 'lingua' }] }],
   },
+  // come app2, ma con loginPath relativo e l'applicazione di login in 'loginBase'
+  app4: {
+    name: 'MockApp4', enabled: true, loginPath: '/login', loginBase: AUTH,
+    login: { usernameSelector: "input[name='u']", passwordSelector: "input[name='p']", submitSelector: "button[type='submit']", successUrlIncludes: 'benvenuto' },
+    pages: [{ name: 'protetta-base', path: '/app2/protetta' }],
+  },
 }, null, 2));
 
 /* ------------------------- run scan() ------------------------- */
@@ -324,6 +330,9 @@ console.log("— loginPath assoluto (login su un'altra origine)");
 const protetta = results.find(r => r.target === 'app2' && r.url === `${BASE}/app2/protetta`);
 check(!!protetta, 'pagina del target scansionata su --base dopo il login altrove');
 check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'sessione aperta sull\'origine del login valida anche su --base (cookie condiviso)');
+console.log('— loginBase (loginPath relativo, login su un\'altra applicazione)');
+const protetta4 = results.find(r => r.target === 'app4' && r.url === `${BASE}/app2/protetta`);
+check(!!protetta4 && /Area riservata/.test(protetta4.ariaSnapshot || ''), 'login su loginBase + loginPath, pagine su --base autenticate');
 console.log('— postMessage (contesto inviato dalla shell che ospita l\'app)');
 const ospitata = results.find(r => r.name === 'flow:ospitata/con-organizzazione');
 check(!!ospitata && /Organizzazione 44/.test(ospitata.ariaSnapshot || ''), "postMessage: l'app riceve il messaggio e mostra il contesto");
