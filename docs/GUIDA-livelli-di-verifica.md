@@ -49,6 +49,14 @@ di un flusso.
   falsi positivi si possono registrare, con la prova che le giustifica, così che "da verificare"
   continui a significare *ancora da verificare*: vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md).
 
+**Contrasti fuori vista**: axe misura il contrasto su quel che è a schermo, e un testo sotto il bordo
+di un contenitore che scorre (lo stato vuoto in fondo a una colonna, "scorri per caricare altri
+risultati"), o coperto in parte da una barra fissa come il campo di scrittura di una chat, esce come
+`incomplete` (`elmPartiallyObscured`). Per questi casi lo strumento porta l'elemento al centro della vista, rimisura il solo `color-contrast` e rimette lo scorrimento com'era:
+l'occorrenza diventa un passato o una violazione, e resta da verificare solo se è coperta anche in vista.
+Durante la rimisura gli scroll infiniti sono in pausa (callback degli `IntersectionObserver` ed eventi
+`scroll`, fermati in cattura prima dei gestori della pagina), così la lista non carica altre righe. Gira per ultima sulla vista, dopo gli altri controlli.
+
 **Gate**: `--fail-on <gravità>` (default `serious`) fa fallire la run se esistono violazioni di
 gravità pari o superiore. È il gate principale, quello adatto a bloccare una pipeline.
 
@@ -114,6 +122,32 @@ il cap è stato raggiunto: su quella vista la sequenza è **troncata** e va cons
 
 **Costo**: significativo ma lineare — potatura, serializzazione e cammino su ogni vista. Su
 centinaia di viste è il secondo costo dopo Lighthouse.
+
+---
+
+## Controlli di presentazione e tastiera (`reflow`, `textSpacing`, `keyboardWalk`, `languageParts`)
+
+Criteri che axe non verifica perché richiedono di **cambiare lo stato della pagina**: la
+larghezza della finestra, la spaziatura del testo, il focus.
+
+| Controllo | Criterio | Come |
+|---|---|---|
+| `reflow` | 1.4.10 Reflow | finestra a 320px: il documento non deve essere più largo; segnala gli elementi che sbordano |
+| `textSpacing` | 1.4.12 Text Spacing | spaziature aumentate via CSS: nessun elemento con `overflow: hidden` o ellissi deve tagliare il testo |
+| `keyboardWalk` | 2.4.7, 2.4.11, 2.1.2 | tasto Tab dall'inizio della vista: indicatore del focus (outline o box-shadow), focus coperto, focus bloccato; registra l'ordine di focus |
+| `languageParts` | 3.1.2 Language of Parts | espressioni dichiarate dal target, per lingua: testo in una lingua dentro una parte di pagina dichiarata in un'altra |
+
+**Cosa aspettarsi**: difetti di CSS e di markup che axe non vede (un `outline: none` senza
+alternativa, un contenitore a larghezza fissa, un testo fisso non tradotto). Le violazioni hanno
+id `gova11y-…` e il tag del criterio WCAG, e contano per il gate come quelle di axe.
+
+**Limiti**: euristiche. Un indicatore del focus fatto con un bordo o un colore di sfondo non
+viene riconosciuto (falso positivo su `keyboardWalk`); `languageParts` trova solo i testi che il
+target dichiara. Il riflusso è verificato solo sullo stato analizzato di ogni vista, non a ogni
+livello di zoom.
+
+**Costo**: `reflow` e `textSpacing` meno di un secondo per vista; `keyboardWalk` fino a ~6 s
+per vista (45 fermate). Spenti di default.
 
 ---
 

@@ -92,7 +92,7 @@ console:
       sourceHint: "tools/.../soggetti.jsp"   # opzionale
       steps:
         # tipi di step disponibili:
-        - { goto: "/path" }                                    # naviga a URL
+        - { goto: "/path" }                                    # naviga a URL (path su --base, o URL assoluto http(s)://)
         - { click: "#sel" }                                    # click (supporta :has(), :text-is())
         - { clickText: "Testo", exact: true }                  # click per testo
         - { fill: { selector: "#campo", value: "x" } }         # compila campo
@@ -101,6 +101,13 @@ console:
         - { fill: { label: "Numero protocollo", env: "A11Y_APP_PROT" } }  # campo per etichetta (id generati)
         - { postMessage: { type: "GOVAPP", payload: { action: "ORGANIZATION", data: { id: 44 } } } }
                                                                # messaggio alla finestra, come dalla shell ospite (app in iframe)
+        - { focus: "#menu" }                                   # porta il focus sull'elemento
+        - { press: "Enter" }                                   # preme un tasto (Enter, Escape, Tab, ...)
+        - { clearCookies: true }                               # cancella i cookie del flow
+        - { back: true }                                       # pagina precedente
+        - { reload: true }                                     # ricarica
+        - { script: "passi.mjs#funzione", args: { x: 1 } }     # funzione JS accanto al config (solo flow):
+                                                               #   riceve { page, args, base, target, browser, scan, newPage, runStep }
         - { wait: "networkidle" }                              # attesa load-state o selettore
         - { waitQuietMs: 1000 }                                # attende che il DOM smetta di cambiare per 1 s
         - { scan: "etichetta" }                                # scansiona lo stato corrente

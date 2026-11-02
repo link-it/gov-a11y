@@ -1,0 +1,721 @@
+{
+  "$app": "Tema Keycloak (completo)",
+  "$comment": "Temi di login Keycloak GovDesk (repo govdesk-kc-theme). Keycloak 26 in modalita' dev con la cartella dei temi montata; realm 'a11y-test' / 'a11y-idp' creati da a11y/setup.py del repo dei temi con il tema in prova. L'ambiente (Keycloak, Mailpit, realm) lo prepara il repo dei temi (a11y/container.sh <tema>): questo target scansiona soltanto. Vedi README.md in questa cartella.",
+  "$auth": "Nessun login a livello di target: le pagine di Keycloak sono pubbliche e ogni scenario e' un flow, con la sua sessione pulita. Utenti, client e password li crea setup.py del repo dei temi; la password arriva da A11Y_KC_PASS, mai scritta qui.",
+  "$redirect": "redirect_uri punta a http://127.0.0.1:8090 (porta predefinita dell'ambiente di prova). Conta solo dopo un login riuscito, quando nessuna vista viene piu' analizzata: con un'altra porta non cambia l'esito.",
+  "$scope": "Temi completi (govdesk, govdesk-noviservice): tutte le pagine raggiungibili del tema login e i template email. Le pagine non coperte e il perche' sono nel README.md.",
+  "defaults": {
+    "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
+    "locale": "it-IT",
+    "reflow": true,
+    "textSpacing": true,
+    "keyboardWalk": true,
+    "$languageParts": "3.1.2: testi italiani fissi del tema (devono stare dentro lang=\"it\" nelle pagine in inglese) e parole inglesi frequenti (traduzioni mancanti nelle pagine in italiano). Stesse espressioni del test locale del repo dei temi (a11y/run.js).",
+    "languageParts": {
+      "it": [
+        "Accedendo accetti",
+        "Entra con SPID",
+        "Sede legale",
+        "Maggiori informazioni",
+        "Non hai SPID",
+        "Serve aiuto",
+        "SPID è il sistema",
+        "Clicca qui",
+        "Entra con CIE"
+      ],
+      "en": [
+        "\\b(the|your|you|please|update|submit|sign in|cancel|confirm|delete|continue|information|required|enter|choose|select|another|back to|log ?out|device|unable|scan|register)\\b"
+      ]
+    }
+  },
+  "keycloak": {
+    "name": "keycloak",
+    "enabled": true,
+    "loginPath": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+    "contextPath": "/realms/a11y-test/",
+    "sourceHint": "login/login.ftl",
+    "pages": [
+      {
+        "name": "login-en",
+        "path": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration&ui_locales=en"
+      },
+      {
+        "name": "device-user-code",
+        "path": "/realms/a11y-test/device"
+      },
+      {
+        "name": "error",
+        "path": "/realms/a11y-test/protocol/openid-connect/auth?client_id=inesistente&response_type=code&redirect_uri=x"
+      }
+    ],
+    "flows": [
+      {
+        "name": "login",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login.ftl",
+        "$note": "Pagina di login con i provider SPID iniettati e le verifiche da tastiera dei menu lingua e SPID (keycloak.steps.mjs#paginaLogin).",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#paginaLogin"
+          }
+        ]
+      },
+      {
+        "name": "login-errore",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "skipIfMissing": "#username",
+        "skipIfMissingTimeoutMs": 3000,
+        "$note": "Saltato nelle varianti senza form username/password (solo IdP).",
+        "steps": [
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "x"
+            }
+          },
+          {
+            "fill": {
+              "selector": "#password",
+              "value": "y"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "errore"
+          }
+        ]
+      },
+      {
+        "name": "register",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/register.ftl",
+        "steps": [
+          {
+            "click": "a[href*=\"registration\"]",
+            "wait": "load"
+          },
+          {
+            "scan": "form"
+          },
+          {
+            "click": "#kc-register-form input[type=submit], #kc-register-form button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "errori"
+          }
+        ]
+      },
+      {
+        "name": "reset-password",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-reset-password.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#svuotaPosta"
+          },
+          {
+            "click": "a[href*=\"reset-credentials\"]",
+            "wait": "load"
+          },
+          {
+            "scan": "form"
+          },
+          {
+            "click": "input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "errore"
+          },
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "plain"
+            }
+          },
+          {
+            "click": "input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "inviata"
+          },
+          {
+            "script": "keycloak.steps.mjs#email",
+            "args": {
+              "destinatario": "plain@a11y.local",
+              "email": "email-reset-password",
+              "link": "reset-da-link-email"
+            }
+          }
+        ]
+      },
+      {
+        "name": "update-password",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-update-password.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-updpwd"
+            }
+          },
+          {
+            "scan": "form"
+          },
+          {
+            "fill": {
+              "selector": "#password-new",
+              "value": "abc"
+            }
+          },
+          {
+            "fill": {
+              "selector": "#password-confirm",
+              "value": "abd"
+            },
+            "delayMs": 300
+          },
+          {
+            "scan": "policy-mismatch",
+            "keyboard": false
+          }
+        ]
+      },
+      {
+        "name": "totp",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-config-totp.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-totp"
+            }
+          },
+          {
+            "scan": "config-totp"
+          },
+          {
+            "fill": {
+              "selector": "#totp",
+              "value": "000000"
+            }
+          },
+          {
+            "click": "#saveTOTPBtn, input[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "config-totp-errore"
+          },
+          {
+            "click": "#mode-manual",
+            "wait": "load"
+          },
+          {
+            "scan": "config-totp-manuale"
+          },
+          {
+            "script": "keycloak.steps.mjs#totp"
+          },
+          {
+            "script": "keycloak.steps.mjs#loginOtp",
+            "args": {
+              "user": "u-totp"
+            }
+          }
+        ]
+      },
+      {
+        "name": "update-profile",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-update-profile.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-profile"
+            }
+          },
+          {
+            "scan": "form"
+          },
+          {
+            "click": "input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "errori"
+          }
+        ]
+      },
+      {
+        "name": "verify-email",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-verify-email.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#svuotaPosta"
+          },
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-verify"
+            }
+          },
+          {
+            "scan": "pagina"
+          },
+          {
+            "script": "keycloak.steps.mjs#email",
+            "args": {
+              "destinatario": "u-verify@a11y.local",
+              "email": "email-verify-email"
+            }
+          }
+        ]
+      },
+      {
+        "name": "terms",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/terms.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-terms"
+            }
+          },
+          {
+            "scan": "pagina"
+          }
+        ]
+      },
+      {
+        "name": "update-email",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/update-email.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-email"
+            }
+          },
+          {
+            "scan": "pagina"
+          }
+        ]
+      },
+      {
+        "name": "recovery-codes-config",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-recovery-authn-code-config.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-recovery"
+            }
+          },
+          {
+            "scan": "pagina"
+          }
+        ]
+      },
+      {
+        "name": "delete-account-confirm",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/delete-account-confirm.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-delete"
+            }
+          },
+          {
+            "scan": "pagina"
+          }
+        ]
+      },
+      {
+        "name": "webauthn",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/webauthn-register.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#autenticatoreVirtuale"
+          },
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-webauthn"
+            }
+          },
+          {
+            "scan": "webauthn-register"
+          },
+          {
+            "script": "keycloak.steps.mjs#webauthnCompleto",
+            "args": {
+              "user": "u-webauthn"
+            }
+          }
+        ]
+      },
+      {
+        "name": "webauthn-passwordless",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/webauthn-register.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#autenticatoreVirtuale"
+          },
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-passkey"
+            }
+          },
+          {
+            "scan": "webauthn-register-passwordless"
+          }
+        ]
+      },
+      {
+        "name": "username-password",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-uf&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-username.ftl",
+        "steps": [
+          {
+            "scan": "login-username"
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "login-username-errore"
+          },
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "plain"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "login-password"
+          },
+          {
+            "fill": {
+              "selector": "#password",
+              "value": "sbagliata"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "login-password-errore"
+          }
+        ]
+      },
+      {
+        "name": "select-authenticator",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-sel&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/select-authenticator.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#configuraTotp",
+            "args": {
+              "user": "u-sel",
+              "client": "a11y-sel"
+            }
+          },
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "u-sel"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "login-con-prova-altro-metodo"
+          },
+          {
+            "click": "#try-another-way",
+            "wait": "load"
+          },
+          {
+            "scan": "select-authenticator"
+          }
+        ]
+      },
+      {
+        "name": "recovery-code-input",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-rc&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-recovery-authn-code-input.ftl",
+        "$note": "Dopo il flow recovery-codes-config: l'utente u-recovery conferma qui i codici (in una sessione separata) e poi il client a11y-rc ne chiede uno.",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#confermaCodiciRecupero",
+            "args": {
+              "user": "u-recovery"
+            }
+          },
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "u-recovery"
+            }
+          },
+          {
+            "scan": "pagina"
+          },
+          {
+            "fill": {
+              "selector": "#recoveryCodeInput",
+              "value": "000000000000"
+            },
+            "optional": true
+          },
+          {
+            "click": "#kc-login, input[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "errore"
+          }
+        ]
+      },
+      {
+        "name": "consenso",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-consent&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-oauth-grant.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "plain"
+            }
+          },
+          {
+            "scan": "oauth-grant"
+          }
+        ]
+      },
+      {
+        "name": "device",
+        "start": "/realms/a11y-test/device",
+        "lighthouse": false,
+        "sourceHint": "login/login-oauth2-device-verify-user-code.ftl",
+        "steps": [
+          {
+            "fill": {
+              "selector": "#device-user-code",
+              "value": "XXXX-YYYY"
+            }
+          },
+          {
+            "click": "input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "errore"
+          }
+        ]
+      },
+      {
+        "name": "logout",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/logout-confirm.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "plain"
+            }
+          },
+          {
+            "goto": "/realms/a11y-test/protocol/openid-connect/logout"
+          },
+          {
+            "scan": "conferma"
+          },
+          {
+            "click": "#kc-logout, input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "fatto"
+          }
+        ]
+      },
+      {
+        "name": "frontchannel-logout",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-fc&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/frontchannel-logout.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#accedi",
+            "args": {
+              "user": "plain"
+            }
+          },
+          {
+            "goto": "/realms/a11y-test/protocol/openid-connect/logout"
+          },
+          {
+            "click": "#kc-logout, input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "pagina"
+          }
+        ]
+      },
+      {
+        "name": "sessione-scaduta",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/error.ftl",
+        "$note": "Cookie di sessione persi dopo un invio: Keycloak mostra la pagina di sessione scaduta o di cookie mancanti.",
+        "steps": [
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "x"
+            }
+          },
+          {
+            "fill": {
+              "selector": "#password",
+              "value": "y"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "clearCookies": true
+          },
+          {
+            "back": true
+          },
+          {
+            "reload": true,
+            "wait": "load"
+          },
+          {
+            "scan": "pagina"
+          }
+        ]
+      },
+      {
+        "name": "azioni-richieste",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "email/html/executeActions.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#azioniRichieste",
+            "args": {
+              "user": "plain"
+            }
+          }
+        ]
+      },
+      {
+        "name": "broker-review-profile",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration&kc_idp_hint=a11y-idp",
+        "lighthouse": false,
+        "sourceHint": "login/idp-review-user-profile.ftl",
+        "steps": [
+          {
+            "fill": {
+              "selector": "#username",
+              "value": "nolast"
+            }
+          },
+          {
+            "fill": {
+              "selector": "#password",
+              "env": "A11Y_KC_PASS"
+            }
+          },
+          {
+            "click": "#kc-login",
+            "wait": "load"
+          },
+          {
+            "scan": "idp-review-user-profile"
+          },
+          {
+            "fill": {
+              "selector": "#email",
+              "value": ""
+            },
+            "optional": true
+          },
+          {
+            "click": "input[type=submit], button[type=submit]",
+            "wait": "load"
+          },
+          {
+            "scan": "errori"
+          }
+        ]
+      },
+      {
+        "name": "broker-collegamento",
+        "start": "/realms/a11y-test/protocol/openid-connect/auth?client_id=a11y-app&response_type=code&scope=openid&redirect_uri=http%3A%2F%2F127.0.0.1%3A8090%2Frealms%2Fa11y-test%2F.well-known%2Fopenid-configuration",
+        "lighthouse": false,
+        "sourceHint": "login/login-idp-link-confirm.ftl",
+        "steps": [
+          {
+            "script": "keycloak.steps.mjs#collegamentoAccount",
+            "args": {
+              "user": "dup"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -33,6 +33,8 @@
 
     "navWait": "domcontentloaded",
     "navDelayMs": 5000,
+    "$mouseOnlyIgnore": "Area 'Cerca...' di lnk-search-bar: apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (WCAG 2.1.1 soddisfatto da un comando equivalente).",
+    "mouseOnlyIgnore": "lnk-search-bar > div[tabindex='-1']",
 
     "$pages": "Con STANDALONE: false la rotta / (dashboard) reindirizza alla prima funzione consentita dai ruoli (rootRedirectGuard), cioe' /examiner: per questo non e' elencata (verrebbe deduplicata).",
     "pages": [
@@ -51,7 +53,7 @@
         "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
         "steps": [
           { "click": "#lnk-app-forms-fields-organization", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
-          { "scan": "tendina-organizzazione" }
+          { "scan": "tendina-organizzazione", "include": "ng-dropdown-panel" }
         ]
       },
       {

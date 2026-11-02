@@ -144,19 +144,7 @@
         "$note": "Tendina delle organizzazioni aperta (ng-select): analizza la listbox e le opzioni, che a tendina chiusa non sono nel DOM.",
         "steps": [
           { "click": "#lnk-app-forms-fields-organization", "wait": "[role=option]", "delayMs": 1000, "desc": "apri la tendina Organizzazione" },
-          { "scan": "tendina-organizzazione" }
-        ]
-      },
-      {
-        "name": "ricerca-cf",
-        "start": "/consultation",
-        "lighthouse": false,
-        "skipIfMissing": "lnk-form-fiscal-code button",
-        "sourceHint": "projects/govdurc-app/src/app/core/ui/form/fiscal-code-search",
-        "$note": "Dialog 'ricerca del codice fiscale' (lente accanto al campo CF): calcola il CF dai dati anagrafici. Si apre e si analizza, senza compilarlo.",
-        "steps": [
-          { "click": "lnk-form-fiscal-code button", "wait": "mat-dialog-container", "delayMs": 1500, "desc": "apri il dialog di ricerca del CF" },
-          { "scan": "dialog-ricerca-cf" }
+          { "scan": "tendina-organizzazione", "include": "ng-dropdown-panel" }
         ]
       },
       {

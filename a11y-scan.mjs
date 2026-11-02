@@ -44,7 +44,7 @@
 import { chromium } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync } from 'node:fs';
-import { dirname, resolve, isAbsolute, join, basename } from 'node:path';
+import { dirname, resolve, isAbsolute, join, basename, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 
@@ -108,6 +108,11 @@ if (args.help || args.h) {
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
   --no-mouse-only     Disabilita il controllo dei comandi utilizzabili col solo mouse
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
+  --reflow            Controllo 1.4.10: la vista a 320px di larghezza non deve scorrere in orizzontale
+  --text-spacing      Controllo 1.4.12: con la spaziatura del testo aumentata nessun testo viene tagliato
+  --keyboard-walk     Controlli 2.4.7 / 2.4.11 / 2.1.2: percorre la vista col tasto Tab (focus visibile,
+                      focus non coperto, nessuna trappola) e registra l'ordine di focus
+                      (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
   --locale <tag>      Lingua del browser (es. it-IT): navigator.language e Accept-Language. Le app che
                       scelgono la lingua dal browser si mostrano come la vedono i loro utenti
   --product-version <v>  Versione del prodotto in prova (o env A11Y_PRODUCT_VERSION). Dichiarativa:
@@ -121,7 +126,8 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion.
+  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion,
+  reflow, textSpacing, keyboardWalk, languageParts.
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -210,6 +216,14 @@ const PRODUCT_VERSION = (() => {
   return v ? String(v).trim() : null;
 })();
 let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
+/* Controlli di presentazione e tastiera che axe non fa: riflusso a 320px (1.4.10), spaziatura del
+   testo (1.4.12), percorso col tasto Tab (2.4.7, 2.4.11, 2.1.2) e lingua delle parti (3.1.2).
+   Predefiniti SPENTI: cambiano gli esiti delle applicazioni gia' in scansione e il loro costo
+   (il percorso col Tab soprattutto) va scelto per target. */
+const cliOnOff = k => (args[`no-${k}`] ? false : (args[k] ? true : undefined));
+const CLI_REFLOW = cliOnOff('reflow'), CLI_TEXT_SPACING = cliOnOff('text-spacing'), CLI_KEYBOARD = cliOnOff('keyboard-walk');
+let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, LANGUAGE_PARTS = null;
+const CONTROLLI_USATI = new Set();   // per la copertura dichiarata nel report (aggregato su tutti i target)
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
 /* Lingua del browser. Molte SPA scelgono la lingua dell'interfaccia da navigator.language, e il
@@ -236,6 +250,14 @@ function applyTargetParams(target) {
   TAGS = String(resolveParam(args.tags, target, 'tags', TAG_PREDEFINITI)).split(',').map(s => s.trim());
   TAGS.forEach(t => TAG_USATI.add(t));
   DO_SR = !!resolveParam(CLI_SR, target, 'screenReader', false);
+  DO_REFLOW = !!resolveParam(CLI_REFLOW, target, 'reflow', false);
+  DO_TEXT_SPACING = !!resolveParam(CLI_TEXT_SPACING, target, 'textSpacing', false);
+  DO_KEYBOARD = !!resolveParam(CLI_KEYBOARD, target, 'keyboardWalk', false);
+  LANGUAGE_PARTS = resolveParam(undefined, target, 'languageParts', null) || null;
+  if (DO_REFLOW) CONTROLLI_USATI.add('reflow');
+  if (DO_TEXT_SPACING) CONTROLLI_USATI.add('textSpacing');
+  if (DO_KEYBOARD) CONTROLLI_USATI.add('keyboardWalk');
+  if (LANGUAGE_PARTS) CONTROLLI_USATI.add('languageParts');
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
   LOCALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, target, 'locale', null);
@@ -816,6 +838,103 @@ const INIT_SOLO_MOUSE = `(() => {
   };
 })()`;
 
+/* Contrasti fuori vista. axe misura il contrasto su quel che e' a schermo: un testo che sta sotto il
+   bordo di un contenitore che scorre (lo stato vuoto in fondo alla colonna, "Scorri per caricare
+   altri risultati" in coda a una lista) o coperto in parte da una barra fissa esce come 'incomplete'
+   con elmPartiallyObscured. Non e' un'incertezza sul colore ma sulla geometria: l'elemento si porta
+   al centro della vista, si rimisura il solo 'color-contrast' su di lui e lo scorrimento torna com'era. Cosi' axe
+   decide davvero: passato, violazione, o ancora da verificare se resta coperto anche in vista.
+   Va in fondo all'analisi della vista: scorrere puo' far caricare altro (scroll infinito), e gli
+   altri controlli devono aver gia' fotografato la vista a riposo. */
+const FUORI_VISTA = new Set(['elmPartiallyObscured', 'elmPartiallyObscuring']);
+
+/* Pausa degli scroll infiniti durante la rimisura: il testo in coda alla lista ("Scorri per
+   caricare altri risultati") e' proprio dove lo scroll infinito carica, e portarlo in vista farebbe
+   arrivare altre righe, che lo spingono di nuovo fuori (o lo sostituiscono con l'attesa). Con
+   window.__gwPausaIO si scartano le due cose a cui reagiscono le librerie: i callback degli
+   IntersectionObserver e gli eventi 'scroll' (ngx-infinite-scroll), fermati in cattura sulla
+   finestra prima di ogni altro gestore. Tolta la pausa la vista e' di nuovo quella di prima, e
+   non carica niente. Installato prima degli script di pagina, come INIT_SOLO_MOUSE. */
+const INIT_PAUSA_IO = `(() => {
+  addEventListener('scroll', e => { if (window.__gwPausaIO) e.stopImmediatePropagation(); }, true);
+  const Originale = window.IntersectionObserver;
+  if (!Originale) return;
+  window.IntersectionObserver = class extends Originale {
+    constructor(callback, opzioni) {
+      super((voci, osservatore) => { if (!window.__gwPausaIO) callback(voci, osservatore); }, opzioni);
+    }
+  };
+})();`;
+
+async function rimisuraContrastiFuoriVista(page, incomplete, violations) {
+  const regola = (incomplete || []).find(r => r.id === 'color-contrast');
+  if (!regola) return { incomplete, violations, rimisurati: 0 };
+
+  const candidati = regola.nodes.filter(n => n.target.length === 1 && (n.any || []).some(c => FUORI_VISTA.has(c.data?.messageKey)));
+  if (!candidati.length) return { incomplete, violations, rimisurati: 0 };
+
+  const restano = new Set(regola.nodes);
+  const nuoveViolazioni = [];
+  let rimisurati = 0;
+
+  for (const nodo of candidati) {
+    // Il selettore di axe e' corto ("p") e vale per il DOM di quell'analisi: l'elemento si
+    // ritrova fra quelli che corrispondono confrontando l'HTML registrato da axe, e si marca.
+    // Anche un elemento in vista ma coperto in parte da una barra fissa (il campo di scrittura in
+    // fondo a una chat) si porta al centro: scorrendo esce da sotto la barra. Se resta coperto
+    // anche li' (un velo modale), axe lo lascia da verificare, e l'incertezza e' reale.
+    const scorrimenti = await page.evaluate(([sel, html]) => {
+      const inizio = html.slice(0, 120);
+      const el = Array.from(document.querySelectorAll(sel)).find(e => e.outerHTML.slice(0, 120) === inizio);
+      if (!el) return null;
+      const salvati = [];
+      for (let a = el.parentElement; a; a = a.parentElement) if (a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth) salvati.push([a, a.scrollTop, a.scrollLeft]);
+      window.__gwScorrimenti = { salvati, x: scrollX, y: scrollY, el };
+      window.__gwPausaIO = true;
+      el.setAttribute('data-gw-rimisura', '');
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      return true;
+    }, [nodo.target[0], nodo.html || '']).catch(() => null);
+    if (!scorrimenti) continue;
+
+    try {
+      // Solo l'elemento marcato (e il suo testo): passato se axe non ha piu' dubbi ne' violazioni
+      const esito = await new AxeBuilder({ page }).withRules(['color-contrast']).include('[data-gw-rimisura]').analyze();
+      const nodi = r => r.flatMap(x => x.nodes || []);
+      const violati = nodi(esito.violations);
+      const passato = !violati.length && !nodi(esito.incomplete).length && nodi(esito.passes).length > 0;
+      if (passato || violati.length) {
+        restano.delete(nodo);
+        rimisurati++;
+        if (violati.length) nuoveViolazioni.push({ ...esito.violations[0], nodes: violati });
+      }
+    } finally {
+      await page.evaluate(() => {
+        const s = window.__gwScorrimenti;
+        if (!s) return;
+        s.el.removeAttribute('data-gw-rimisura');
+        for (const [a, top, left] of s.salvati) { a.scrollTop = top; a.scrollLeft = left; }
+        scrollTo(s.x, s.y);
+        delete window.__gwScorrimenti;
+        // La pausa resta finche' l'osservatore non ha consegnato le notifiche dello scorrimento
+        return new Promise(fine => requestAnimationFrame(() => requestAnimationFrame(() => { window.__gwPausaIO = false; fine(); })));
+      }).catch(() => {});
+    }
+  }
+
+  const altre = incomplete.filter(r => r !== regola);
+  const nodi = regola.nodes.filter(n => restano.has(n));
+  const regolaViolata = violations.find(v => v.id === 'color-contrast');
+  const piuViolazioni = nuoveViolazioni.flatMap(v => v.nodes);
+  let violazioni = violations;
+  if (piuViolazioni.length) {
+    violazioni = regolaViolata
+      ? violations.map(v => (v === regolaViolata ? { ...v, nodes: [...v.nodes, ...piuViolazioni] } : v))
+      : [...violations, { ...nuoveViolazioni[0], nodes: piuViolazioni }];
+  }
+  return { incomplete: nodi.length ? [...altre, { ...regola, nodes: nodi }] : altre, violations: violazioni, rimisurati, violati: piuViolazioni.length };
+}
+
 async function analyzeMouseOnly(page, opzioni) {
   const { ignora = null, massimo = 40 } = opzioni || {};
   try {
@@ -834,6 +953,23 @@ async function analyzeMouseOnly(page, opzioni) {
         role: e.getAttribute('role') || null,
         testo: (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || null,
       });
+      /* Popup delle combobox ARIA 1.2 (ng-select, mat-autocomplete...): il fuoco resta sulla
+         combobox e le opzioni si scelgono con le frecce (aria-activedescendant), quindi le opzioni
+         e il pannello che le contiene hanno un gestore del clic ma non devono essere focalizzabili. */
+      const popupCombobox = [];
+      document.querySelectorAll('[role="combobox"][aria-controls], [role="combobox"][aria-owns]').forEach((c) => {
+        `${c.getAttribute('aria-controls') || ''} ${c.getAttribute('aria-owns') || ''}`.split(/\s+/)
+          .filter(Boolean).forEach((id) => { const p = document.getElementById(id); if (p) popupCombobox.push(p); });
+      });
+      const inPopupCombobox = (e) => popupCombobox.some((p) => p.contains(e) || e.contains(p));
+      /* Sfondo di un dialog aperto (cdk-overlay-backdrop, MUI Backdrop...): elemento senza ruolo
+         ne' testo che chiude il dialog al clic; da tastiera la stessa azione e' Esc (verifica
+         manuale, come per tutti i widget compositi). Non solo aria-modal: Angular Material 17+
+         non lo imposta e rende inerte il resto della pagina con aria-hidden. */
+      const dialogModali = Array.from(document.querySelectorAll(
+        '[aria-modal="true"], [role="dialog"], [role="alertdialog"], dialog[open]')).filter(visibile);
+      const sfondoDialog = (e) => dialogModali.length > 0 && !e.getAttribute('role')
+        && !(e.textContent || '').trim() && !dialogModali.some((d) => d.contains(e) || e.contains(d));
       const candidati = [];
       const esamina = (e) => {
         if (!(e instanceof Element) || !visibile(e)) return;
@@ -846,6 +982,8 @@ async function analyzeMouseOnly(page, opzioni) {
         if (e.getAttribute('role') && e.getAttribute('tabindex') === '-1') return;
         if (e.closest(focalizzabile)) return;                             // dentro un comando
         if (e.querySelector(focalizzabile)) return;                       // contenitore con delega
+        if (inPopupCombobox(e)) return;                                   // opzioni via aria-activedescendant
+        if (sfondoDialog(e)) return;                                      // sfondo del dialog: Esc
         if (ignora) { try { if (e.matches(ignora) || e.closest(ignora)) return; } catch (x) { /* selettore non valido: si ignora l'esclusione */ } }
         candidati.push(descrivi(e));
       };
@@ -996,7 +1134,201 @@ async function nodiAccessibili(page) {
   } catch { return null; }
 }
 
-async function recordScan(browser, page, target, name, pageResults, sourceHint) {
+/* ------------- controlli di presentazione e tastiera (fuori da axe) ------------- */
+/* I risultati escono nel formato delle violazioni di axe (id, impact, tags, help, nodes): cosi'
+   finiscono senza altro lavoro nel report HTML, in JUnit, SARIF, Sonar e nel gate --fail-on.
+   Gli id hanno il prefisso 'gova11y-' per distinguerli dalle regole di axe. */
+const CRITERI = {
+  '1.4.10': { tag: 'wcag21aa', titolo: 'Reflow', slug: 'reflow' },
+  '1.4.12': { tag: 'wcag21aa', titolo: 'Text Spacing', slug: 'text-spacing' },
+  '2.1.1': { tag: 'wcag2a', titolo: 'Keyboard', slug: 'keyboard' },
+  '2.1.2': { tag: 'wcag2a', titolo: 'No Keyboard Trap', slug: 'no-keyboard-trap' },
+  '2.4.3': { tag: 'wcag2a', titolo: 'Focus Order', slug: 'focus-order' },
+  '2.4.7': { tag: 'wcag2aa', titolo: 'Focus Visible', slug: 'focus-visible' },
+  '2.4.11': { tag: 'wcag22aa', titolo: 'Focus Not Obscured (Minimum)', slug: 'focus-not-obscured-minimum' },
+  '1.4.13': { tag: 'wcag21aa', titolo: 'Content on Hover or Focus', slug: 'content-on-hover-or-focus' },
+  '3.1.2': { tag: 'wcag2aa', titolo: 'Language of Parts', slug: 'language-of-parts' },
+  '4.1.2': { tag: 'wcag2a', titolo: 'Name, Role, Value', slug: 'name-role-value' },
+};
+
+// Una violazione nel formato di axe. 'nodi': [{ target: '<selettore>', html?, messaggio }].
+function violazione(id, criterio, impatto, help, nodi) {
+  const c = CRITERI[criterio] || {};
+  return {
+    id, impact: impatto, help, description: help,
+    tags: ['gov-a11y', ...(c.tag ? [c.tag] : []), `wcag${criterio.replace(/\./g, '')}`],
+    helpUrl: c.slug ? `https://www.w3.org/WAI/WCAG22/Understanding/${c.slug}.html` : 'https://www.w3.org/WAI/WCAG22/quickref/',
+    nodes: nodi.map(n => ({ target: [n.target], html: n.html || '', failureSummary: n.messaggio, impact: impatto })),
+  };
+}
+
+/* Problemi dichiarati da uno script di flow (scan(nome, { problemi })): verifiche che solo
+   l'applicazione sa fare, come "il menu si apre con Invio" o "Esc riporta il focus al bottone".
+   Uno per voce: { criterio: '2.1.1', messaggio, selettore?, impatto? (predefinito 'serious') }. */
+function violazioniDaProblemi(problemi) {
+  const out = new Map();
+  for (const p of problemi || []) {
+    const criterio = String(p.criterio || '').trim();
+    if (!criterio || !p.messaggio) throw new Error("problema dichiarato senza 'criterio' o 'messaggio'");
+    const impatto = p.impatto || 'serious';
+    const id = `gova11y-script-${criterio.replace(/\./g, '')}`;
+    const chiave = `${id}|${impatto}`;
+    if (!out.has(chiave)) out.set(chiave, violazione(id, criterio, impatto, `${criterio} ${CRITERI[criterio]?.titolo || ''}`.trim() + ' (verifica dello script del target)', []));
+    out.get(chiave).nodes.push({ target: [p.selettore || 'html'], html: '', failureSummary: p.messaggio, impact: impatto });
+  }
+  return [...out.values()];
+}
+
+// Descrizione breve di un elemento, usata come 'target' dei nodi (tag#id.classi). Installata nella
+// pagina prima di ogni controllo: le funzioni passate a page.evaluate non vedono questo modulo.
+async function installaDescrivi(page) {
+  await page.evaluate(() => {
+    window.__gwDescrivi = e => {
+      const s = e.tagName.toLowerCase();
+      if (e.id) return s + '#' + CSS.escape(e.id);
+      const cl = typeof e.className === 'string' ? e.className.split(/\s+/).filter(Boolean).slice(0, 2) : [];
+      return s + cl.map(c => '.' + CSS.escape(c)).join('');
+    };
+  });
+}
+
+// 1.4.10: a 320 px CSS di larghezza la vista non deve richiedere lo scorrimento orizzontale.
+async function analyzeReflow(page) {
+  const prima = page.viewportSize() || { width: 1280, height: 720 };
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.waitForTimeout(300);
+  try {
+    await installaDescrivi(page);
+    const r = await page.evaluate(() => {
+      const larghezza = document.documentElement.scrollWidth;
+      const larghi = [...document.querySelectorAll('body *')].filter(e => {
+        const b = e.getBoundingClientRect();
+        return e.offsetParent && b.right > innerWidth + 1 && getComputedStyle(e).position !== 'fixed';
+      }).slice(0, 5).map(e => ({ target: window.__gwDescrivi(e), html: e.outerHTML.slice(0, 200), destra: Math.round(e.getBoundingClientRect().right) }));
+      return { larghezza, larghi };
+    });
+    if (r.larghezza <= 321) return [];
+    const nodi = r.larghi.length ? r.larghi : [{ target: 'html', html: '', destra: r.larghezza }];
+    return [violazione('gova11y-reflow-320', '1.4.10', 'serious', 'A 320px di larghezza la vista scorre in orizzontale',
+      nodi.map(n => ({ target: n.target, html: n.html, messaggio: `Larghezza del documento ${r.larghezza}px a 320px: l'elemento arriva a ${n.destra}px` })))];
+  } finally {
+    await page.setViewportSize(prima);
+    await page.waitForTimeout(150);
+  }
+}
+
+// 1.4.12: con interlinea 1.5, spaziatura lettere 0.12em, parole 0.16em, paragrafi 2em nessun testo si perde.
+async function analyzeTextSpacing(page) {
+  await installaDescrivi(page);
+  const tagliati = await page.evaluate(() => {
+    const st = document.createElement('style');
+    st.textContent = '*{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important}p{margin-bottom:2em!important}';
+    document.head.appendChild(st);
+    const out = [];
+    for (const e of document.querySelectorAll('body *')) {
+      if (!e.offsetParent || !e.textContent.trim() || e.children.length > 3 || /sr-only|visually-hidden/.test(e.className)) continue;
+      const cs = getComputedStyle(e);
+      const nasconde = cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.overflowY === 'hidden' || cs.textOverflow === 'ellipsis';
+      if (nasconde && (e.scrollWidth > e.clientWidth + 2 || e.scrollHeight > e.clientHeight + 2))
+        out.push({ target: window.__gwDescrivi(e), html: e.outerHTML.slice(0, 200), testo: e.textContent.trim().slice(0, 40) });
+      if (out.length >= 5) break;
+    }
+    st.remove();
+    return out;
+  });
+  if (!tagliati.length) return [];
+  return [violazione('gova11y-text-spacing', '1.4.12', 'moderate', 'Con la spaziatura del testo aumentata il testo viene tagliato',
+    tagliati.map(t => ({ target: t.target, html: t.html, messaggio: `Testo tagliato: "${t.testo}"` })))];
+}
+
+/* 2.4.7 / 2.4.11 / 2.1.2: percorre la vista col tasto Tab dall'inizio del documento. Per ogni fermata
+   verifica che il focus si veda (outline o box-shadow), che non sia coperto da un altro elemento e che
+   il focus non resti fermo (trappola). Restituisce anche l'ordine di focus, evidenza per la revisione
+   manuale (2.4.3). Si parte da un segnaposto non tabulabile in cima al body, cosi' il percorso non
+   dipende da dove si trovava il focus e nessun clic tocca la pagina. */
+async function analyzeKeyboard(page, massimo = 45) {
+  await installaDescrivi(page);
+  await page.evaluate(() => {
+    const s = document.createElement('span'); s.id = '__gw_partenza'; s.tabIndex = -1;
+    document.body.prepend(s); s.focus(); window.scrollTo(0, 0);
+  });
+  const ordine = [], senzaFocus = [], coperti = [];
+  let trappola = null, prec = null, uguali = 0;
+  try {
+    for (let i = 0; i < massimo; i++) {
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(120);
+      const f = await page.evaluate(() => {
+        const e = document.activeElement;
+        if (!e || e === document.body || e.id === '__gw_partenza') return null;
+        const cs = getComputedStyle(e);
+        const visibile = c => c && !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(c);
+        const outline = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && visibile(cs.outlineColor);
+        const ombra = cs.boxShadow !== 'none' && cs.boxShadow.split(/,(?![^(]*\))/).some(s => /0px 0px 0px [1-9]/.test(s) || /[1-9]px -?\d+px [1-9]/.test(s)) && /rgb\(|rgba\((?!.*, 0\))/.test(cs.boxShadow);
+        const b = e.getBoundingClientRect();
+        const fuori = b.bottom < 0 || b.top > innerHeight;
+        const t = fuori ? null : document.elementFromPoint(b.left + b.width / 2, b.top + Math.min(b.height / 2, 5));
+        const copre = t && t !== e && !e.contains(t) && !t.contains(e) ? window.__gwDescrivi(t) : null;
+        const testo = (e.innerText || e.value || e.getAttribute('aria-label') || '').trim().slice(0, 30);
+        const nome = e.getAttribute('name');
+        return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok: outline || ombra, copre };
+      });
+      if (!f) { if (ordine.length) break; else continue; }
+      const chiave = `${f.target} "${f.testo}"`;
+      if (chiave === prec) { if (++uguali > 2) { trappola = f; break; } continue; }
+      uguali = 0;
+      if (ordine.includes(chiave)) break;   // giro completo
+      prec = chiave; ordine.push(chiave);
+      if (!f.ok) senzaFocus.push(f);
+      if (f.copre) coperti.push(f);
+    }
+  } finally {
+    await page.evaluate(() => document.getElementById('__gw_partenza')?.remove()).catch(() => {});
+  }
+  const violazioni = [];
+  if (senzaFocus.length) violazioni.push(violazione('gova11y-focus-visible', '2.4.7', 'serious', 'Indicatore del focus non visibile',
+    senzaFocus.map(f => ({ target: f.target, html: f.html, messaggio: `Con il focus da tastiera l'elemento "${f.testo}" non mostra outline né box-shadow` }))));
+  if (coperti.length) violazioni.push(violazione('gova11y-focus-obscured', '2.4.11', 'moderate', "L'elemento con il focus è coperto da un altro elemento",
+    coperti.map(f => ({ target: f.target, html: f.html, messaggio: `Coperto da ${f.copre}` }))));
+  if (trappola) violazioni.push(violazione('gova11y-keyboard-trap', '2.1.2', 'critical', 'Il focus resta bloccato su un elemento',
+    [{ target: trappola.target, html: trappola.html, messaggio: 'Premendo Tab il focus non si sposta' }]));
+  return { violazioni, ordine };
+}
+
+/* 3.1.2: testo in una lingua diversa da quella dichiarata per la sua parte di pagina. Le espressioni
+   le dichiara il target, per lingua: { "it": ["Accedendo accetti", ...], "en": ["\\b(the|your)\\b"] }.
+   Un testo che corrisponde a un'espressione della lingua L e la cui lingua effettiva (l'attributo
+   lang piu' vicino) non comincia per L e' una violazione. Si guardano anche i testi negli attributi
+   letti dalle tecnologie assistive (aria-label, placeholder, title, value dei pulsanti). */
+async function analyzeLanguageParts(page, espressioni) {
+  await installaDescrivi(page);
+  const trovati = await page.evaluate(espressioni => {
+    const regole = Object.entries(espressioni).map(([l, v]) => [l.toLowerCase(), [].concat(v).map(r => new RegExp(r, 'i'))]);
+    const lingua = el => ((el.closest('[lang]') || document.documentElement).getAttribute('lang') || '').toLowerCase();
+    const out = [];
+    const prova = (el, testo) => {
+      const ling = lingua(el);
+      for (const [l, rs] of regole) if (!ling.startsWith(l) && rs.some(r => r.test(testo))) out.push({ target: window.__gwDescrivi(el), testo: testo.trim().slice(0, 50), l, ling });
+    };
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (w.nextNode()) {
+      const el = w.currentNode.parentElement;
+      if (!el || !el.offsetParent || el.closest('script,style,code,noscript')) continue;
+      if (w.currentNode.textContent.trim()) prova(el, w.currentNode.textContent);
+    }
+    for (const el of document.querySelectorAll('[aria-label],[placeholder],[title],input[type=submit],input[type=button]')) {
+      if (!el.offsetParent) continue;
+      for (const v of [el.getAttribute('aria-label'), el.getAttribute('placeholder'), el.getAttribute('title'), /^(submit|button)$/.test(el.type) ? el.value : null]) if (v) prova(el, v);
+    }
+    const visti = new Set();
+    return out.filter(o => { const k = o.target + o.testo; if (visti.has(k)) return false; visti.add(k); return true; }).slice(0, 8);
+  }, espressioni);
+  if (!trovati.length) return [];
+  return [violazione('gova11y-language-of-parts', '3.1.2', 'serious', 'Testo in una lingua diversa da quella dichiarata',
+    trovati.map(t => ({ target: t.target, html: '', messaggio: `"${t.testo}" è in '${t.l}' ma la lingua dichiarata è '${t.ling || '(nessuna)'}'` })))];
+}
+
+async function recordScan(browser, page, target, name, pageResults, sourceHint, extra = {}) {
   const url = page.url();
   /* axe fotografa il DOM com'e' in quel momento: con una richiesta ancora in volo puo'
      trovare in pagina gli elementi transitori dell'attesa (maschere, indicatori di
@@ -1026,7 +1358,12 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   for (let tentativo = 0; tentativo < 3; tentativo++) {
     const marcatore = `gw-${Date.now()}-${tentativo}`;
     await page.evaluate(m => { window.__gwMarcatore = m; }, marcatore).catch(() => {});
-    r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    /* 'include' (selettore CSS) limita l'analisi a una parte della vista: serve negli stati in cui
+       un elemento sovrapposto (una tendina aperta) copre per costruzione cio' che ha sotto, che
+       axe non potrebbe misurare e che si analizza comunque nella vista a riposo. */
+    let builder = new AxeBuilder({ page }).withTags(TAGS);
+    if (extra.include) builder = builder.include(extra.include);
+    r = await builder.analyze();
     const dopo = await page.evaluate(() => ({ marcatore: window.__gwMarcatore, stato: document.readyState })).catch(() => ({}));
     if (dopo.marcatore === marcatore && dopo.stato === 'complete') break;
     console.warn(`    [vista non ferma durante l'analisi] ${name}: rifaccio (tentativo ${tentativo + 2}/3)`);
@@ -1042,7 +1379,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   // ridisegno parziale sostituisce interi rami, e gli elementi da confrontare sparivano. Su
   // una vista di govwayMonitor questo bastava a far figurare 38 occorrenze fra quelle da
   // verificare, pur essendo coperte dal registro su tutte le altre viste.
-  const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
+  let { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
   let lhScore = null;
   if (DO_LH && !LH_ESCLUSO_NEL_FLOW) {
     const sessione = await lhPreparaSessione(page, target);
@@ -1057,9 +1394,29 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const soloMouse = DO_MOUSE_ONLY ? await analyzeMouseOnly(page, { ignora: MOUSE_ONLY_IGNORE, massimo: MOUSE_ONLY_MAX }) : { totale: 0, elementi: [] };
   let sr = null;
   if (DO_SR) sr = await runScreenReader(page);
+  /* Controlli fuori da axe, in fondo: cambiano la larghezza della vista, la spaziatura e il focus,
+     e non devono disturbare le analisi precedenti, che fotografano la vista a riposo. */
+  const aggiuntive = violazioniDaProblemi(extra.problemi);
+  let tabOrder = null;
+  const prova = async (nome, fn) => { try { return await fn(); } catch (e) { console.warn(`    [${name}] controllo ${nome} non eseguito: ${e.message.split('\n')[0]}`); return null; } };
+  if (DO_REFLOW) aggiuntive.push(...(await prova('reflow', () => analyzeReflow(page)) || []));
+  if (DO_TEXT_SPACING) aggiuntive.push(...(await prova('textSpacing', () => analyzeTextSpacing(page)) || []));
+  if (LANGUAGE_PARTS) aggiuntive.push(...(await prova('languageParts', () => analyzeLanguageParts(page, LANGUAGE_PARTS)) || []));
+  if (DO_KEYBOARD && extra.keyboard !== false) {
+    const k = await prova('keyboardWalk', () => analyzeKeyboard(page));
+    if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
+  }
+  // In fondo, per ultima: scorre la vista (vedi rimisuraContrastiFuoriVista)
+  const rimisura = await prova('contrasti fuori vista', () => rimisuraContrastiFuoriVista(page, incomplete, r.violations));
+  if (rimisura?.rimisurati) {
+    incomplete = rimisura.incomplete;
+    r.violations = rimisura.violations;
+    console.log(`    [contrasto] ${rimisura.rimisurati} elementi fuori vista rimisurati in vista${rimisura.violati ? `: ${rimisura.violati} violazioni` : ', tutti conformi'}`);
+  }
+  r.violations = [...r.violations, ...aggiuntive];
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, axTree, soloMouse, ariaSnapshot, sr, vuota,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, axTree, soloMouse, ariaSnapshot, sr, vuota, tabOrder,
   });
   const counts = summarizeImpacts(r.violations);
   const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -1252,7 +1609,9 @@ async function selectOption(page, sel, to) {
 // Esegue un singolo step di azione di un flow.
 async function runStep(page, step) {
   const to = step.timeoutMs || 8000;
-  if (step.goto) await page.goto(BASE + step.goto, { waitUntil: 'domcontentloaded' });
+  // 'goto' accetta anche un URL assoluto: serve per i link che non stanno sotto --base (es. un link
+  // ricevuto per email, un IdP su un'altra origine). Un path resta relativo a --base come sempre.
+  if (step.goto) await page.goto(absUrl(step.goto), { waitUntil: 'domcontentloaded' });
   else if (step.fill) await fieldLocator(page, step.fill, 'fill').fill(step.fill.env ? envValue(step.fill.env) : step.fill.value, { timeout: to });
   else if (step.upload) await page.setInputFiles(step.upload.selector, risolviFileUpload(step.upload), { timeout: to });
   else if (step.select) await selectOption(page, step.select, to);
@@ -1264,7 +1623,38 @@ async function runStep(page, step) {
      scansionata sulla sua porta resterebbe ferma sullo stato "in attesa". Funziona con le app
      che non verificano la provenienza del messaggio. */
   else if (step.postMessage !== undefined) await page.evaluate(m => window.postMessage(m, '*'), step.postMessage);
+  /* Tastiera e storia di navigazione. 'focus' + 'press' riproducono l'uso da tastiera di un comando
+     (un menu che si apre con Invio e si chiude con Esc) per poi analizzare lo stato che ne risulta.
+     'clearCookies' + 'back' + 'reload' portano l'applicazione negli stati di sessione scaduta o
+     persa, che hanno pagine proprie e non si raggiungono con un URL. */
+  else if (step.focus) await page.focus(step.focus, { timeout: to });
+  else if (step.press) await page.keyboard.press(step.press);
+  else if (step.clearCookies) await page.context().clearCookies();
+  else if (step.back) await page.goBack({ waitUntil: 'domcontentloaded' });
+  else if (step.reload) await page.reload({ waitUntil: 'domcontentloaded' });
+  else if (step.script) throw new Error("passo 'script' ammesso solo nei flow");
   await applyWait(page, step);
+}
+
+/* Passo 'script': esegue una funzione JavaScript dichiarata accanto al config, per le viste che
+   nessun passo dichiarativo raggiunge (un'email da leggere, un codice TOTP da calcolare, un
+   autenticatore WebAuthn virtuale, una chiamata alle API di amministrazione). La logica specifica
+   di un'applicazione resta nella cartella del suo target, e lo strumento non ne sa nulla.
+   Forma: "file.mjs#funzione" (senza '#' si usa l'export default). Il file si risolve sulla
+   directory del config e deve stare al suo interno: il config e' versionato insieme agli script
+   che richiama, e un percorso che ne esce verrebbe da altrove. */
+const SCRIPT_CACHE = new Map();
+
+async function caricaScript(spec) {
+  const [file, nome = 'default'] = String(spec).split('#');
+  const radice = dirname(CONFIG);
+  const percorso = resolve(radice, file);
+  if (isAbsolute(file) || !percorso.startsWith(radice + sep)) throw new Error(`script '${file}' fuori dalla directory del config (${radice})`);
+  if (!existsSync(percorso)) throw new Error(`script non trovato: ${percorso}`);
+  if (!SCRIPT_CACHE.has(percorso)) SCRIPT_CACHE.set(percorso, await import(pathToFileURL(percorso).href));
+  const fn = SCRIPT_CACHE.get(percorso)[nome];
+  if (typeof fn !== 'function') throw new Error(`script '${file}': nessuna funzione esportata '${nome}'`);
+  return fn;
 }
 
 // Esegue i flows di navigazione scriptata (raggiungono viste non GET-navigabili).
@@ -1282,15 +1672,23 @@ async function runFlows(browser, target, pageResults) {
       console.warn(`    flow '${flow.name}' saltato: variabili d'ambiente mancanti ${envMancanti.join(', ')}`);
       continue;
     }
-    const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
-    if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
-    const page = await ctx.newPage();
+    // Contesti aperti dal flow: quello principale e quelli chiesti dagli script (newPage), chiusi
+    // tutti a fine flow. Stesse opzioni e stessa strumentazione solo-mouse per tutti.
+    const contesti = [];
+    const nuovaPagina = async () => {
+      const c = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
+      if (DO_MOUSE_ONLY) await c.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
+      await c.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
+      contesti.push(c);
+      return c.newPage();
+    };
+    const page = await nuovaPagina();
     try {
       await login(page, target);
       await postLogin(page, target);
       // Coerente con la navigazione delle pages: onora navWait/navDelayMs del target (le SPA con
       // HMR non raggiungono 'networkidle' e le liste async non sono pronte al momento di skipIfMissing).
-      await page.goto(BASE + flow.start, { waitUntil: target.navWait || 'networkidle' });
+      await page.goto(absUrl(flow.start), { waitUntil: target.navWait || 'networkidle' });
       if (target.navDelayMs) await page.waitForTimeout(target.navDelayMs);
       // skipIfMissing: se un elemento-sentinella non c'e' (es. lista vuota), salta il flow. Attende
       // (non controllo istantaneo): le liste async possono comparire dopo navDelayMs; l'assenza va
@@ -1304,7 +1702,7 @@ async function runFlows(browser, target, pageResults) {
         // Step 'scan': scansiona lo stato CORRENTE (permette piu' scan in un flow, es. i tab di un dettaglio).
         if (step.scan !== undefined) {
           const name = step.scan ? `flow:${flow.name}/${step.scan}` : `flow:${flow.name}`;
-          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint);
+          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint, { keyboard: step.keyboard, include: step.include });
           scanned = true;
           continue;
         }
@@ -1691,9 +2089,28 @@ async function runFlows(browser, target, pageResults) {
           }
           continue;
         }
-        const label = step.desc || step.click || step.clickText || step.goto || (step.fill && (step.fill.selector || step.fill.label)) || (step.upload && step.upload.selector) || (step.select && (step.select.selector || step.select.label)) || 'step';
+        const label = step.desc || step.script || step.click || step.clickText || step.goto || (step.fill && (step.fill.selector || step.fill.label)) || (step.upload && step.upload.selector) || (step.select && (step.select.selector || step.select.label)) || step.focus || step.press || 'step';
         try {
-          await runStep(page, step);
+          if (step.script) {
+            /* Lo script riceve la pagina del flow e puo' produrre piu' viste: 'scan(nome)' analizza lo
+               stato corrente (o quello di un'altra pagina, { page }), con lo stesso nome 'flow:<flow>/<nome>'
+               dei passi 'scan'. Con { problemi } aggiunge alla vista le verifiche fatte dallo script
+               (vedi violazioniDaProblemi); con { keyboard: false } salta il percorso col Tab, che
+               sposterebbe il focus da uno stato che lo script vuole ancora usare (un menu aperto).
+               'newPage()' apre una sessione separata (un secondo utente, una nuova visita senza
+               cookie), chiusa con il flow. */
+            const fn = await caricaScript(step.script);
+            await fn({
+              page, browser, target, base: BASE, args: step.args || {},
+              newPage: nuovaPagina,
+              runStep: (s, p = page) => runStep(p, s),
+              scan: async (nome, { page: p = page, sourceHint, problemi, keyboard, include } = {}) => {
+                await recordScan(browser, p, target, nome ? `flow:${flow.name}/${nome}` : `flow:${flow.name}`, pageResults, sourceHint || step.sourceHint || flow.sourceHint, { problemi, keyboard, include });
+                scanned = true;
+              },
+            });
+            await applyWait(page, step);
+          } else await runStep(page, step);
         } catch (e) {
           if (step.optional) { console.warn(`    step '${label}' non riuscito (opzionale, proseguo): ${maskSecrets(e.message)}`); continue; }
           console.warn(`    step '${label}' non riuscito: ${maskSecrets(e.message)} → flow '${flow.name}' interrotto`);
@@ -1705,7 +2122,7 @@ async function runFlows(browser, target, pageResults) {
     } catch (e) {
       console.warn(`  flow '${flow.name}' errore: ${maskSecrets(e.message)}`);
     } finally {
-      await ctx.close();
+      for (const c of contesti) await c.close().catch(() => {});
     }
   }
   LH_ESCLUSO_NEL_FLOW = false;
@@ -1737,14 +2154,17 @@ async function scan() {
     console.log(`\n== ${target.name} (${absUrl(target.loginPath)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
+    await ctx.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
     const page = await ctx.newPage();
 
     const logged = await login(page, target);
     await postLogin(page, target);
     if (!logged) {
       console.warn(`  ! login non confermato per ${target.name} come '${credsFor(target).user}' (url=${page.url()}). Proseguo comunque.`);
-    } else {
+    } else if (target.login) {
       console.log(`  login ok (utenza '${credsFor(target).user}')`);
+    } else {
+      console.log('  nessun login a form (pagine pubbliche, header o SSO)');
     }
 
     // Coda BFS: pagine in config (depth 0, sempre scansionate) + crawl opzionale.
@@ -2017,6 +2437,10 @@ function buildCoverage() {
   if (DO_SR) strumenti.push('screen reader virtuale');
   if (DO_MOUSE_ONLY) strumenti.push('rilevazione dei comandi utilizzabili col solo mouse');
   if (DO_LH) strumenti.push('Lighthouse');
+  if (CONTROLLI_USATI.has('reflow')) strumenti.push('riflusso a 320px');
+  if (CONTROLLI_USATI.has('textSpacing')) strumenti.push('spaziatura del testo');
+  if (CONTROLLI_USATI.has('keyboardWalk')) strumenti.push('percorso col tasto Tab');
+  if (CONTROLLI_USATI.has('languageParts')) strumenti.push('lingua delle parti');
   const esempi = ['contrasto colore', 'testi alternativi e label mancanti', 'attributo lang',
     'ruoli/nomi ARIA', 'ordine degli heading', "struttura dell'albero di accessibilità"];
   if ([...TAG_USATI].some(t => /^wcag22/.test(String(t).toLowerCase()))) esempi.push('dimensione minima dei bersagli');
@@ -2037,7 +2461,10 @@ function buildCoverage() {
       : 'Test con screen reader: in questa scansione non è stato eseguito alcun controllo sugli '
         + 'annunci, né virtuale né reale.',
     "Qualità del testo alternativo e delle label (l'automazione vede se mancano, non se hanno senso).",
-    'Ingrandimento e riflusso del contenuto: zoom al 200% e 400%, orientamento, spaziatura del testo.',
+    CONTROLLI_USATI.has('reflow') && CONTROLLI_USATI.has('textSpacing')
+      ? 'Ingrandimento: zoom al 200% e 400% e orientamento (riflusso a 320px e spaziatura del testo sono '
+        + 'stati verificati in automatico, ma solo sullo stato analizzato di ogni vista).'
+      : 'Ingrandimento e riflusso del contenuto: zoom al 200% e 400%, orientamento, spaziatura del testo.',
     "Comprensibilità di istruzioni, messaggi d'errore e suggerimenti di correzione nei moduli.",
     'Contenuti multimediali, se presenti: sottotitoli, trascrizioni, audiodescrizioni.',
   ];
@@ -2337,7 +2764,7 @@ export {
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
   // browser
-  harvestLinks, recordScan, runStep, selectOption, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
+  harvestLinks, recordScan, runStep, caricaScript, selectOption, analyzeReflow, analyzeTextSpacing, analyzeKeyboard, analyzeLanguageParts, violazioniDaProblemi, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
   // reporters + gate
   writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate,
 };

@@ -33,6 +33,8 @@
 
     "navWait": "domcontentloaded",
     "navDelayMs": 5000,
+    "$mouseOnlyIgnore": "Area 'Cerca...' di lnk-search-bar (con i filtri attivi mostra i filtri impostati): apre il pannello dei filtri al clic; da tastiera la stessa azione e' sul bottone 'Filtri' accanto (WCAG 2.1.1 soddisfatto da un comando equivalente).",
+    "mouseOnlyIgnore": "lnk-search-bar > div[tabindex='-1']",
 
     "$pages": "Le cinque liste e i due form di creazione (vuoti: si analizzano, MAI salvare). Con STANDALONE: false la rotta / reindirizza alla prima sezione consentita dai ruoli: per questo non e' elencata.",
     "pages": [
@@ -55,7 +57,7 @@
         "sourceHint": "projects/govaudit-app/src/app/features/outbound",
         "steps": [
           { "click": "lnk-search-bar button[aria-label='Filtri']", "wait": "lnk-organization-select", "delayMs": 1000, "desc": "apri il pannello dei filtri" },
-          { "scan": "pannello-filtri" }
+          { "scan": "pannello-filtri", "include": "form.absolute.z-50", "$include": "La tendina dei filtri copre per costruzione le righe della lista (axe: bgOverlap, contrasto non calcolabile). In questo stato si analizza solo la tendina; la lista e' analizzata a riposo nella vista della pagina." }
         ]
       },
       {
