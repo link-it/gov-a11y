@@ -85,6 +85,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--no-lighthouse` / `--no-screen-reader` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
 | `--product-version <v>` | — | Versione del prodotto in prova (anche env `A11Y_PRODUCT_VERSION`): dichiarativa, compare nel report e in `summary.json` |
 | `--insecure` | on | Ignora errori certificato HTTPS |
+| `--login-base <url>` | — | Applicazione su cui si fa il login, se non è quella di `--base`: il `loginPath` relativo si accoda a questo indirizzo. Per cambiare ambiente (sviluppo, collaudo) senza toccare il config |
 | `--locale <tag>` | — | Lingua del browser (es. `it-IT`): `navigator.language` e `Accept-Language`. Per le app che scelgono la lingua dal browser, che altrimenti si vedrebbero in inglese |
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |

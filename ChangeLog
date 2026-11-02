@@ -1,3 +1,15 @@
+2026-11-02  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Nuovo parametro "loginBase" (CLI --login-base): l'indirizzo dell'applicazione su cui si fa il login, quando
+	non è quella di --base. Il loginPath relativo si accoda a questo indirizzo invece che a --base. Finora un
+	login su un'altra applicazione (le app ospitate da una shell che le autentica) richiedeva un loginPath
+	assoluto, scritto nel config: valeva solo per l'ambiente in cui era stato scritto. Con loginBase lo stesso
+	config vale in sviluppo e in collaudo cambiando solo l'opzione, come --base. Può contenere un percorso
+	(https://host/shell); un loginPath assoluto resta com'è. Come con il login assoluto, contextPath e pagina
+	di partenza del crawl ricadono sulla radice di --base. Un loginBase che non è un URL http(s) interrompe
+	la scansione prima di aprire il browser. Test unitari e d'integrazione.
+
 2026-10-07  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]

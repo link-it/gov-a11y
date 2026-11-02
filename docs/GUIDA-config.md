@@ -45,6 +45,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 | `locale` | stringa | — | Lingua del browser, es. `"it-IT"` (equiv. CLI `--locale`): imposta `navigator.language` e `Accept-Language`. Serve alle app che scelgono la lingua dell'interfaccia dal browser: il Chromium di CI è in inglese, e senza `locale` si analizzerebbe una variante che gli utenti non vedono. Per-target; quello globale (CLI o `defaults`) vale anche per la scheda di Lighthouse, che non eredita quello del target |
+| `loginBase` | stringa | — | Indirizzo dell'applicazione su cui si fa il login, quando non è quella di `--base` (equiv. CLI `--login-base`): il `loginPath` relativo si accoda a questo invece che a `--base`. Vedi [Login su un'altra applicazione](#login-su-unaltra-applicazione-loginpath-assoluto-o-loginbase) |
 | `productVersion` | stringa | — | Versione del prodotto in prova, riportata nel report e in `summary.json` — **globale** (equiv. CLI `--product-version`, env `A11Y_PRODUCT_VERSION`). Dichiarativa: nessuno strumento esterno può dedurla |
 
 > `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnEmpty`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
@@ -90,7 +91,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 Se il campo utente non viene trovato, il login viene **saltato** (utile se già autenticati/SSO).
 Usa **selettori stabili** (name/id/classe), non id generati dai framework.
 
-#### Login su un'altra applicazione (`loginPath` assoluto)
+#### Login su un'altra applicazione (`loginPath` assoluto o `loginBase`)
 
 `loginPath` può essere un URL assoluto (`http://…` / `https://…`): il login avviene su quella
 pagina, le `pages` e i `flows` restano relativi a `--base`. Serve quando l'applicazione da
@@ -110,6 +111,17 @@ Funziona perché i cookie dipendono dall'**host** e non dalla porta: la sessione
 `contextPath` e la pagina di partenza del crawl ricadono sulla radice di `--base`; i passi di
 `postLogin` partono dalla pagina in cui il login è terminato (per esempio la scelta
 dell'organizzazione su GovHub).
+
+L'indirizzo dell'applicazione di login si può tenere fuori dal percorso con `loginBase` (nel target,
+nei `defaults` o da CLI `--login-base`): il `loginPath` resta relativo e si accoda a `loginBase`
+invece che a `--base`. Così lo stesso config vale in ambienti diversi cambiando solo l'opzione, come
+`--base`. `loginBase` può contenere anche un percorso; un `loginPath` assoluto resta com'è.
+
+```jsonc
+"loginBase": "http://localhost:5200",                // default per lo sviluppo locale
+"loginPath": "/auth/realmdb",
+// in collaudo:  --base https://collaudo.example.it/app --login-base https://collaudo.example.it/shell
+```
 
 ### `postLogin.steps[]`
 

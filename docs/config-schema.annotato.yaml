@@ -37,6 +37,8 @@ defaults:
   insecure: true              # ignora errori certificato HTTPS
   locale: null                # lingua del browser, es. "it-IT" (navigator.language, Accept-Language);
                               # per le app che scelgono la lingua dal browser. Anche da CLI --locale
+  loginBase: null             # applicazione su cui si fa il login, se non e' quella di --base: il loginPath
+                              # relativo si accoda a questo indirizzo. Anche da CLI --login-base
   productVersion: null        # versione del prodotto in prova, riportata nel report (GLOBALE);
                               # anche da CLI --product-version o env A11Y_PRODUCT_VERSION
 

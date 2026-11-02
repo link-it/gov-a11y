@@ -149,6 +149,11 @@ check(M.absUrl('/auth').endsWith('/auth') && M.absUrl('/auth').startsWith('http'
 eq(M.defaultCtxPath({ loginPath: 'http://localhost:5200/auth/realmdb' }), '/', 'contextPath di default: radice di --base se il login e\' altrove');
 eq(M.defaultCtxPath({ loginPath: '/app/' }), '/app/', 'contextPath di default: loginPath se relativo');
 eq(M.defaultCtxPath({ loginPath: 'http://h/x', contextPath: '/c/' }), '/c/', 'contextPath esplicito vince');
+eq(M.loginUrl({ loginPath: '/auth/realmdb' }, 'https://collaudo.example.it/govhub/'), 'https://collaudo.example.it/govhub/auth/realmdb', 'loginBase: il loginPath relativo si accoda (anche a un percorso), senza doppia barra');
+eq(M.loginUrl({ loginPath: 'http://localhost:5200/auth/realmdb' }, 'https://altro'), 'http://localhost:5200/auth/realmdb', 'loginBase: un loginPath assoluto resta com\'e\'');
+check(M.loginUrl({ loginPath: '/auth' }, null).startsWith('http') && M.loginUrl({ loginPath: '/auth' }, null).endsWith('/auth'), 'senza loginBase il loginPath relativo va su --base');
+eq(M.defaultCtxPath({ loginPath: '/auth/realmdb' }, 'http://localhost:5200'), '/', 'contextPath di default: radice di --base anche con il login su loginBase');
+check(M.loginAltrove({ loginPath: '/auth' }, 'http://h') && !M.loginAltrove({ loginPath: '/auth' }, null), 'loginAltrove: login altrove con loginBase, non senza');
 
 console.log('— Lighthouse: la pagina misurata e\' quella richiesta');
 check(M.lhStessaVista('http://h:1/examiner', 'http://h:1/examiner/') === true, "stessa vista: '/' finale ignorato");
