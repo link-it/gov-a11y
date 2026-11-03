@@ -3,7 +3,7 @@
 Scanner di **accessibilità WCAG 2.x** per applicazioni web, **esterno e black-box**: pilota
 l'app in esecuzione via HTTP (Playwright) ed esegue [axe-core](https://github.com/dequelabs/axe-core),
 una verifica dell'**accessibility tree** e — opzionali — un **virtual screen reader** e **Lighthouse**.
-Un **unico tool**, **config per-app**: si usa su più webapp (GovCat, GovPay, GovWay, GovDesk, …)
+Un **unico tool**, **config per-app**: si usa su più webapp (GovCat, GovPay, GovWay, …)
 **senza aggiungere alcuna dipendenza** alle applicazioni testate.
 
 ## I livelli di verifica
@@ -54,10 +54,8 @@ node a11y-scan.mjs --base http://localhost:8080 --config ./targets/govway/target
 ```
 
 I config **reali** dei prodotti sono in [`targets/<progetto>/`](targets/) — `govway/` (target unificato +
-console/monitor separati), `govpay/`, `govcat/`, `govdesk/`, `keycloak/` (temi di login Keycloak GovDesk:
-l'ambiente di prova lo prepara il repo dei temi con `a11y/container.sh`, vedi
-[`targets/keycloak/README.md`](targets/keycloak/README.md)). Gli **esempi/template** annotati sono in
-[`examples/targets/`](examples/targets/).
+console/monitor separati), `govpay/`, `govcat/`. I prodotti non pubblici tengono i loro target nel
+proprio repository. Gli **esempi/template** annotati sono in [`examples/targets/`](examples/targets/).
 
 I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = gate fallito,
 **2** = errore/nessun target.
@@ -188,8 +186,7 @@ non cablato**. Schema completo di ogni opzione: **[`docs/GUIDA-config.md`](docs/
 Esempio completo annotato: **[`examples/targets/targets.example.json`](examples/targets/targets.example.json)**
 (SPA header-auth + app a form). Config **reali** dei prodotti in **[`targets/`](targets/)**:
 `targets/govcat/` (SPA header-auth + select-org), `targets/govpay/` (SPA Angular),
-`targets/govway/` (JSF/RichFaces: unificato + console/monitor separati, con `scanMenu`/`recurse`),
-`targets/keycloak/` (pagine pubbliche, un flow per scenario, passi `script` per email, TOTP e WebAuthn).
+`targets/govway/` (JSF/RichFaces: unificato + console/monitor separati, con `scanMenu`/`recurse`).
 
 ## Output prodotti (dir `--out`)
 

@@ -71,10 +71,10 @@ cookie di sessione non sono condivisi per costruzione: il tool li rilegge dal co
 **copia nel context di default**, ciascuno con il suo dominio e il suo path (gli `extraHTTPHeaders` del
 target arrivano come header), altrimenti la console risponde con la pagina di login o un errore
 applicativo. Copiarli, invece di spedirli come header `Cookie` fisso, conta quando il cookie di
-sessione ha un path diverso da quello della pagina (GovHub: `JSESSIONID` su `/govhub-reverse-proxy`) o
+sessione ha un path diverso da quello della pagina (es. `JSESSIONID` sul path del proxy delle API) o
 quando la pagina deve leggerli (token XSRF da `document.cookie`). Anche lo **`sessionStorage`**
-dell'origine della vista viene riportato nella tab di Lighthouse, che è nuova e lo avrebbe vuoto (GovHub
-vi tiene l'organizzazione scelta: senza, ogni vista rimanderebbe alla scelta dell'organizzazione).
+dell'origine della vista viene riportato nella tab di Lighthouse, che è nuova e lo avrebbe vuoto (un'app
+che vi tiene l'organizzazione scelta, senza, rimanderebbe ogni vista alla scelta dell'organizzazione).
 
 Se Lighthouse finisce comunque su un'altra pagina — di norma il login — il punteggio misurerebbe
 quella: viene **scartato** e segnalato (`punteggio scartato: misurata … invece di …`).

@@ -104,22 +104,23 @@ Usa **selettori stabili** (name/id/classe), non id generati dai framework.
 
 `loginPath` può essere un URL assoluto (`http://…` / `https://…`): il login avviene su quella
 pagina, le `pages` e i `flows` restano relativi a `--base`. Serve quando l'applicazione da
-scansionare non ha un login proprio e usa la sessione di un'altra, come le app GovDesk in sviluppo:
-ognuna gira sulla sua porta (es. `:5212`) e si autentica con la sessione di GovHub (`:5200`).
+scansionare non ha un login proprio e usa la sessione di un'altra, come le app ospitate da un
+portale (shell) che le autentica: in sviluppo ognuna gira sulla sua porta (es. `:4201`) e si
+autentica con la sessione del portale (`:4200`).
 
 ```jsonc
-"loginPath": "http://localhost:5200/auth/realmdb",   // login su GovHub
+"loginPath": "http://localhost:4200/auth/login",     // login sul portale
 "login": { "usernameSelector": "#username", "passwordSelector": "#password",
            "submitSelector": "button[type='submit']", "successUrlIncludes": "select-organization" }
-// --base http://localhost:5212  →  pages e flows sull'app
+// --base http://localhost:4201  →  pages e flows sull'app
 ```
 
 Funziona perché i cookie dipendono dall'**host** e non dalla porta: la sessione aperta su
-`localhost:5200` viene inviata anche a `localhost:5212`. Su host diversi (es. `app.example.it` e
+`localhost:4200` viene inviata anche a `localhost:4201`. Su host diversi (es. `app.example.it` e
 `login.example.it`) il cookie non viene condiviso e il login non vale. Con il login altrove,
 `contextPath` e la pagina di partenza del crawl ricadono sulla radice di `--base`; i passi di
 `postLogin` partono dalla pagina in cui il login è terminato (per esempio la scelta
-dell'organizzazione su GovHub).
+dell'organizzazione sul portale).
 
 L'indirizzo dell'applicazione di login si può tenere fuori dal percorso con `loginBase` (nel target,
 nei `defaults` o da CLI `--login-base`): il `loginPath` resta relativo e si accoda a `loginBase`
@@ -127,8 +128,8 @@ invece che a `--base`. Così lo stesso config vale in ambienti diversi cambiando
 `--base`. `loginBase` può contenere anche un percorso; un `loginPath` assoluto resta com'è.
 
 ```jsonc
-"loginBase": "http://localhost:5200",                // default per lo sviluppo locale
-"loginPath": "/auth/realmdb",
+"loginBase": "http://localhost:4200",                // default per lo sviluppo locale
+"loginPath": "/auth/login",
 // in collaudo:  --base https://collaudo.example.it/app --login-base https://collaudo.example.it/shell
 ```
 
@@ -177,7 +178,7 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "upload": { "selector": "…", "files": ["…"] } }` | Carica uno o più file in un `input[type=file]`. I percorsi relativi si risolvono sulla directory del config; un file mancante interrompe lo step |
 | `{ "fill": { "selector": "…", "env": "A11Y_…" } }` | Compila un campo con il valore di una **variabile d'ambiente** (vedi sotto) |
 | `{ "select": { "selector": "…", "value": "…" } }` | Sceglie un'opzione per testo: su `<select>` nativa per etichetta; su una tendina (ng-select, combobox ARIA) apre il controllo e clicca l'opzione con ruolo `option` il cui nome contiene il testo (`"exact": true` per l'uguaglianza). Accetta `"env"` al posto di `"value"` |
-| `{ "postMessage": { … } }` | Invia il messaggio (qualsiasi valore JSON) alla finestra della pagina con `window.postMessage`, come la **shell che ospita l'app in un iframe**. Serve alle app incorporate che ricevono dalla shell il contesto (es. l'organizzazione scelta in GovHub): scansionate sulla loro porta, senza la shell, resterebbero ferme in attesa. Funziona con le app che non verificano la provenienza del messaggio. Va ripetuto in ogni flow che ne ha bisogno (ogni flow parte da una sessione nuova) |
+| `{ "postMessage": { … } }` | Invia il messaggio (qualsiasi valore JSON) alla finestra della pagina con `window.postMessage`, come la **shell che ospita l'app in un iframe**. Serve alle app incorporate che ricevono dalla shell il contesto (es. l'organizzazione scelta nel portale): scansionate sulla loro porta, senza la shell, resterebbero ferme in attesa. Funziona con le app che non verificano la provenienza del messaggio. Va ripetuto in ogni flow che ne ha bisogno (ogni flow parte da una sessione nuova) |
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
 | `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
 | `{ "focus": "<selettore>" }` | Porta il focus sull'elemento |
@@ -254,8 +255,8 @@ anche quando sono di collaudo, mentre il config è versionato e condiviso. Nei p
 `select` si dichiara quindi, al posto del valore, il **nome** della variabile da cui leggerlo:
 
 ```jsonc
-{ "fill":   { "selector": "#codice_fiscale", "env": "A11Y_GOVHUB_CF" } },
-{ "select": { "selector": "ng-select[formcontrolname='reason_id']", "env": "A11Y_GOVHUB_MOTIVAZIONE" } }
+{ "fill":   { "selector": "#codice_fiscale", "env": "A11Y_APP_CF" } },
+{ "select": { "selector": "ng-select[formcontrolname='reason_id']", "env": "A11Y_APP_MOTIVAZIONE" } }
 ```
 
 - **Le variabili richieste si ricavano dai passi**: non c'è un elenco da mantenere. Se ne manca
