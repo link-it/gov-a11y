@@ -63,6 +63,7 @@ console:
     submitSelector: "input.deButton[value='Login'], input[type='submit']"
     successUrlIncludes: "govwayConsole"    # sottostringa attesa nell'URL post-login (check soft)
     waitMs: 8000              # timeout attesa campo utente
+    successWaitMs: 15000      # attesa massima dell'URL post-login (successUrlIncludes) dopo l'invio
 
   # azioni dopo il login (es. selezione organizzazione in una SPA)
   postLogin:

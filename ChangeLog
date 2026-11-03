@@ -1,6 +1,17 @@
 2026-11-02  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]
+	Login lento: dopo l'invio del form, se l'URL non contiene ancora "successUrlIncludes", lo si aspetta fino a
+	"successWaitMs" (predefinito 15 s) invece di controllarlo subito. Un'app appena avviata può rispondere al
+	primo login dopo diversi secondi, e intanto la pagina resta sul form: il login risultava non confermato e
+	le pagine aperte subito dopo trovavano la sessione non ancora pronta e rimandavano al login. Succedeva
+	alla scelta dell'organizzazione delle app GovDesk standalone, che fa il primo login della scansione e
+	veniva analizzata come pagina di login. Test d'integrazione con un login che conferma la sessione dopo
+	qualche secondo.
+
+2026-11-02  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
 	Nuovo parametro "loginBase" (CLI --login-base): l'indirizzo dell'applicazione su cui si fa il login, quando
 	non è quella di --base. Il loginPath relativo si accoda a questo indirizzo invece che a --base. Finora un
 	login su un'altra applicazione (le app ospitate da una shell che le autentica) richiedeva un loginPath

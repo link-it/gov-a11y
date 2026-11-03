@@ -589,6 +589,13 @@ async function login(page, target) {
       page.click(l.submitSelector),
     ]);
     await page.waitForLoadState('networkidle').catch(() => {});
+    /* Il rimando dopo il login può arrivare ben dopo la quiete della rete: un'app appena avviata
+       risponde al primo login anche dopo diversi secondi, e intanto la pagina resta sul form.
+       Controllando subito, il login risultava non confermato e le pagine aperte dopo trovavano la
+       sessione non ancora pronta e rimandavano al login. Si aspetta l'URL atteso, entro un limite. */
+    if (l.successUrlIncludes && !page.url().includes(l.successUrlIncludes)) {
+      await page.waitForURL(u => u.href.includes(l.successUrlIncludes), { timeout: l.successWaitMs || 15000 }).catch(() => {});
+    }
   }
   const ok = !l.successUrlIncludes || page.url().includes(l.successUrlIncludes);
   return ok;

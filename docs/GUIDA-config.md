@@ -93,7 +93,8 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `usernameSelector` | selettore CSS del campo utente (lista separata da virgola = fallback) |
 | `passwordSelector` | selettore CSS del campo password |
 | `submitSelector` | selettore CSS del bottone di invio |
-| `successUrlIncludes` | sottostringa attesa nell'URL post-login (check soft) |
+| `successUrlIncludes` | sottostringa attesa nell'URL post-login (check soft): dopo l'invio del form si aspetta che compaia, fino a `successWaitMs` |
+| `successWaitMs` | attesa massima (ms) dell'URL post-login (default 15000): il primo login di un'app appena avviata può rispondere dopo diversi secondi |
 | `waitMs` | timeout (ms) di attesa del campo utente (default 8000) |
 
 Se il campo utente non viene trovato, il login viene **saltato** (utile se già autenticati/SSO).

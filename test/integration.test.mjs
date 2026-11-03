@@ -120,6 +120,9 @@ const BASE = `http://127.0.0.1:${server.address().port}`;
 const authServer = createServer((req, res) => {
   const path = req.url.split('?')[0];
   if (path === '/do-login') { res.writeHead(302, { 'Set-Cookie': 'SESS=ok; Path=/', Location: '/benvenuto' }); return res.end(); }
+  // login lento (app appena avviata): il form resta in attesa e la sessione arriva dopo 2,5 s
+  if (path === '/login-lento') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Login</title></head><body><main><form method="get" action="/attesa"><label>Utente <input name="u"></label><label>Password <input type="password" name="p"></label><button type="submit">Entra</button></form></main></body></html>`); }
+  if (path === '/attesa') { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); return res.end(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Attesa</title></head><body><main><p>Accesso in corso</p></main><script>setTimeout(() => { location.href = '/do-login'; }, 2500);</script></body></html>`); }
   const html = path === '/login'
     ? `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Login</title></head><body><main><form method="get" action="/do-login"><label>Utente <input name="u"></label><label>Password <input type="password" name="p"></label><button type="submit">Entra</button></form></main></body></html>`
     : `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Benvenuto</title></head><body><main><h1>Benvenuto</h1></main></body></html>`;
@@ -224,6 +227,12 @@ writeFileSync(CFG, JSON.stringify({
     name: 'MockApp4', enabled: true, loginPath: '/login', loginBase: AUTH,
     login: { usernameSelector: "input[name='u']", passwordSelector: "input[name='p']", submitSelector: "button[type='submit']", successUrlIncludes: 'benvenuto' },
     pages: [{ name: 'protetta-base', path: '/app2/protetta' }],
+  },
+  // login che conferma la sessione solo dopo qualche secondo: si aspetta l'URL atteso
+  app5: {
+    name: 'MockApp5', enabled: true, loginPath: '/login-lento', loginBase: AUTH,
+    login: { usernameSelector: "input[name='u']", passwordSelector: "input[name='p']", submitSelector: "button[type='submit']", successUrlIncludes: 'benvenuto' },
+    pages: [{ name: 'protetta-lenta', path: '/app2/protetta' }],
   },
 }, null, 2));
 
@@ -332,6 +341,8 @@ check(!!protetta, 'pagina del target scansionata su --base dopo il login altrove
 check(!!protetta && /Area riservata/.test(protetta.ariaSnapshot || ''), 'sessione aperta sull\'origine del login valida anche su --base (cookie condiviso)');
 console.log('— loginBase (loginPath relativo, login su un\'altra applicazione)');
 const protetta4 = results.find(r => r.target === 'app4' && r.url === `${BASE}/app2/protetta`);
+const protetta5 = results.find(r => r.target === 'app5' && r.url === `${BASE}/app2/protetta`);
+check(!!protetta5 && /Area riservata/.test(protetta5.ariaSnapshot || ''), 'login lento: si aspetta l\'URL atteso, la pagina dopo trova la sessione pronta');
 check(!!protetta4 && /Area riservata/.test(protetta4.ariaSnapshot || ''), 'login su loginBase + loginPath, pagine su --base autenticate');
 console.log('— postMessage (contesto inviato dalla shell che ospita l\'app)');
 const ospitata = results.find(r => r.name === 'flow:ospitata/con-organizzazione');
