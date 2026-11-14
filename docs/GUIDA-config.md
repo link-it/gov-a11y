@@ -31,6 +31,11 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `crawlDepth` | intero | `2` | Profondità BFS del crawl |
 | `screenReader` | booleano | `false` | Esegue il virtual screen reader su ogni vista |
 | `lighthouse` | booleano | `false` | Calcola il punteggio Lighthouse (lento) |
+| `equalAccess` | booleano | `false` | **Secondo motore**: IBM Equal Access (modulo opzionale `accessibility-checker-engine`, regole `WCAG_2_2`, livelli A e AA) sullo stesso stato di ogni vista analizzato da axe. Violazioni (`FAIL`) e casi da verificare (`POTENTIAL`) in una sezione propria per vista, in `summary.json` (`equalAccess`, `confrontoMotori`) e in un confronto per criterio WCAG fra i due motori. Nessun gate (equiv. CLI `--equal-access` / `--no-equal-access`) |
+| `screenshots` | booleano | `true` | Screenshot di ogni occorrenza (violazioni, casi da verificare, esiti del secondo motore): la zona della vista intorno all'elemento, evidenziato con un bordo rosso, in `screenshot/` e nel report. Lo stesso elemento segnalato da più regole ha un'immagine sola; restano senza immagine gli elementi in iframe o shadow DOM e quelli non visibili (equiv. CLI `--no-screenshots`) |
+| `screenshotsMax` | intero | `20` | Quante immagini al massimo per vista |
+| `contrastEstimate` | booleano | `true` | Stima del contrasto sui testi da verificare (`color-contrast` di axe) e su quelli segnalati dal secondo motore (`text_contrast_sufficient`): il testo si rende trasparente per un attimo, si fotografa l'area delle sue righe e si confronta il suo colore con ogni pixel di sfondo. Rapporto minimo e massimo, soglia (4,5:1 o 3:1 per il testo grande) ed esito accanto all'occorrenza, tabella per componente nel report, `stimaContrasti` in `summary.json`. Non sposta nulla fra violazioni e casi da verificare e non tocca il gate (equiv. CLI `--no-contrast-estimate`) |
+| `contrastEstimateMax` | intero | `40` | Quanti testi al massimo si misurano per vista |
 | `mouseOnly` | booleano | `true` | Cerca i comandi con un gestore del clic **non raggiungibili da tastiera** |
 | `mouseOnlyIgnore` | selettore CSS | — | Esclusioni dal controllo precedente, dichiarate dall'applicazione (es. contenitori con gestione delegata che non sono comandi) |
 | `mouseOnlyMax` | intero | `40` | Quanti elementi elencare per vista nel report (il conteggio resta completo) |
@@ -45,7 +50,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
-| `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Si applica **solo** agli `incomplete`. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
+| `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Per axe si applica **solo** agli `incomplete`; le voci con `"engine": "equalAccess"` anche alle violazioni del secondo motore. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 | `locale` | stringa | — | Lingua del browser, es. `"it-IT"` (equiv. CLI `--locale`): imposta `navigator.language` e `Accept-Language`. Serve alle app che scelgono la lingua dell'interfaccia dal browser: il Chromium di CI è in inglese, e senza `locale` si analizzerebbe una variante che gli utenti non vedono. Per-target; quello globale (CLI o `defaults`) vale anche per la scheda di Lighthouse, che non eredita quello del target |
@@ -78,7 +83,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
   "navWait": "networkidle",              // waitUntil per goto: networkidle|load|domcontentloaded
   "navDelayMs": 0,                        // attesa extra (ms) dopo ogni navigazione
   "viewport": { "width": 1366, "height": 900 },
-  "extraHTTPHeaders": { "X-Auth": "…" }, // header aggiuntivi (es. auth di test SPA)
+  "extraHTTPHeaders": { "X-Auth": "${A11Y_APP_PRINCIPAL}" }, // header aggiuntivi (es. auth di test SPA); ${NOME} = variabile d'ambiente NOME
 
   "pages": [ … ],                        // viste da scansionare sempre (deterministiche)
   "flows": [ … ]                         // navigazioni scriptate (dettagli/report)

@@ -14,11 +14,15 @@ Un **unico tool**, **config per-app**: si usa su più webapp (GovCat, GovPay, Go
 | **2. Accessibility-tree assertions** | Linux CI, stesso flow Playwright | `ariaSnapshot` di Chromium → elementi interattivi **senza nome accessibile** (gate opz. `--fail-on-nameless`) |
 | **2b. Comandi solo-mouse** | Linux CI, stesso flow Playwright | `addEventListener` strumentato → elementi con un **gestore del clic non raggiungibili da tastiera** (gate `--fail-on-mouse-only`, **attivo di default**) |
 | **3. Virtual screen reader** | Linux CI (dep in più) | `@guidepup/virtual-screen-reader` → **trascrizione degli annunci** per vista, con cross-check degli annunci "solo-ruolo" |
+| **Secondo motore** | Linux CI (dep in più) | [IBM Equal Access](https://github.com/IBMa/equal-access) (`accessibility-checker-engine`) sullo **stesso stato** di ogni vista: regole e algoritmi indipendenti da axe, esiti a confronto per criterio WCAG, senza gate |
 | 4. NVDA/VoiceOver reali | runner Win/macOS | fuori da questo tool (guidepup reale) |
 | 5. SR manuale (umano) | desktop | necessario a campione per conformità AgID |
 
 Questo tool copre i **livelli 1–3**, tutti eseguibili su Linux CI headless. A questi si aggiunge il
-punteggio **Lighthouse** (indicatore sintetico, opzionale). Cosa intercetta ciascun livello, cosa
+punteggio **Lighthouse** (indicatore sintetico, opzionale). Il report riporta per ogni problema il
+criterio WCAG e il riferimento **EN 301 549**, uno **screenshot** con l'elemento evidenziato, gli
+**errori sistematici** (stesso problema sullo stesso componente in più viste) e il **perimetro non
+coperto** (flow saltati o interrotti, pagine non analizzate). Cosa intercetta ciascun livello, cosa
 non copre, quanto costa e quando attivarlo: **[`docs/GUIDA-livelli-di-verifica.md`](docs/GUIDA-livelli-di-verifica.md)**.
 
 ## Requisiti e installazione
@@ -28,8 +32,9 @@ non copre, quanto costa e quando attivarlo: **[`docs/GUIDA-livelli-di-verifica.m
 
 ```bash
 npm ci                 # installa deps + (postinstall) scarica Chromium
-                       # le optionalDependencies (lighthouse, jsdom, virtual-screen-reader)
-                       # servono solo per --lighthouse / --screen-reader
+                       # le optionalDependencies (lighthouse, jsdom, virtual-screen-reader,
+                       # accessibility-checker-engine) servono solo per --lighthouse /
+                       # --screen-reader / --equal-access
 ```
 
 Per sapere **se** sono state installate (senza reinstallarle e senza lanciare una scansione):
@@ -81,12 +86,15 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--keyboard-walk` | off | **2.4.7 / 2.4.11 / 2.1.2**: percorso col tasto Tab (focus visibile, non coperto, nessuna trappola) e ordine di focus |
 | `--no-reflow` / `--no-text-spacing` / `--no-keyboard-walk` | — | Spengono i tre controlli precedenti anche se attivi in config |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
+| `--equal-access` | off | **Secondo motore**: IBM Equal Access (regole WCAG 2.2 A/AA) sullo stesso stato di ogni vista analizzato da axe. Esiti in una sezione propria e in un confronto per criterio fra i due motori, senza gate (richiede il modulo `accessibility-checker-engine`) |
+| `--no-contrast-estimate` | — | Niente stima del contrasto. Per difetto ogni testo il cui contrasto è da verificare (axe) o segnalato dal secondo motore ha una misura fatta sui pixel dello sfondo reale: rapporto minimo e massimo e soglia richiesta, accanto all'occorrenza e in una tabella per componente. Non tocca il gate |
+| `--no-screenshots` | — | Niente screenshot delle occorrenze. Per difetto ogni violazione e ogni caso da verificare ha un'immagine della zona della pagina con l'elemento evidenziato (al massimo `screenshotsMax` per vista, 20), in `screenshot/` |
 | `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve una copia dei **cookie di sessione** del context di scansione (ognuno col suo path) e del suo `sessionStorage`, e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate. Se Lighthouse finisce su un'altra pagina (es. rimandato al login) il punteggio viene scartato e segnalato |
 | `--min-score <0..1>` | — | Gate Lighthouse (implica `--lighthouse`) |
 | `--crawl <n>` / `--crawl-depth <d>` | `0` / `2` | Dopo il login, scopre e scansiona fino a n pagine (BFS) oltre quelle in config |
 | `--no-flows` | off | Non eseguire i flows scriptati |
-| `--false-positives <f>` | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati: le occorrenze corrispondenti escono da "Da verificare" e finiscono in una sezione propria del report. **Solo `incomplete`, mai violazioni.** Vedi [`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md) |
-| `--no-lighthouse` / `--no-screen-reader` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
+| `--false-positives <f>` | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati: le occorrenze corrispondenti escono da "Da verificare" e finiscono in una sezione propria del report. **Per axe solo `incomplete`, mai violazioni**; le voci con `"engine": "equalAccess"` valgono anche per le violazioni del secondo motore, che non ha gate. Vedi [`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md) |
+| `--no-lighthouse` / `--no-screen-reader` / `--no-equal-access` / `--no-crawl` | — | **Disabilitano** la funzione anche se attiva in config (precedenza sulla config) |
 | `--product-version <v>` | — | Versione del prodotto in prova (anche env `A11Y_PRODUCT_VERSION`): dichiarativa, compare nel report e in `summary.json` |
 | `--insecure` | on | Ignora errori certificato HTTPS |
 | `--login-base <url>` | — | Applicazione su cui si fa il login, se non è quella di `--base`: il `loginPath` relativo si accoda a questo indirizzo. Per cambiare ambiente (sviluppo, collaudo) senza toccare il config |
@@ -94,7 +102,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
-> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `reflow`, `textSpacing`, `keyboardWalk`, `languageParts`, `failOn`,
+> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `equalAccess`, `screenshots`, `screenshotsMax`, `contrastEstimate`, `contrastEstimateMax`, `reflow`, `textSpacing`, `keyboardWalk`, `languageParts`, `failOn`,
 > `failOnNameless`, `failOnEmpty`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
@@ -103,7 +111,10 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 ### Variabili d'ambiente
 `A11Y_BASE_URL`, `A11Y_USER`, `A11Y_PASS`, `A11Y_PRODUCT_VERSION`, e per-target
 `A11Y_<TARGET>_USER` / `A11Y_<TARGET>_PASS` (es. `A11Y_GOVCAT_PASS`).
-Le **credenziali vanno nei secret di CI**, non nel file di config.
+Le **credenziali vanno nei secret di CI**, non nel file di config. Lo stesso vale per un'identità
+passata in un'intestazione (un codice fiscale è un dato personale): nei valori di `extraHTTPHeaders`
+`${NOME}` diventa il valore della variabile d'ambiente `NOME`, e se non è impostata la scansione si
+ferma con exit code 2.
 
 ## Config `targets.<app>.json`
 
@@ -121,7 +132,7 @@ Ogni chiave di primo livello (che non inizia con `$`) è un **target**. Schema:
     "sourceHint": "path/versionato",   // file sorgente su cui Sonar aggancia (approx) le issue
 
     // --- AUTENTICAZIONE (scegli UNA o combina) ---
-    "extraHTTPHeaders": { "X-GovCat-principal": "utente" },  // header su OGNI richiesta (auth locale/dev)
+    "extraHTTPHeaders": { "X-GovCat-principal": "${A11Y_GOVCAT_PRINCIPAL}" },  // header su OGNI richiesta (auth locale/dev); ${NOME} = variabile d'ambiente
     "login": {                         // login a FORM (omesso = no-form/SSO/header)
       "usernameSelector": "#username, input[name='username']",
       "passwordSelector": "input[type='password']",
@@ -239,7 +250,7 @@ il file su cui Sonar aggancia (approssimativamente) le issue.
 - **[`docs/GUIDA-livelli-di-verifica.md`](docs/GUIDA-livelli-di-verifica.md)** — i quattro livelli (axe, accessibility tree, virtual screen reader, Lighthouse): cosa verificano, cosa non coprono, gate, costi, quale configurazione per quale scenario.
 - **[`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md)** — esecuzione: parametri obbligatori e tutti i flag CLI (valori, default).
 - **[`docs/GUIDA-config.md`](docs/GUIDA-config.md)** — riferimento completo della config (`defaults`, target, login, pages, flows, step incl. `scanMenu`/`recurse`).
-- **[`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md)** — il registro dei falsi positivi: quando una occorrenza "da verificare" è già stata esaminata, come registrarla con motivazione e prova, perché non si applica alle violazioni.
+- **[`docs/GUIDA-falsi-positivi.md`](docs/GUIDA-falsi-positivi.md)** — il registro dei falsi positivi: quando una occorrenza "da verificare" è già stata esaminata, come registrarla con motivazione e prova, perché non si applica alle violazioni di axe, e come vale per il secondo motore.
 - **[`docs/GUIDA-nuova-app.md`](docs/GUIDA-nuova-app.md)** — guida passo-passo per aggiungere una nuova app.
 - **[`docs/config-schema.annotato.yaml`](docs/config-schema.annotato.yaml)** — struttura della config commentata.
 

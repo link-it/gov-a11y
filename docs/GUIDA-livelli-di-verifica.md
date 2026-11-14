@@ -14,6 +14,7 @@ vedi [`GUIDA-esecuzione.md`](GUIDA-esecuzione.md), per le chiavi di configurazio
 | 2. **accessibility tree** | l'albero che le tecnologie assistive consumano | sempre | elementi interattivi senza nome accessibile |
 | 3. **virtual screen reader** | gli annunci effettivamente prodotti | `screenReader` / `--screen-reader` | sequenza di annunci + annunci "solo-ruolo" |
 | — **Lighthouse** | un punteggio aggregato della categoria accessibility | `lighthouse` / `--lighthouse` | un numero 0-100 per vista |
+| — **secondo motore** | regole WCAG di IBM Equal Access, indipendenti da axe, sullo stesso DOM | `equalAccess` / `--equal-access` | violazioni e casi da verificare per vista, confronto per criterio |
 
 I livelli 1-3 producono **problemi localizzabili**, su cui si può aprire una issue. Lighthouse
 produce **un indicatore**: utile per il trend, non per capire cosa correggere.
@@ -195,6 +196,67 @@ c'è, la scansione si ferma con exit 2 prima di aprire il browser. Verifica a se
 
 ---
 
+## Secondo motore — IBM Equal Access (`equalAccess`)
+
+Esegue il motore di [IBM Equal Access](https://github.com/IBMa/equal-access) (pacchetto
+`accessibility-checker-engine`, Apache-2.0) sullo **stesso stato** di ogni vista, subito dopo axe:
+stessa sessione, stesso DOM, flow compresi. Usa l'insieme di regole `WCAG_2_2`, che contiene i soli
+criteri di livello A e AA.
+
+**Perché un secondo motore**: le linee guida che chiedono di verificare le pagine "con almeno due
+strumenti diversi" (per esempio quelle di Regione Toscana, Sezione D, cap. 13) lo fanno perché
+strumenti diversi trovano problemi diversi. Lighthouse non basta allo scopo: usa a sua volta
+axe-core. IBM Equal Access ha regole e algoritmi propri (contrasto compreso), ed è lo stesso motore
+dell'estensione per browser e del checker di IBM, senza il loro contorno (browser proprio,
+telemetria): uno script iniettato nella pagina, come axe.
+
+**Cosa produce**: per ogni vista le violazioni (esito `FAIL`) e i casi da verificare (`POTENTIAL`),
+con regola, messaggio, criteri WCAG, snippet e XPath dell'elemento; nel report una colonna nella
+tabella delle viste, una sezione per vista e il **confronto per criterio WCAG** fra i due motori. Un
+criterio segnalato da un solo motore è quello da esaminare. Raccomandazioni e verifiche manuali del
+motore non sono riportate.
+
+**Gate**: nessuno. Finché non se ne conosce il rumore su un'applicazione, gli esiti del secondo
+motore sono evidenza da confrontare, non motivo per fermare una pipeline.
+
+**Costo**: basso, uno o due secondi per vista. **Dipendenze**: `accessibility-checker-engine` è una
+`optionalDependency`; se la feature è richiesta e il modulo manca la scansione si ferma con exit 2.
+
+---
+
+## Cosa accompagna ogni problema nel report
+
+- **Criterio WCAG e riferimento EN 301 549**: la clausola 9 della EN 301 549 v3.2.1 (la norma
+  tecnica su cui poggiano la normativa italiana e il monitoraggio AgID) ripete i criteri WCAG 2.1 A
+  e AA con il prefisso `9.` (1.4.3 → 9.1.4.3). I criteri introdotti dalle WCAG 2.2 non vi sono
+  ancora e sono marcati "solo WCAG 2.2".
+- **Screenshot** (`screenshots`, attivo di default): la zona della vista intorno all'elemento,
+  evidenziato con un bordo rosso, per ogni violazione, caso da verificare ed esito del secondo
+  motore (al massimo `screenshotsMax` per vista). File in `screenshot/`, miniature nel report.
+- **Stima del contrasto** (`contrastEstimate`, attiva di default): axe lascia "da verificare" il
+  contrasto di un testo quando non sa ricavarne lo sfondo (gradiente, immagine, pseudo-elemento,
+  elemento sovrapposto) o quando il testo è di uno o due caratteri; il secondo motore ne segnala
+  altri. Lo sfondo vero però è sullo schermo: il testo si rende trasparente per un attimo (anche
+  negli pseudo-elementi), si fotografa l'area delle sue righe e si confronta il suo colore con ogni
+  pixel. Ne escono il rapporto minimo e massimo, la soglia (4,5:1, o 3:1 per il testo grande) e un
+  esito: *sotto soglia*, *in parte* (un gradiente che passa la soglia a metà), *sopra soglia*. Il 2%
+  dei pixel per parte si scarta. È una stima: non considera filtri, ombre e contenuti in movimento.
+  Non decide nulla e non tocca il gate; è il punto di partenza della verifica manuale e la misura da
+  citare in un falso positivo (vedi [GUIDA-falsi-positivi.md](GUIDA-falsi-positivi.md)). Nel report:
+  accanto all'occorrenza e in una tabella per componente; in `summary.json`: `stimaContrasti`.
+- **Errori sistematici**: la stessa regola sullo stesso componente in più viste. Il componente si
+  riconosce dal selettore, ripulito di ciò che cambia da una vista all'altra (attributi di
+  incapsulamento di Angular, posizione fra i fratelli). È un difetto del modello di pagina, da
+  correggere una volta sola; vale anche per i casi da verificare, dove una verifica manuale fatta sul
+  componente vale per tutte le viste. In `summary.json`: `erroriSistematici`.
+- **Perimetro non coperto**: flow saltati (dati mancanti, variabili non impostate) o interrotti da
+  un passo non riuscito, pagine in errore o che rimandano a una vista già analizzata, login non
+  confermato. Prima finivano solo nel log; ora stanno in un riquadro del report e in
+  `summary.json` (`perimetro`), perché gli esiti del report non valgono per le viste che non sono
+  state analizzate.
+
+---
+
 ## Cosa nessun livello copre
 
 L'automazione, sommando tutti i livelli, copre **indicativamente il 30-40%** dei criteri WCAG 2.1
@@ -237,3 +299,6 @@ config. Precedenza: **CLI > target > defaults > built-in**.
 | 2. albero | `axTree.nameless[]` | `namelessTotal`, `namelessInteractive` per vista | `aria-tree/<vista>.yaml` + vista grafica nel `report.html` |
 | 3. screen reader | `sr.stops`, `sr.phrases[]`, `sr.roleOnly[]` | `screenReader`, `srRoleOnlyTotal`, `srStops` per vista | — |
 | Lighthouse | `lhScore` | `lighthouseEnabled`, `lighthouse[]` (url + score) | colonna nel `report.html` |
+| secondo motore | `equalAccess.violazioni[]`, `equalAccess.daVerificare[]` | `equalAccess` (motore, versione, totali), `confrontoMotori[]`, `equalAccess` per vista | colonna, sezione per vista e confronto nel `report.html` |
+| screenshot | `screenshot` su ogni nodo fotografato | — | `screenshot/v<vista>-<n>.png`, miniature nel `report.html` |
+| errori sistematici, perimetro | — | `erroriSistematici[]`, `perimetro[]` | tabella e riquadro nel `report.html` |

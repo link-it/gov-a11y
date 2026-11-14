@@ -19,7 +19,13 @@ defaults:
   crawlDepth: 2               # profondità BFS del crawl
   screenReader: false         # esegue il virtual screen reader su ogni vista
   lighthouse: false           # calcola il punteggio Lighthouse (lento)
-  mouseOnly: true             # segnala i comandi con gestore del clic non raggiungibili da tastiera
+  equalAccess: false          # secondo motore, indipendente da axe: IBM Equal Access (accessibility-checker-engine,
+                              # regole WCAG 2.2 A/AA) sullo stesso stato di ogni vista; senza gate
+  screenshots: true           # screenshot di ogni occorrenza con l'elemento evidenziato (screenshot/ e report)
+  screenshotsMax: 20          # immagini al massimo per vista
+  contrastEstimate: true      # stima del contrasto sui pixel dei testi da verificare (senza gate)
+  contrastEstimateMax: 40     # testi misurati al massimo per vista
+  mouseOnly: true            # segnala i comandi con gestore del clic non raggiungibili da tastiera
   mouseOnlyIgnore: null       # selettore CSS con le eccezioni dell'APPLICAZIONE (niente di specifico nel tool)
   mouseOnlyMax: 40            # quanti elencarne per vista nel report (il conteggio resta completo)
   # --- gate (GLOBALI: qui, non per-target) ---
@@ -32,7 +38,7 @@ defaults:
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---
   noFlows: false              # non eseguire i flows
-  falsePositives: null        # file .json o directory con i falsi positivi dichiarati (solo 'incomplete');
+  falsePositives: null        # file .json o directory con i falsi positivi dichiarati (axe: solo 'incomplete'; voci con engine: equalAccess anche le violazioni IBM);
                               # percorso relativo alla dir del config, o assoluto. Vedi GUIDA-falsi-positivi.md
   insecure: true              # ignora errori certificato HTTPS
   locale: null                # lingua del browser, es. "it-IT" (navigator.language, Accept-Language);
@@ -75,7 +81,8 @@ console:
   navDelayMs: 0               # attesa extra (ms) dopo ogni navigazione
   viewport: { width: 1366, height: 900 }
   extraHTTPHeaders:           # header aggiuntivi (es. auth di test SPA)
-    X-Auth-Test: "..."
+    X-Auth-Test: "${A11Y_CONSOLE_PRINCIPAL}"   # ${NOME} = variabile d'ambiente NOME (dati personali fuori
+                                               # dal file); non impostata -> la scansione si ferma (exit 2)
 
   # override dei parametri di 'defaults' validi solo per questo target
   crawl: 300

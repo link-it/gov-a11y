@@ -1,3 +1,57 @@
+2026-11-14  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Falsi positivi del secondo motore: una voce del registro con "engine": "equalAccess" vale per IBM Equal
+	Access, sia per le violazioni sia per i casi da verificare ("rule" è l'id della regola IBM, "cause" il
+	suo reasonId, il selettore si confronta con l'elemento indicato dall'XPath del motore). IBM non decide
+	l'esito della scansione, e alcune sue regole danno per violazione un comportamento voluto di una
+	libreria, come gli ancoraggi del focus trap dei dialog (Angular CDK, ngx-bootstrap). Per axe-core il
+	registro resta limitato ai casi da verificare. Le occorrenze derogate vanno nella stessa sezione del
+	report, con il motore indicato; un motore sconosciuto fa ignorare la voce. Confronto del selettore
+	in comune fra i due motori. Test d'integrazione.
+	Un registro dichiarato in "defaults", o comunque da più target, si carica una volta sola: prima veniva
+	ricaricato per ogni target, e il report elencava le stesse voci anche fra quelle "senza riscontro".
+	Registro dei falsi positivi di GovCat (targets/govcat/falsePositives.govcat.json): gli ancoraggi del
+	focus trap dei dialog, per axe e per IBM.
+
+2026-11-10  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Stima del contrasto sui testi da verificare ("contrastEstimate", attiva di default, --no-contrast-estimate;
+	al massimo "contrastEstimateMax" per vista): per ogni color-contrast che axe non ha deciso e per ogni
+	text_contrast_sufficient del secondo motore il testo si rende trasparente per un attimo (foglio di stile
+	adottato, che una CSP non blocca), si fotografa l'area delle sue righe e si confronta il suo colore con
+	ogni pixel di sfondo: rapporto minimo e massimo, soglia (4,5:1 o 3:1 per il testo grande) ed esito
+	(sotto soglia, in parte, sopra soglia). Vale anche per gradienti, immagini, pseudo-elementi e testi
+	corti, dove axe si ferma. Accanto all'occorrenza, in una tabella per componente del report e in
+	summary.json (stimaContrasti); lo stesso elemento visto da tutti e due i motori si misura una volta.
+	Non sposta nulla fra violazioni e casi da verificare e non tocca il gate. Decodifica PNG senza
+	dipendenze (node:zlib). Test unitari e d'integrazione.
+
+2026-11-09  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Secondo motore indipendente da axe: IBM Equal Access (accessibility-checker-engine, Apache-2.0, nuova
+	optionalDependency), con "equalAccess" / --equal-access. Gira sullo stesso stato di ogni vista, subito dopo
+	axe, con le regole WCAG 2.2 di livello A e AA: violazioni e casi da verificare per vista e un confronto per
+	criterio WCAG fra i due motori, senza gate. Serve alle verifiche che chiedono almeno due strumenti diversi
+	(Lighthouse non conta: usa axe-core).
+	Screenshot delle occorrenze ("screenshots", attivi di default, --no-screenshots; al massimo
+	"screenshotsMax" per vista): la zona della vista con l'elemento evidenziato, in screenshot/ e nel report.
+	Riferimento EN 301 549 v3.2.1 accanto a ogni criterio WCAG (i criteri nuovi delle WCAG 2.2 marcati come
+	tali). Errori sistematici: la stessa regola sullo stesso componente in più viste, in una tabella del
+	report e in summary.json.
+	Perimetro non coperto nel report e in summary.json: flow saltati (sentinella assente, variabili non
+	impostate) o interrotti, pagine in errore o che rimandano a una vista già analizzata, login non
+	confermato. Prima finivano solo nel log, e gli esiti del report sembravano valere anche per le viste mai
+	analizzate.
+	Nei valori di "extraHTTPHeaders" ${NOME} diventa la variabile d'ambiente NOME: un'identità passata in
+	un'intestazione (un codice fiscale) resta fuori dal config; se la variabile manca la scansione si ferma.
+	GovCat 2.5: principal da A11Y_GOVCAT_PRINCIPAL; nuovo target "govcat-pubblico" (pagina di accesso e
+	catalogo anonimo); flussi del servizio che aprono direttamente il primo servizio (la lista mescola
+	gruppi e servizi); nuovo servizio su /servizi/new/wizard; stati di errore dei form principali senza
+	invio (govcat.steps.mjs#toccaCampi); secondo motore e casi da verificare attivi.
+
 2026-11-02  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]

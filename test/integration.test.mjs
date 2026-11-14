@@ -94,6 +94,11 @@ const server = createServer((req, res) => {
     '/app3/lingua': `<main><h1>Login</h1><p id="frase">Accedendo accetti i termini</p><p lang="it">Accedendo accetti, ma con lang</p></main>`,
     // testi sotto il bordo di un contenitore che scorre; la sentinella, se vista (IntersectionObserver)
     // o raggiunta scorrendo (evento scroll, come ngx-infinite-scroll), "carica altro" e scende ancora
+    // testi su sfondo sfumato: axe non sa decidere (bgGradient), la stima sui pixel si'
+    '/app3/sfumato': `<main><h1>Sfumato</h1><div style="display:inline-block;background:linear-gradient(90deg,#084298,#cfe2ff);padding:0"><p id="chiaro-sfumato" style="color:#fff;margin:0">Etichetta chiara su sfondo blu che schiarisce</p></div><div style="background:linear-gradient(90deg,#000,#333);padding:12px"><p id="bianco-scuro" style="color:#fff;margin:0">Testo bianco su sfondo scuro</p></div></main>`,
+    // dialog con gli ancoraggi del focus trap (come Angular CDK): focalizzabili dentro aria-hidden per
+    // costruzione, coperti dal registro; il collegamento nascosto e' invece un difetto vero
+    '/app3/trappola': `<main><h1>Trappola</h1><div aria-hidden="true"><a href="#x" id="vero-nascosto">Collegamento nascosto</a></div><div class="cdk-overlay-pane"><div tabindex="0" class="cdk-visually-hidden cdk-focus-trap-anchor" aria-hidden="true"></div><div role="dialog" aria-modal="true" aria-label="Prova"><button type="button">Chiudi</button></div><div tabindex="0" class="cdk-visually-hidden cdk-focus-trap-anchor" aria-hidden="true"></div></div></main>`,
     '/app3/sotto': `<main><h1>Sotto</h1><div id="scorre" style="height:300px;overflow:auto"><div style="height:600px"></div><p id="leggibile">Testo leggibile in fondo</p><p id="chiaro" style="color:#c8c8c8">Testo troppo chiaro</p><p id="sentinella">Scorri per caricare altri risultati</p></div><script>new IntersectionObserver(v => { if (v[0].isIntersecting) { const p = document.createElement('p'); p.style.height = '400px'; p.textContent = 'caricato altro'; document.getElementById('scorre').insertBefore(p, document.getElementById('sentinella')); } }).observe(document.getElementById('sentinella')); const scorre = document.getElementById('scorre'); scorre.addEventListener('scroll', () => { if (scorre.scrollTop + scorre.clientHeight > scorre.scrollHeight - 100) { const p = document.createElement('p'); p.style.height = '400px'; p.textContent = 'caricato allo scroll'; scorre.insertBefore(p, document.getElementById('sentinella')); } });</script></main>`,
   };
   if (app3[path]) {
@@ -147,6 +152,13 @@ export async function conProblemi({ scan }) {
 }
 export default async function ({ page }) { await page.evaluate(() => { const p = document.createElement('p'); p.textContent = 'Eseguito default'; document.body.append(p); }); }
 `);
+// registro dei falsi positivi del target app3: una voce per axe, una per il secondo motore, una con
+// un motore sconosciuto (ignorata)
+writeFileSync(join(OUT, 'fp-app3.json'), JSON.stringify({ falsePositives: [
+  { id: 'trappola-axe', rule: 'aria-hidden-focus', selector: '.cdk-focus-trap-anchor', reason: 'Ancoraggi del focus trap.', verification: 'Prova.' },
+  { id: 'trappola-ibm', engine: 'equalAccess', rule: 'aria_hidden_nontabbable', selector: '.cdk-focus-trap-anchor', reason: 'Ancoraggi del focus trap.', verification: 'Prova.' },
+  { id: 'motore-ignoto', engine: 'wave', rule: 'x', reason: 'r', verification: 'v' },
+] }));
 writeFileSync(CFG, JSON.stringify({
   app: {
     name: 'MockApp', enabled: true, loginPath: '/app/', contextPath: '/app/',
@@ -204,15 +216,18 @@ writeFileSync(CFG, JSON.stringify({
       { name: 'senza-env', start: '/app/anagrafe', steps: [
         { fill: { selector: '#cf', env: 'A11Y_INT_ASSENTE' } }, { scan: 'mai' },
       ] },
+      // sentinella assente: flow saltato, e il salto deve risultare nel perimetro del report
+      { name: 'senza-dati', start: '/app/home', skipIfMissing: '#nessun-dato', skipIfMissingTimeoutMs: 300, steps: [{ scan: 'mai' }] },
     ],
   },
-  // controlli fuori da axe, accesi dal config del target
+  // controlli fuori da axe, accesi dal config del target; secondo motore (IBM Equal Access)
   app3: {
     name: 'MockApp3', enabled: true, loginPath: '/app3/ok',
-    reflow: true, textSpacing: true, keyboardWalk: true,
+    reflow: true, textSpacing: true, keyboardWalk: true, equalAccess: true, falsePositives: 'fp-app3.json',
     languageParts: { it: ['Accedendo accetti'] },
     pages: [{ name: 'ok', path: '/app3/ok' }, { name: 'larga', path: '/app3/larga' }, { name: 'taglio', path: '/app3/taglio' },
-      { name: 'focus', path: '/app3/focus' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' }],
+      { name: 'focus', path: '/app3/focus' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' },
+      { name: 'sfumato', path: '/app3/sfumato' }, { name: 'trappola', path: '/app3/trappola' }],
   },
   // login su un'altra origine (loginPath assoluto), pagine su --base autenticate dal cookie condiviso
   app2: {
@@ -225,6 +240,7 @@ writeFileSync(CFG, JSON.stringify({
   // come app2, ma con loginPath relativo e l'applicazione di login in 'loginBase'
   app4: {
     name: 'MockApp4', enabled: true, loginPath: '/login', loginBase: AUTH,
+    falsePositives: 'fp-app3.json',   // stesso registro di app3: va caricato una volta sola
     login: { usernameSelector: "input[name='u']", passwordSelector: "input[name='p']", submitSelector: "button[type='submit']", successUrlIncludes: 'benvenuto' },
     pages: [{ name: 'protetta-base', path: '/app2/protetta' }],
   },
@@ -364,6 +380,55 @@ const outFiles = readdirSync(OUT, { recursive: true }).filter(f => /\.(json|html
 const trapela = outFiles.filter(f => { const t = readFileSync(join(OUT, f), 'utf8');
   return t.includes('RSSMRA80A01H501U') || t.includes("Verifica d'ufficio") || t.includes('Verifica d&apos;ufficio'); });
 check(outFiles.length > 3 && trapela.length === 0, `nessun file di output contiene i valori delle variabili${trapela.length ? ' (trapelano in: ' + trapela.join(', ') + ')' : ''}`);
+console.log('— perimetro non coperto (nel report, non solo nel log)');
+const per = summary.perimetro || [];
+check(per.some(p => p.nome === 'senza-dati' && p.esito === 'saltato' && /#nessun-dato/.test(p.motivo)), 'flow saltato per sentinella assente registrato nel perimetro');
+check(per.some(p => p.nome === 'senza-env' && p.esito === 'saltato' && /A11Y_INT_ASSENTE/.test(p.motivo)), 'flow saltato per variabile mancante registrato nel perimetro');
+check(per.some(p => p.nome === 'script-fuori' && p.esito === 'interrotto'), 'flow interrotto da un passo fallito registrato nel perimetro');
+check(per.some(p => p.nome === 'spa-riservata' && p.esito === 'non analizzata'), 'pagina che rimbalza su una vista già analizzata registrata nel perimetro');
+const html = readFileSync(join(OUT, 'report.html'), 'utf8');
+check(/Perimetro non coperto/.test(html) && html.includes('senza-dati'), 'report.html: sezione del perimetro non coperto');
+console.log('— screenshot delle occorrenze');
+const conImg = results.flatMap(r => r.violations).flatMap(v => v.nodes).filter(n => n.screenshot);
+check(conImg.length > 0 && conImg.every(n => existsSync(join(OUT, n.screenshot))), `occorrenze con screenshot, file presenti (${conImg.length})`);
+check(/<img class="shot" src="screenshot\//.test(html), 'report.html: screenshot accanto alle occorrenze');
+console.log('— errori sistematici');
+const sist = summary.erroriSistematici || [];
+check(sist.some(g => g.regola === 'button-name' && g.tipo === 'violazione' && g.viste.length >= 2), 'button-name sullo stesso componente in più viste: errore sistematico');
+check(/Errori sistematici/.test(html), 'report.html: tabella degli errori sistematici');
+console.log('— secondo motore (IBM Equal Access)');
+const conEa = results.filter(r => r.target === 'app3');
+check(conEa.length > 0 && conEa.every(r => r.equalAccess && Array.isArray(r.equalAccess.violazioni)), 'IBM Equal Access eseguito su ogni vista del target che lo chiede');
+check(results.filter(r => r.target === 'app').every(r => r.equalAccess === null), 'IBM Equal Access non eseguito sui target che non lo chiedono');
+const eaContrasto = sotto?.equalAccess?.violazioni.filter(x => x.wcag.includes('1.4.3')) || [];
+check(eaContrasto.length > 0, `IBM Equal Access trova il contrasto insufficiente (1.4.3) anche lui (${eaContrasto.length})`);
+check(Array.isArray(summary.confrontoMotori) && summary.confrontoMotori.some(c => c.criterio === '1.4.3' && c.axeViolazioni > 0 && c.eaViolazioni > 0), 'confronto fra motori per criterio nel riepilogo');
+check(/Confronto fra i due motori/.test(html) && /EN 9\.1\.4\.3/.test(html), 'report.html: confronto fra motori e riferimenti EN 301 549');
+console.log('— stima del contrasto sui casi da verificare');
+const sfumato = app3('sfumato');
+const ccNodi = (sfumato?.incomplete || []).filter(v => v.id === 'color-contrast').flatMap(v => v.nodes);
+const ccDi = id => ccNodi.find(n => n.html.includes(id))?.contrasto;
+check(ccNodi.length >= 2 && ccNodi.every(n => n.contrasto), `testi su sfondo sfumato da verificare per axe, e tutti stimati (${ccNodi.length})`);
+check(ccDi('chiaro-sfumato')?.esito === 'parziale' && ccDi('chiaro-sfumato').minimo < 4.5 && ccDi('chiaro-sfumato').massimo > 1, `bianco su blu che schiarisce: sotto soglia nella parte chiara (${JSON.stringify(ccDi('chiaro-sfumato'))})`);
+check(ccDi('bianco-scuro')?.esito === 'conforme' && ccDi('bianco-scuro').minimo >= 12, `bianco su sfondo scuro: conforme (${JSON.stringify(ccDi('bianco-scuro'))})`);
+check(/^#ffffff$/.test(ccDi('bianco-scuro')?.testo || '') && ccDi('bianco-scuro').richiesto === 4.5, 'stima: colore del testo e soglia del testo normale');
+const ccComp = summary.stimaContrasti?.perComponente || [];
+check(ccComp.some(g => g.esito === 'parziale' && /p/.test(g.componente)) && ccComp.some(g => g.esito === 'conforme'), 'summary.json: stime raggruppate per componente');
+check(/Contrasti da verificare — stima sullo sfondo reale/.test(html) && /Contrasto stimato sullo sfondo reale/.test(html), 'report.html: tabella per componente e stima accanto all\'occorrenza');
+console.log('— falsi positivi del secondo motore');
+const trappola = app3('trappola');
+const eaTrap = [...(trappola?.equalAccess?.violazioni || []), ...(trappola?.equalAccess?.daVerificare || [])].filter(x => x.regola === 'aria_hidden_nontabbable');
+const fpTrap = trappola?.falsePositives || [];
+check(fpTrap.some(d => d.engine === 'equalAccess' && d.id === 'trappola-ibm' && d.tipo === 'violazione'), `IBM: violazione sugli ancoraggi del focus trap derogata dal registro (${JSON.stringify(fpTrap.map(d => [d.engine, d.id, d.tipo]))})`);
+check(eaTrap.length > 0 && eaTrap.every(x => !/cdk-focus-trap-anchor/.test(x.snippet)), `IBM: il collegamento dentro aria-hidden resta segnalato, gli ancoraggi no (${eaTrap.map(x => x.snippet.slice(0, 40)).join(' | ')})`);
+check(!fpTrap.some(d => d.engine === 'equalAccess' && /vero-nascosto/.test(d.html || '')), 'IBM: il selettore della voce non copre il difetto vero');
+check(fpTrap.filter(d => d.engine === 'axe').every(d => d.tipo === 'da verificare' && /cdk-focus-trap-anchor/.test(d.html)), 'axe: derogati solo casi da verificare, sugli ancoraggi');
+const vociFp = summary.falsePositives || [];
+check(vociFp.find(v => v.id === 'trappola-ibm')?.engine === 'equalAccess' && vociFp.find(v => v.id === 'trappola-ibm').matches > 0, 'summary.json: voce del secondo motore con motore e riscontri');
+check(!vociFp.some(v => v.id === 'motore-ignoto'), 'voce con motore sconosciuto ignorata');
+check(vociFp.filter(v => v.id === 'trappola-ibm').length === 1 && vociFp.filter(v => v.id === 'trappola-axe').length === 1, `registro usato da due target: voci caricate una volta (${vociFp.map(v => v.id).join(', ')})`);
+check(!/Senza riscontro:<\/b> le voci\s*<code>trappola/.test(html), 'report.html: le voci con riscontro non compaiono anche "senza riscontro"');
+check(/<td>IBM Equal Access<\/td><td><code>aria_hidden_nontabbable/.test(html), 'report.html: tabella dei falsi positivi con il motore');
 check(M.evaluateGate(results, summary).length >= 1, 'gate rileva violazioni (button senza nome)');
 check(M.evaluateGate(results, summary).some(m => /viste vuote/.test(m) && /bianca/.test(m) && !/tardiva/.test(m)), 'gate: la vista vuota (e solo lei) fra i motivi');
 

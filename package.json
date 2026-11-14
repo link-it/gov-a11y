@@ -22,6 +22,7 @@
   },
   "optionalDependencies": {
     "@guidepup/virtual-screen-reader": "^0.30.1",
+    "accessibility-checker-engine": "^4.0.34",
     "jsdom": "^25.0.1",
     "lighthouse": "^12.8.2"
   }
