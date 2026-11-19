@@ -97,6 +97,38 @@ check(!idsMo.includes('escluso'), "onora l'esclusione dichiarata nel target ('mo
 check(!idsMo.includes('senza-gestore'), 'NON segnala elementi senza gestore del clic');
 check(!idsMo.includes('voce-composita'), "NON segnala le voci di un widget composito (role + tabindex=-1)");
 check(mo.totale === idsMo.length, `totale coerente con l'elenco (${mo.totale} vs ${idsMo.length}): ${JSON.stringify(idsMo)}`);
+
+/* combobox ARIA 1.2 (ng-select): opzioni e pannello si usano con le frecce, non col Tab */
+await pagClic.setContent(`<body>
+  <input id="combo" role="combobox" aria-controls="pannello" aria-activedescendant="pannello-0">
+  <div id="pannello"><div role="listbox"><div id="pannello-0" role="option">Uno</div></div></div>
+  <div id="altro">Apri</div>
+</body>`);
+await pagClic.evaluate(() => {
+  ['pannello', 'pannello-0', 'altro'].forEach(id => document.getElementById(id).addEventListener('click', () => {}));
+});
+const moCombo = (await analyzeMouseOnly(pagClic, {})).elementi.map(e => e.id);
+check(!moCombo.includes('pannello') && !moCombo.includes('pannello-0'), 'NON segnala pannello e opzioni del popup di una combobox (aria-controls)');
+check(moCombo.includes('altro'), 'segnala ancora i comandi fuori dal popup della combobox');
+
+/* sfondo di un dialog modale: chiude al clic, da tastiera c'e' Esc */
+await pagClic.setContent(`<body>
+  <div id="sfondo" class="cdk-overlay-backdrop" style="position:fixed;inset:0"></div>
+  <div role="dialog" aria-modal="true"><div id="nel-dialog">Chiudi</div></div>
+</body>`);
+await pagClic.evaluate(() => {
+  ['sfondo', 'nel-dialog'].forEach(id => document.getElementById(id).addEventListener('click', () => {}));
+});
+const moDialog = (await analyzeMouseOnly(pagClic, {})).elementi.map(e => e.id);
+check(!moDialog.includes('sfondo'), 'NON segnala lo sfondo di un dialog modale aperto');
+check(moDialog.includes('nel-dialog'), 'segnala ancora i comandi solo-mouse dentro il dialog');
+// Angular Material 17+: role=dialog senza aria-modal
+await pagClic.setContent(`<body>
+  <div id="sfondo-mat" class="cdk-overlay-backdrop" style="position:fixed;inset:0"></div>
+  <div role="dialog"><button>Chiudi</button></div>
+</body>`);
+await pagClic.evaluate(() => document.getElementById('sfondo-mat').addEventListener('click', () => {}));
+check(!(await analyzeMouseOnly(pagClic, {})).elementi.some(e => e.id === 'sfondo-mat'), 'NON segnala lo sfondo di un role=dialog senza aria-modal (Angular Material)');
 await ctxClic.close();
 
 await browser.close();

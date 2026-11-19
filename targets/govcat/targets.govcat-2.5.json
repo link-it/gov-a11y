@@ -1,11 +1,40 @@
 {
-  "$app": "GovCat 2.5.x",
-  "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'); la select-org e' SEMPRE presente -> postLogin. navWait=domcontentloaded perche' l'HMR del dev server impedisce networkidle. Versione 2.5.x: flussi del servizio sul nuovo wizard; per la 2.4.x usare targets.govcat.json.",
+  "$app": "GovCat 2.5",
+  "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'): l'identità viene da A11Y_GOVCAT_PRINCIPAL (es. lorenzo.gestore in sviluppo; un codice fiscale è un dato personale e non va scritto qui). La select-org, se l'utente ha più organizzazioni -> postLogin (passi opzionali). navWait=domcontentloaded perché l'HMR del dev server impedisce networkidle. Versione 2.5: flussi del servizio sul nuovo wizard; per la 2.5.1 usare targets.govcat-2.5.1.json, per la 2.4.x targets.govcat.json. Due target: 'govcat-pubblico' (senza identità: pagina di accesso e catalogo anonimo, la pagina pre-login) e 'govcat' (autenticato).",
+  "$d13": "Configurazione usata per la verifica richiesta da Regione Toscana (Linee guida servizi digitali, Sezione D, Cap. 13): due motori (axe-core e IBM Equal Access), Lighthouse, screen reader virtuale, screenshot delle occorrenze, casi da verificare visibili nel report, stati di errore dei form principali.",
   "defaults": {
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
     "lighthouse": true,
-    "showIncomplete": false
+    "equalAccess": true,
+    "showIncomplete": true
+  },
+  "govcat-pubblico": {
+    "name": "govcat-pubblico",
+    "enabled": true,
+    "loginPath": "/auth/login",
+    "contextPath": "/",
+    "sourceHint": "frontend/angular/projects/apicat-app/src",
+    "navWait": "domcontentloaded",
+    "navDelayMs": 8000,
+    "$pagesNote": "Pagina pre-login: senza identità GovCat apre la pagina di accesso, con il pulsante per il catalogo anonimo (ANONYMOUS_ACCESS in app-config.json).",
+    "pages": [
+      { "name": "accesso", "path": "/auth/login" }
+    ],
+    "$flowsNote": "Catalogo anonimo: raggiungibile solo se il backend accetta le richieste anonime. Se non lo fa (401) l'app torna alla pagina di accesso, l'attesa delle schede del catalogo scade e il flow risulta interrotto nel perimetro del report.",
+    "flows": [
+      {
+        "name": "catalogo-anonimo",
+        "start": "/auth/login",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
+        "steps": [
+          { "clickText": "Continua a navigare in modalità anonima", "wait": ".card h2.card-title", "timeoutMs": 15000, "delayMs": 3000, "desc": "entra nel catalogo senza autenticazione" },
+          { "scan": "catalogo-pubblico" },
+          { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 4000, "desc": "apri il primo servizio pubblico (vetrina)" },
+          { "scan": "vetrina-pubblica" }
+        ]
+      }
+    ]
   },
   "govcat": {
     "name": "govcat",
@@ -14,15 +43,15 @@
     "contextPath": "/",
     "sourceHint": "frontend/angular/projects/apicat-app/src",
     "extraHTTPHeaders": {
-      "X-GovCat-principal": "lorenzo.gestore"
+      "X-GovCat-principal": "${A11Y_GOVCAT_PRINCIPAL}"
     },
     "navWait": "domcontentloaded",
     "navDelayMs": 8000,
     "postLogin": {
       "steps": [
         { "goto": "/servizi", "wait": "domcontentloaded", "delayMs": 2500, "desc": "trigger select-org" },
-        { "clickText": "Ministero Interno", "optional": true, "delayMs": 700, "desc": "scegli org" },
-        { "clickText": "Conferma", "optional": true, "delayMs": 2500, "desc": "conferma org" }
+        { "clickText": "Ministero Interno", "optional": true, "timeoutMs": 2000, "delayMs": 700, "desc": "scegli org (solo se l'utente ha più organizzazioni)" },
+        { "clickText": "Conferma", "optional": true, "timeoutMs": 2000, "delayMs": 2500, "desc": "conferma org" }
       ]
     },
     "pages": [
@@ -32,7 +61,7 @@
       },
       {
         "name": "servizi-new",
-        "path": "/servizi/new"
+        "path": "/servizi/new/wizard"
       },
       {
         "name": "adesioni",
@@ -99,16 +128,15 @@
         "path": "/domini/new"
       }
     ],
-    "$flowsNote": "Versione per GovCat 2.5.x (wizard servizi, Services.wizardNewLayout=true). Discovery dinamico (nessun id cablato). SERVIZIO: la lista e' raggruppata (1o click .card h2.card-title = apre il gruppo, 2o = apre il primo servizio -> VETRINA /servizi/:id/view); dalla vetrina 'Altre azioni' -> 'Gestione' apre il WIZARD /servizi/:id sulla fase corrente (al posto del dettaglio classico con le tab di sezione della 2.4.x). Fase 1 (prima [role=tab]): pulsanti di sezione .lnk-section-nav-chip aprono Referenti/Allegati/Gruppi. API: nella fase corrente il sub-step 'In compilazione' (.tl-row con aria-expanded) contiene la lista API; da ogni riga: matita (aria-label 'Modifica informazioni generali'), 'Configura' (icona bi-gear) e graffetta (aria-label 'Allegati'). Gli step dipendono da stato e permessi del primo servizio: sono optional. ADESIONE: invariata rispetto alla 2.4.x. Regola flows: solo navigazione, mai SALVA. Le viste per-id dipendono dai dati dell'utente (principal lorenzo.gestore).",
+    "$flowsNote": "Versione per GovCat 2.5 (wizard servizi, Services.wizardNewLayout=true). Discovery dinamico (nessun id cablato). SERVIZIO: la lista mescola gruppi (.card.group) e servizi, in un ordine che dipende dai dati: si apre direttamente il primo servizio (.card:not(.group) h2.card-title) -> VETRINA /servizi/:id/view (prima: 1o click = gruppo, 2o = servizio, che falliva quando in testa c'era un servizio); dalla vetrina 'Altre azioni' -> 'Gestione' apre il WIZARD /servizi/:id sulla fase corrente (al posto del dettaglio classico con le tab di sezione della 2.4.x). Fase 1 (prima [role=tab]): pulsanti di sezione .lnk-section-nav-chip aprono Referenti/Allegati/Gruppi. API: nella fase corrente il sub-step 'In compilazione' (.tl-row con aria-expanded) contiene la lista API; da ogni riga: matita (aria-label 'Modifica informazioni generali'), 'Configura' (icona bi-gear) e graffetta (aria-label 'Allegati'). Gli step dipendono da stato e permessi del primo servizio: sono optional. ADESIONE: invariata rispetto alla 2.4.x. Regola flows: solo navigazione, mai SALVA. Le viste per-id dipendono dai dati dell'utente (A11Y_GOVCAT_PRINCIPAL). STATI DI ERRORE: i flow 'errori-*' toccano i campi dei form principali senza scrivere né inviare (govcat.steps.mjs#toccaCampi) e analizzano i messaggi di validazione.",
     "flows": [
       {
         "name": "servizio-vetrina-wizard",
         "start": "/servizi",
-        "skipIfMissing": ".card h2.card-title",
+        "skipIfMissing": ".card:not(.group) h2.card-title",
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
         "steps": [
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio della lista (vetrina); le schede .group sono gruppi" },
           { "scan": "servizio-vetrina" },
           { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
           { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 4000, "desc": "Gestione -> wizard /servizi/:id (fase corrente)" },
@@ -118,11 +146,10 @@
       {
         "name": "servizio-wizard-fase1",
         "start": "/servizi",
-        "skipIfMissing": ".card h2.card-title",
+        "skipIfMissing": ".card:not(.group) h2.card-title",
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-workflow-wizard",
         "steps": [
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio della lista (vetrina); le schede .group sono gruppi" },
           { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
           { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 4000, "desc": "Gestione -> wizard /servizi/:id (fase corrente)" },
           { "click": "[role='tab']", "wait": "domcontentloaded", "delayMs": 2500, "desc": "tab Fase 1 (Informazioni generali)" },
@@ -140,11 +167,10 @@
       {
         "name": "servizio-wizard-api",
         "start": "/servizi",
-        "skipIfMissing": ".card h2.card-title",
+        "skipIfMissing": ".card:not(.group) h2.card-title",
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
         "steps": [
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri gruppo" },
-          { "click": ".card h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri servizio (vetrina)" },
+          { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio della lista (vetrina); le schede .group sono gruppi" },
           { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "menu azioni" },
           { "click": ".dropdown-menu .dropdown-item:has-text('Gestione')", "wait": "domcontentloaded", "delayMs": 4000, "desc": "Gestione -> wizard /servizi/:id (fase corrente)" },
           { "click": ".tl-row[aria-expanded='false']:has-text('In compilazione')", "optional": true, "delayMs": 2000, "desc": "espandi il sub-step In compilazione se chiuso" },
@@ -178,7 +204,7 @@
         "skipIfMissing": ".item-row-link",
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/organizzazioni",
         "steps": [
-          {"click": ".item-row-link:has(:text-is('Ente'))", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri un'organizzazione non intermediata (mostra la lista utenti)"},
+          {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima organizzazione (la lista utenti c'è solo per quelle non intermediate: i passi sugli utenti sono opzionali)"},
           {"scan": "organizzazione-dettaglio"},
           {"click": ".ou-tools button:has-text('Aggiungi')", "optional": true, "delayMs": 1500, "desc": "dialog aggiungi utente"},
           {"scan": "organizzazione-utente-aggiungi"},
@@ -263,6 +289,67 @@
           {"click": "ng-dropdown-panel .ng-option", "optional": true, "delayMs": 2500, "desc": "scegli la prima organizzazione (compare il soggetto se più d'uno)"},
           {"select": {"selector": ".client-auth-form ng-select", "value": "Http basic", "exact": true}, "optional": true, "delayMs": 1500, "desc": "tipo di autenticazione (mostra il rate limiting)"},
           {"scan": "client-nuovo-compilato"}
+        ]
+      },
+      {
+        "name": "errori-servizio-nuovo",
+        "start": "/servizi/new/wizard",
+        "skipIfMissing": "main button:has-text('Avanti')",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
+        "steps": [
+          {"script": "./govcat.steps.mjs#toccaCampi", "desc": "campi toccati senza valori né invio: messaggi di validazione"},
+          {"scan": "servizio-nuovo-errori"}
+        ]
+      },
+      {
+        "name": "errori-adesione-nuova",
+        "start": "/adesioni/new/edit",
+        "skipIfMissing": "main button:has-text('Crea adesione')",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/adesioni",
+        "steps": [
+          {"script": "./govcat.steps.mjs#toccaCampi"},
+          {"scan": "adesione-nuova-errori"}
+        ]
+      },
+      {
+        "name": "errori-client-nuovo",
+        "start": "/client",
+        "skipIfMissing": ".item-row-link",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/clients",
+        "steps": [
+          {"goto": "/client/new", "wait": "main button:has-text('Salva')", "timeoutMs": 20000, "delayMs": 3000, "desc": "nuovo client: aperto subito in un context nuovo rimanda a /servizi"},
+          {"script": "./govcat.steps.mjs#toccaCampi"},
+          {"scan": "client-nuovo-errori"}
+        ]
+      },
+      {
+        "name": "errori-organizzazione-nuova",
+        "start": "/organizzazioni/new",
+        "skipIfMissing": "main button:has-text('Salva')",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/organizzazioni",
+        "steps": [
+          {"script": "./govcat.steps.mjs#toccaCampi"},
+          {"scan": "organizzazione-nuova-errori"}
+        ]
+      },
+      {
+        "name": "errori-utente-nuovo",
+        "start": "/utenti/new",
+        "skipIfMissing": "main button:has-text('Salva')",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/utenti",
+        "steps": [
+          {"script": "./govcat.steps.mjs#toccaCampi"},
+          {"scan": "utente-nuovo-errori"}
+        ]
+      },
+      {
+        "name": "errori-dominio-nuovo",
+        "start": "/domini/new",
+        "skipIfMissing": "main button:has-text('Salva')",
+        "sourceHint": "frontend/angular/projects/apicat-app/src/views/domini",
+        "steps": [
+          {"script": "./govcat.steps.mjs#toccaCampi"},
+          {"scan": "dominio-nuovo-errori"}
         ]
       }
     ]

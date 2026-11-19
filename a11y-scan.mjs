@@ -44,9 +44,10 @@
 import { chromium } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync } from 'node:fs';
-import { dirname, resolve, isAbsolute, join, basename } from 'node:path';
+import { dirname, resolve, isAbsolute, join, basename, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { inflateSync } from 'node:zlib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,6 +71,22 @@ const args = parseArgs(process.argv.slice(2));
 // true se il file e' eseguito come comando (non importato dai test / da altro codice):
 // solo in questo caso i prerequisiti mancanti terminano il processo.
 const IS_MAIN = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+/* Lighthouse puo' lasciare attese interne pendenti (es. checkForQuiet) che falliscono dopo la
+   fine dell'audit, a pagina gia' chiusa: su macchine cariche capita ("Session closed",
+   "Target closed"). Quel rifiuto non e' gestito da nessuno e Node chiuderebbe l'intera
+   scansione, perdendo il report. Lo si riduce a un avviso: il punteggio di quella vista e' gia'
+   stato registrato o scartato da runLighthouse. Ogni altro rifiuto non gestito resta fatale. */
+if (IS_MAIN) {
+  process.on('unhandledRejection', (reason) => {
+    const stack = String(reason?.stack || '');
+    if (/[\\/]node_modules[\\/]lighthouse[\\/]/.test(stack)) {
+      console.warn(`  [lighthouse] errore tardivo ignorato (pagina gia' chiusa): ${reason?.message || reason}`);
+      return;
+    }
+    throw reason;
+  });
+}
 
 if (args.help || args.h) {
   console.log(`gov-a11y — audit accessibilita' (multi-app) WCAG 2.x, esterno e black-box
@@ -99,17 +116,34 @@ if (args.help || args.h) {
   --lighthouse        Calcola anche il punteggio Lighthouse Accessibility (richiede optional deps)
   --min-score <0..1>  Gate Lighthouse: fallisci se un punteggio scende sotto la soglia (es. 0.90). Implica --lighthouse
   --screen-reader     Esegui il virtual screen reader (annunci) su ogni vista (richiede optional deps)
-  --no-flows          Non eseguire i flows di navigazione scriptata (pagine di dettaglio)
+  --equal-access      Secondo motore indipendente da axe: IBM Equal Access (regole WCAG 2.2 A/AA) sullo stesso
+                      stato di ogni vista. Esiti in una sezione propria, senza gate (richiede optional deps)
+  --no-screenshots    Niente immagini delle occorrenze. Per difetto ogni violazione e ogni caso da verificare
+                      ha uno screenshot con l'elemento evidenziato (al massimo 'screenshotsMax' per vista, 20)
+  --no-contrast-estimate  Niente stima del contrasto sui casi da verificare. Per difetto, per ogni testo il cui
+                      contrasto axe non ha deciso (o IBM ha segnalato) si misura lo sfondo reale dai pixel
+                      della vista, col testo nascosto: rapporto minimo e massimo e soglia richiesta
+  --no-flows         Non eseguire i flows di navigazione scriptata (pagine di dettaglio)
   --no-incomplete     Nascondi la colonna/sezione "Da verificare" (incomplete axe) dal report HTML
   --false-positives <f>  File .json (o directory di .json) con i falsi positivi dichiarati: le occorrenze
                       corrispondenti escono da "Da verificare" e finiscono in una sezione propria del report.
                       Si applica SOLO agli 'incomplete', mai alle violazioni. Vedi docs/GUIDA-falsi-positivi.md
   --no-lighthouse     Disabilita Lighthouse anche se attivo in config (precedenza sulla config)
   --no-screen-reader  Disabilita il virtual screen reader anche se attivo in config
+  --no-equal-access   Disabilita IBM Equal Access anche se attivo in config
   --no-mouse-only     Disabilita il controllo dei comandi utilizzabili col solo mouse
   --no-crawl          Disabilita il crawl anche se attivo in config (equivale a --crawl 0)
+  --reflow            Controllo 1.4.10: la vista a 320px di larghezza non deve scorrere in orizzontale
+  --text-spacing      Controllo 1.4.12: con la spaziatura del testo aumentata nessun testo viene tagliato
+  --keyboard-walk     Controlli 2.4.7 / 2.4.11 / 2.1.2: percorre la vista col tasto Tab (focus visibile,
+                      focus non coperto, nessuna trappola) e registra l'ordine di focus
+  --keyboard-walk-max <n>  Fermate massime del percorso col Tab per vista (default 45)
+                      (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
   --locale <tag>      Lingua del browser (es. it-IT): navigator.language e Accept-Language. Le app che
                       scelgono la lingua dal browser si mostrano come la vedono i loro utenti
+  --login-base <url>  Indirizzo dell'applicazione su cui si fa il login, quando non è quella di --base
+                      (es. le app ospitate da una shell che le autentica): il loginPath relativo si
+                      accoda a questo invece che a --base. Cambia ambiente senza toccare il config
   --product-version <v>  Versione del prodotto in prova (o env A11Y_PRODUCT_VERSION). Dichiarativa:
                       compare nel report e in summary.json, cosi' l'esito e' riferibile a una versione
   --insecure          Ignora errori certificato HTTPS (default true)
@@ -121,7 +155,11 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, productVersion.
+  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, loginBase,
+  productVersion, reflow, textSpacing, keyboardWalk, keyboardWalkMax, languageParts, equalAccess, screenshots, screenshotsMax,
+  contrastEstimate, contrastEstimateMax.
+  Nei valori di "extraHTTPHeaders" ${'${NOME}'} si sostituisce con la variabile d'ambiente NOME (dati
+  personali, come l'identità del principal, restano fuori dal config).
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
 `);
   process.exit(0);
@@ -210,6 +248,27 @@ const PRODUCT_VERSION = (() => {
   return v ? String(v).trim() : null;
 })();
 let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
+/* Controlli di presentazione e tastiera che axe non fa: riflusso a 320px (1.4.10), spaziatura del
+   testo (1.4.12), percorso col tasto Tab (2.4.7, 2.4.11, 2.1.2) e lingua delle parti (3.1.2).
+   Predefiniti SPENTI: cambiano gli esiti delle applicazioni gia' in scansione e il loro costo
+   (il percorso col Tab soprattutto) va scelto per target. */
+const cliOnOff = k => (args[`no-${k}`] ? false : (args[k] ? true : undefined));
+const CLI_REFLOW = cliOnOff('reflow'), CLI_TEXT_SPACING = cliOnOff('text-spacing'), CLI_KEYBOARD = cliOnOff('keyboard-walk');
+let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, KEYBOARD_MAX = 45, LANGUAGE_PARTS = null;
+/* Secondo motore, indipendente da axe: IBM Equal Access, con regole e algoritmi propri. Due motori
+   diversi trovano problemi diversi, ed e' quello che chiedono le linee guida che prescrivono la
+   verifica "con almeno due strumenti". Predefinito SPENTO (modulo opzionale), senza gate: i suoi
+   esiti sono evidenza da confrontare, finche' non se ne conosce il rumore sulle applicazioni.
+   Screenshot delle occorrenze: predefiniti ACCESI, perche' chi riceve il report deve poter vedere
+   DOVE sta il problema senza ricostruirlo dal selettore. */
+const CLI_EA = cliOnOff('equal-access'), CLI_SCREENSHOT = cliOnOff('screenshots');
+let DO_EA = false, DO_SCREENSHOT = true, SCREENSHOT_MAX = 20;
+/* Stima del contrasto sui casi da verificare: predefinita ACCESA. Non decide nulla e non tocca il
+   gate: affianca a ogni caso una misura fatta sui pixel, perché la verifica manuale parta da un
+   numero e non da zero (vedi stimaContrasti). */
+const CLI_CONTRASTO = cliOnOff('contrast-estimate');
+let DO_CONTRASTO = true, CONTRASTO_MAX = 40;
+const CONTROLLI_USATI = new Set();   // per la copertura dichiarata nel report (aggregato su tutti i target)
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
 /* Lingua del browser. Molte SPA scelgono la lingua dell'interfaccia da navigator.language, e il
@@ -218,6 +277,8 @@ let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefine
    perche' la scheda di Lighthouse vive nel context di default e non eredita quella del target. */
 const LOCALE_GLOBALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, null, 'locale', null);
 let LOCALE = LOCALE_GLOBALE;
+const CLI_LOGIN_BASE = typeof args['login-base'] === 'string' ? args['login-base'] : undefined;
+let LOGIN_BASE = resolveParam(CLI_LOGIN_BASE, null, 'loginBase', null);
 /* '--no-lighthouse' vince su 'minScore': senza questa precedenza la sola presenza della soglia nel
    config riaccenderebbe l'audit, e una scansione rapida in CI durerebbe quanto una completa. */
 let DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, null, 'lighthouse', false) || MIN_SCORE !== null);
@@ -226,6 +287,7 @@ let DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, null, 'lighthouse
 // Falsi positivi dichiarati: per-target, risolti come gli altri parametri.
 let FALSE_POSITIVES = [];
 const FALSE_POSITIVES_USATI = [];   // tutte le voci caricate, per il riepilogo nel report
+const REGISTRI_CARICATI = new Map();   // percorso del registro -> voci, caricate una volta sola
 
 function applyTargetParams(target) {
   const fpCli = args['false-positives'];
@@ -236,9 +298,25 @@ function applyTargetParams(target) {
   TAGS = String(resolveParam(args.tags, target, 'tags', TAG_PREDEFINITI)).split(',').map(s => s.trim());
   TAGS.forEach(t => TAG_USATI.add(t));
   DO_SR = !!resolveParam(CLI_SR, target, 'screenReader', false);
+  DO_REFLOW = !!resolveParam(CLI_REFLOW, target, 'reflow', false);
+  DO_TEXT_SPACING = !!resolveParam(CLI_TEXT_SPACING, target, 'textSpacing', false);
+  DO_KEYBOARD = !!resolveParam(CLI_KEYBOARD, target, 'keyboardWalk', false);
+  KEYBOARD_MAX = parseInt(resolveParam(args['keyboard-walk-max'], target, 'keyboardWalkMax', 45), 10) || 45;
+  LANGUAGE_PARTS = resolveParam(undefined, target, 'languageParts', null) || null;
+  if (DO_REFLOW) CONTROLLI_USATI.add('reflow');
+  if (DO_TEXT_SPACING) CONTROLLI_USATI.add('textSpacing');
+  if (DO_KEYBOARD) CONTROLLI_USATI.add('keyboardWalk');
+  if (LANGUAGE_PARTS) CONTROLLI_USATI.add('languageParts');
+  DO_EA = !!resolveParam(CLI_EA, target, 'equalAccess', false);
+  if (DO_EA) CONTROLLI_USATI.add('equalAccess');
+  DO_SCREENSHOT = resolveParam(CLI_SCREENSHOT, target, 'screenshots', true) !== false;
+  SCREENSHOT_MAX = parseInt(resolveParam(undefined, target, 'screenshotsMax', 20), 10) || 20;
+  DO_CONTRASTO = resolveParam(CLI_CONTRASTO, target, 'contrastEstimate', true) !== false;
+  CONTRASTO_MAX = parseInt(resolveParam(undefined, target, 'contrastEstimateMax', 40), 10) || 40;
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
   LOCALE = resolveParam(typeof args.locale === 'string' ? args.locale : undefined, target, 'locale', null);
+  LOGIN_BASE = resolveParam(CLI_LOGIN_BASE, target, 'loginBase', null);
   DO_LH = CLI_LH === false ? false : (!!resolveParam(CLI_LH, target, 'lighthouse', false) || MIN_SCORE !== null);
   /* Controllo dei comandi utilizzabili col solo mouse: attivo salvo diversa indicazione.
      Le eccezioni sono un fatto dell'APPLICAZIONE, non dello strumento: si dichiarano nel
@@ -266,6 +344,13 @@ const OPTIONAL_FEATURES = {
     off: '--no-screen-reader',
     modules: ['@guidepup/virtual-screen-reader', 'jsdom'],
     install: 'npm install @guidepup/virtual-screen-reader jsdom',
+  },
+  equalAccess: {
+    label: 'IBM Equal Access',
+    how: '--equal-access / "equalAccess": true in config',
+    off: '--no-equal-access',
+    modules: ['accessibility-checker-engine'],
+    install: 'npm install accessibility-checker-engine',
   },
 };
 
@@ -341,6 +426,7 @@ function checkDeps() {
   const requested = {
     lighthouse: MIN_SCORE !== null || featureRequested(CLI_LH, 'lighthouse', targets),
     screenReader: featureRequested(CLI_SR, 'screenReader', targets),
+    equalAccess: featureRequested(CLI_EA, 'equalAccess', targets),
   };
   console.log(`Dipendenze opzionali (config: ${CONFIG}${targets.length ? `, target: ${targets.map(t => t.key).join(', ')}` : ''})\n`);
   let ko = 0;
@@ -371,7 +457,15 @@ const FAIL_THRESHOLD = SEVERITY_ORDER[FAIL_ON] ?? 3;
    violazione derogata e' il modo in cui questi registri degenerano in un posto dove si nascondono
    i problemi. Le occorrenze derogate non spariscono: escono da "Da verificare" ed entrano in una
    sezione propria del report, con la motivazione e la verifica che le giustificano, cosi' che un
-   revisore possa contestarle. */
+   revisore possa contestarle.
+
+   Una voce con "engine": "equalAccess" vale invece per il secondo motore, e lì copre sia le
+   violazioni sia i casi da verificare: IBM Equal Access non partecipa al gate, e alcune sue regole
+   danno per violazione un comportamento previsto di una libreria (per esempio gli ancoraggi del
+   focus trap di Angular CDK, focalizzabili dentro aria-hidden per costruzione). "rule" è l'id della
+   regola IBM, "cause" il suo reasonId; il selettore si confronta con l'elemento indicato
+   dall'XPath del motore. Le violazioni di axe restano non derogabili. */
+const MOTORI_FP = new Set(['axe', 'equalAccess']);
 
 /* 'esplicito' distingue il file indicato per nome — dove un contenuto sbagliato e' un errore da
    segnalare — dai file trovati dentro una directory, dove un JSON che non e' un registro
@@ -393,7 +487,11 @@ function leggiFileFalsiPositivi(file, esplicito) {
       console.warn(`  [falsi positivi] voce "${v && v.id || '(senza id)'}" priva di ${mancanti.join(', ')} — ignorata`);
       continue;   // 'reason' e 'verification' sono obbligatori: una deroga senza prova e' un'opinione
     }
-    out.push({ ...v, file: basename(file), matches: 0 });
+    if (v.engine !== undefined && !MOTORI_FP.has(v.engine)) {
+      console.warn(`  [falsi positivi] voce "${v.id}": motore "${v.engine}" sconosciuto (ammessi: ${[...MOTORI_FP].join(', ')}) — ignorata`);
+      continue;
+    }
+    out.push({ ...v, engine: v.engine || 'axe', file: basename(file), matches: 0 });
   }
   return out;
 }
@@ -405,6 +503,10 @@ function loadFalsePositives(spec, base) {
   if (!spec) return [];
   const percorso = isAbsolute(String(spec)) ? String(spec) : resolve(base || dirname(CONFIG), String(spec));
   if (!existsSync(percorso)) { console.warn(`  [falsi positivi] percorso inesistente: ${percorso} — ignorato`); return []; }
+  /* Lo stesso registro dichiarato in 'defaults' vale per ogni target: si carica una volta sola e
+     i target ne condividono le voci. Ricaricarlo duplicherebbe le voci nel report, e quelle del
+     target che non le usa comparirebbero "senza riscontro" accanto alle stesse voci con riscontro. */
+  if (REGISTRI_CARICATI.has(percorso)) return REGISTRI_CARICATI.get(percorso);
   const dir = statSync(percorso).isDirectory();
   const files = dir
     ? readdirSync(percorso).filter(f => f.endsWith('.json')).sort().map(f => join(percorso, f))
@@ -423,6 +525,7 @@ function loadFalsePositives(spec, base) {
   if (voci.length) console.log(`  [falsi positivi] ${voci.length} voci caricate da ${[...daFile.keys()].join(', ')}`);
   else if (dir) console.warn(`  [falsi positivi] nessun registro trovato in ${percorso}`);
   FALSE_POSITIVES_USATI.push(...voci);
+  REGISTRI_CARICATI.set(percorso, voci);
   return voci;
 }
 
@@ -431,14 +534,83 @@ function loadFalsePositives(spec, base) {
    ed 'errore', quando la valutazione stessa non e' riuscita (pagina in navigazione, contesto
    distrutto). Trattare 'assente' ed 'errore' come 'no' fa figurare fra le occorrenze da
    verificare nodi che una voce del registro copre: sono esiti diversi e vanno distinti. */
-async function provaSelettore(page, selettore, bersaglio) {
-  return page.evaluate(([sel, tgt]) => {
+async function provaSelettore(page, selettore, bersaglio, xpath = false) {
+  return page.evaluate(([sel, tgt, xp]) => {
     try {
-      const el = document.querySelector(tgt);
+      const el = xp
+        ? document.evaluate(tgt, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue
+        : document.querySelector(tgt);
       if (!el) return 'assente';
-      return el.matches(sel) ? 'si' : 'no';
+      return el.nodeType === 1 && el.matches(sel) ? 'si' : 'no';
     } catch { return 'no'; }
-  }, [selettore, String(bersaglio)]).catch(() => 'errore');
+  }, [selettore, String(bersaglio), xpath]).catch(() => 'errore');
+}
+
+/* Cerca la prima voce attiva del registro che copre un'occorrenza: stesso motore, stessa regola,
+   stessa causa se indicata, URL e selettore se indicati. 'bersaglio' e' il selettore CSS di axe o
+   l'XPath del secondo motore. Su un esito 'assente' o 'errore' si riprova una volta per
+   occorrenza, attesa la pagina: in un'applicazione a ridisegno parziale il documento puo' essere in
+   trasformazione fra l'analisi e il confronto. I contatori finiscono negli avvisi del chiamante. */
+async function voceDelRegistro(page, attive, { motore, regola, causa, url, bersaglio, xpath, conta }) {
+  let riprovato = false;
+  for (const fp of attive) {
+    if (fp.engine !== motore || fp.rule !== regola) continue;
+    if (fp.cause && fp.cause !== causa) continue;
+    if (fp.urlPattern && !new RegExp(fp.urlPattern).test(url)) continue;
+    if (fp.selector) {
+      if (!bersaglio) continue;
+      let esito = await provaSelettore(page, fp.selector, bersaglio, xpath);
+      if ((esito === 'assente' || esito === 'errore') && !riprovato) {
+        riprovato = true;
+        await page.waitForLoadState('domcontentloaded').catch(() => {});
+        await page.waitForTimeout(300);
+        esito = await provaSelettore(page, fp.selector, bersaglio, xpath);
+      }
+      if (esito === 'errore') conta.errori++;
+      else if (esito === 'assente') conta.assenti++;
+      if (esito !== 'si') continue;
+    }
+    return fp;
+  }
+  return null;
+}
+
+function avvisaConfronti(conta, url, motore) {
+  /* Un errore isolato e' fisiologico; molti significano che su questa vista il registro non
+     e' stato applicato, e le occorrenze figurano fra quelle da verificare senza esserlo.
+     Meglio dirlo che lasciare all'occhio di chi legge il report il compito di accorgersene. */
+  const chi = motore === 'equalAccess' ? ' (IBM Equal Access)' : '';
+  if (conta.errori > 0) {
+    console.warn(`    [falsi positivi${chi}] ${conta.errori} confronti non riusciti su ${url}: le occorrenze corrispondenti restano fra quelle segnalate`);
+  }
+  /* Elemento sparito fra l'analisi e il confronto: succede nelle applicazioni a ridisegno
+     parziale. Va detto, perche' l'occorrenza resta segnalata senza che si sia potuto stabilire
+     se una voce del registro la copra. */
+  if (conta.assenti > 0) {
+    console.warn(`    [falsi positivi${chi}] ${conta.assenti} elementi non piu' presenti al confronto su ${url}: le occorrenze corrispondenti restano fra quelle segnalate`);
+  }
+}
+
+/* Lo stesso per il secondo motore: violazioni e casi da verificare. Le occorrenze coperte escono
+   dalle due liste ed entrano fra le derogate, con il motore indicato. */
+async function separaFalsiPositiviEA(page, equalAccess, url) {
+  const attive = FALSE_POSITIVES.filter(v => !v.expired && v.engine === 'equalAccess');
+  if (!equalAccess || !attive.length) return { equalAccess, derogati: [] };
+  const conta = { errori: 0, assenti: 0 };
+  const derogati = [];
+  const filtra = async (lista, tipo) => {
+    const rimasti = [];
+    for (const x of lista) {
+      const voce = await voceDelRegistro(page, attive, { motore: 'equalAccess', regola: x.regola, causa: x.motivo, url, bersaglio: x.xpath, xpath: true, conta });
+      if (voce) { voce.matches++; derogati.push({ engine: 'equalAccess', tipo, rule: x.regola, cause: x.motivo, id: voce.id, target: x.xpath, html: x.snippet }); }
+      else rimasti.push(x);
+    }
+    return rimasti;
+  };
+  const violazioni = await filtra(equalAccess.violazioni, 'violazione');
+  const daVerificare = await filtra(equalAccess.daVerificare, 'da verificare');
+  avvisaConfronti(conta, url, 'equalAccess');
+  return { equalAccess: { ...equalAccess, violazioni, daVerificare }, derogati };
 }
 
 /* Separa gli 'incomplete' in due liste: quelli ancora da verificare e quelli coperti da una voce
@@ -447,60 +619,27 @@ async function provaSelettore(page, selettore, bersaglio) {
    dal frammento HTML sarebbe un'approssimazione. */
 async function separaFalsiPositivi(page, incomplete, url) {
   if (!FALSE_POSITIVES.length || !incomplete || !incomplete.length) return { incomplete: incomplete || [], derogati: [] };
-  const attive = FALSE_POSITIVES.filter(v => !v.expired);
+  const attive = FALSE_POSITIVES.filter(v => !v.expired && v.engine === 'axe');
   if (!attive.length) return { incomplete, derogati: [] };
 
   const rimasti = [];
   const derogati = [];
-  let errori = 0;    // valutazioni non riuscite: se sono molte, il confronto non e' avvenuto
-  let assenti = 0;   // elementi non piu' nel documento quando si e' arrivati a confrontarli
+  // valutazioni non riuscite (se sono molte, il confronto non e' avvenuto) ed elementi non piu'
+  // nel documento quando si e' arrivati a confrontarli
+  const conta = { errori: 0, assenti: 0 };
   for (const v of incomplete) {
     const nodiRimasti = [];
     for (const n of v.nodes) {
       const causa = (n.any || []).concat(n.all || [], n.none || [])
         .map(c => (c.data || {}).messageKey).find(Boolean) || null;
-      let voce = null;
-      let riprovato = false;
-      for (const fp of attive) {
-        if (fp.rule !== v.id) continue;
-        if (fp.cause && fp.cause !== causa) continue;
-        if (fp.urlPattern && !new RegExp(fp.urlPattern).test(url)) continue;
-        if (fp.selector) {
-          const bersaglio = Array.isArray(n.target) ? n.target[n.target.length - 1] : n.target;
-          let esito = await provaSelettore(page, fp.selector, bersaglio);
-          /* ne' 'assente' ne' 'errore' dicono che la voce non copra il nodo: in
-             un'applicazione a ridisegno parziale il documento puo' essere in trasformazione
-             fra l'analisi e questo confronto. Un solo nuovo tentativo per nodo, atteso che la
-             pagina si sia posata; poi si rinuncia, ma l'errore viene contato. */
-          if ((esito === 'assente' || esito === 'errore') && !riprovato) {
-            riprovato = true;
-            await page.waitForLoadState('domcontentloaded').catch(() => {});
-            await page.waitForTimeout(300);
-            esito = await provaSelettore(page, fp.selector, bersaglio);
-          }
-          if (esito === 'errore') errori++;
-          else if (esito === 'assente') assenti++;
-          if (esito !== 'si') continue;
-        }
-        voce = fp; break;
-      }
-      if (voce) { voce.matches++; derogati.push({ rule: v.id, cause: causa, id: voce.id, target: n.target, html: n.html }); }
+      const bersaglio = Array.isArray(n.target) ? n.target[n.target.length - 1] : n.target;
+      const voce = await voceDelRegistro(page, attive, { motore: 'axe', regola: v.id, causa, url, bersaglio, xpath: false, conta });
+      if (voce) { voce.matches++; derogati.push({ engine: 'axe', tipo: 'da verificare', rule: v.id, cause: causa, id: voce.id, target: n.target, html: n.html }); }
       else nodiRimasti.push(n);
     }
     if (nodiRimasti.length) rimasti.push({ ...v, nodes: nodiRimasti });
   }
-  /* Un errore isolato e' fisiologico; molti significano che su questa vista il registro non
-     e' stato applicato, e le occorrenze figurano fra quelle da verificare senza esserlo.
-     Meglio dirlo che lasciare all'occhio di chi legge il report il compito di accorgersene. */
-  if (errori > 0) {
-    console.warn(`    [falsi positivi] ${errori} confronti non riusciti su ${url}: le occorrenze corrispondenti restano fra quelle da verificare`);
-  }
-  /* Elemento sparito fra l'analisi e il confronto: succede nelle applicazioni a ridisegno
-     parziale. Va detto, perche' l'occorrenza figura come da verificare senza che si sia
-     potuto stabilire se una voce del registro la copra. */
-  if (assenti > 0) {
-    console.warn(`    [falsi positivi] ${assenti} elementi non piu' presenti al confronto su ${url}: le occorrenze corrispondenti restano fra quelle da verificare`);
-  }
+  avvisaConfronti(conta, url, 'axe');
   return { incomplete: rimasti, derogati };
 }
 
@@ -514,9 +653,32 @@ function loadTargets() {
     if (!cfg[key] || typeof cfg[key] !== 'object') continue;
     if (ONLY && ONLY !== key) continue;
     if (cfg[key].enabled === false) continue;
-    out.push({ key, ...cfg[key] });
+    const t = { key, ...cfg[key] };
+    if (t.extraHTTPHeaders) {
+      const h = espandiEnv(t.extraHTTPHeaders);
+      t.extraHTTPHeaders = h.valori;
+      if (h.mancanti.length) t.envMancanti = h.mancanti;
+    }
+    out.push(t);
   }
   return out;
+}
+
+/* ${NOME} nei valori di un oggetto (le intestazioni HTTP del target) diventa il valore della
+   variabile d'ambiente NOME. Un'autenticazione per intestazione porta spesso l'identita' di una
+   persona (un codice fiscale): e' un dato personale e va tenuto fuori dal config, come le
+   password. Le variabili non impostate restano tali e vengono restituite in 'mancanti'. */
+function espandiEnv(obj) {
+  const mancanti = [];
+  const valori = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    valori[k] = String(v).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, nome) => {
+      if (process.env[nome] !== undefined) return process.env[nome];
+      if (!mancanti.includes(nome)) mancanti.push(nome);
+      return m;
+    });
+  }
+  return { valori, mancanti };
 }
 
 function credsFor(target) {
@@ -532,14 +694,21 @@ function credsFor(target) {
    ognuna sulla sua porta e autenticate dalla sessione di GovHub (localhost:5200). I cookie
    dipendono dall'host e non dalla porta, quindi la sessione aperta sull'origine del login vale
    anche per le pagine scansionate su --base. In quel caso contextPath e pagina di partenza del
-   crawl, che il login relativo forniva per difetto, ricadono sulla radice di --base. */
+   crawl, che il login relativo forniva per difetto, ricadono sulla radice di --base.
+   Lo stesso si ottiene con un loginPath relativo e 'loginBase' (CLI --login-base): l'indirizzo
+   dell'applicazione di login sta fuori dal percorso, e lo stesso config vale in sviluppo e in
+   collaudo cambiando solo l'opzione. Si accoda come --base, senza risolvere l'URL, così può
+   contenere anche un percorso (https://host/govhub). Un loginPath assoluto resta com'è. */
 const isAbsUrl = p => typeof p === 'string' && /^https?:\/\//i.test(p);
 const absUrl = p => (isAbsUrl(p) ? p : BASE + (p || ''));
-const defaultCtxPath = target => target.contextPath || (isAbsUrl(target.loginPath) ? '/' : target.loginPath) || '/';
+const loginAltrove = (target, loginBase = LOGIN_BASE) => isAbsUrl(target.loginPath) || !!loginBase;
+const loginUrl = (target, loginBase = LOGIN_BASE) =>
+  (!isAbsUrl(target.loginPath) && loginBase ? String(loginBase).replace(/\/+$/, '') + (target.loginPath || '') : absUrl(target.loginPath));
+const defaultCtxPath = (target, loginBase = LOGIN_BASE) => target.contextPath || (loginAltrove(target, loginBase) ? '/' : target.loginPath) || '/';
 
 async function login(page, target) {
   if (!target.login) return true;   // target senza form: auth via header/SSO
-  const url = absUrl(target.loginPath);
+  const url = loginUrl(target);
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   const l = target.login;
   const { user, pass } = credsFor(target);
@@ -554,6 +723,13 @@ async function login(page, target) {
       page.click(l.submitSelector),
     ]);
     await page.waitForLoadState('networkidle').catch(() => {});
+    /* Il rimando dopo il login può arrivare ben dopo la quiete della rete: un'app appena avviata
+       risponde al primo login anche dopo diversi secondi, e intanto la pagina resta sul form.
+       Controllando subito, il login risultava non confermato e le pagine aperte dopo trovavano la
+       sessione non ancora pronta e rimandavano al login. Si aspetta l'URL atteso, entro un limite. */
+    if (l.successUrlIncludes && !page.url().includes(l.successUrlIncludes)) {
+      await page.waitForURL(u => u.href.includes(l.successUrlIncludes), { timeout: l.successWaitMs || 15000 }).catch(() => {});
+    }
   }
   const ok = !l.successUrlIncludes || page.url().includes(l.successUrlIncludes);
   return ok;
@@ -620,6 +796,8 @@ function normalizeLinks(hrefs, contextPath) {
 // Statistiche Lighthouse della run: distinguono "feature spenta" da "feature attiva ma sempre in
 // errore" (altrimenti si vedono solo lhScore: null e sembra un problema di installazione).
 let _lhOk = 0, _lhFail = 0, _lhFirstErr = null;
+// motivo dell'ultimo audit senza punteggio: finisce nel risultato della vista (evidenza nei report)
+let _lhUltimoMotivo = null;
 
 // Porta CDP su cui il browser della scansione si apre a Lighthouse (vedi scan()).
 const LH_PORT = 9222;
@@ -686,6 +864,7 @@ function lhStessaVista(a, b) {
 }
 
 async function runLighthouse(browser, url, target, extraHeaders) {
+  _lhUltimoMotivo = null;
   try {
     const { default: lighthouse } = await import('lighthouse');
     // Il browser e' lanciato con --remote-debugging-port=LH_PORT (vedi scan()).
@@ -711,6 +890,7 @@ async function runLighthouse(browser, url, target, extraHeaders) {
     if (rtErr && rtErr.code && rtErr.code !== 'NO_ERROR') {
       _lhFail++;
       if (!_lhFirstErr) _lhFirstErr = `${rtErr.code}: ${rtErr.message}`;
+      _lhUltimoMotivo = `${rtErr.code}: ${rtErr.message}`;
       console.warn(`  [lighthouse] ${rtErr.code} su ${url}: ${rtErr.message}`);
       return null;
     }
@@ -718,6 +898,7 @@ async function runLighthouse(browser, url, target, extraHeaders) {
     if (score == null) {
       _lhFail++;
       if (!_lhFirstErr) _lhFirstErr = 'run completata senza punteggio accessibility';
+      _lhUltimoMotivo = `run completata senza punteggio accessibility${lhr?.finalDisplayedUrl ? ` (url finale: ${lhr.finalDisplayedUrl})` : ''}`;
       console.warn(`  [lighthouse] nessun punteggio accessibility su ${url}${lhr?.finalDisplayedUrl ? ` (url finale: ${lhr.finalDisplayedUrl})` : ''}`);
       return null;
     }
@@ -728,6 +909,7 @@ async function runLighthouse(browser, url, target, extraHeaders) {
     if (finale && lhStessaVista(finale, url) === false) {
       _lhFail++;
       if (!_lhFirstErr) _lhFirstErr = `misurata un'altra pagina (${finale} invece di ${url}): sessione non arrivata a Lighthouse?`;
+      _lhUltimoMotivo = `punteggio scartato: misurata un'altra pagina (${finale})`;
       console.warn(`  [lighthouse] punteggio scartato: misurata ${finale} invece di ${url}`);
       return null;
     }
@@ -742,6 +924,7 @@ async function runLighthouse(browser, url, target, extraHeaders) {
     }
     _lhFail++;
     if (!_lhFirstErr) _lhFirstErr = e.message;
+    _lhUltimoMotivo = `errore: ${e.message.split('\n')[0]}`;
     console.warn(`  [lighthouse] errore su ${url}: ${e.message}`);
     return null;
   }
@@ -816,6 +999,103 @@ const INIT_SOLO_MOUSE = `(() => {
   };
 })()`;
 
+/* Contrasti fuori vista. axe misura il contrasto su quel che e' a schermo: un testo che sta sotto il
+   bordo di un contenitore che scorre (lo stato vuoto in fondo alla colonna, "Scorri per caricare
+   altri risultati" in coda a una lista) o coperto in parte da una barra fissa esce come 'incomplete'
+   con elmPartiallyObscured. Non e' un'incertezza sul colore ma sulla geometria: l'elemento si porta
+   al centro della vista, si rimisura il solo 'color-contrast' su di lui e lo scorrimento torna com'era. Cosi' axe
+   decide davvero: passato, violazione, o ancora da verificare se resta coperto anche in vista.
+   Va in fondo all'analisi della vista: scorrere puo' far caricare altro (scroll infinito), e gli
+   altri controlli devono aver gia' fotografato la vista a riposo. */
+const FUORI_VISTA = new Set(['elmPartiallyObscured', 'elmPartiallyObscuring']);
+
+/* Pausa degli scroll infiniti durante la rimisura: il testo in coda alla lista ("Scorri per
+   caricare altri risultati") e' proprio dove lo scroll infinito carica, e portarlo in vista farebbe
+   arrivare altre righe, che lo spingono di nuovo fuori (o lo sostituiscono con l'attesa). Con
+   window.__gwPausaIO si scartano le due cose a cui reagiscono le librerie: i callback degli
+   IntersectionObserver e gli eventi 'scroll' (ngx-infinite-scroll), fermati in cattura sulla
+   finestra prima di ogni altro gestore. Tolta la pausa la vista e' di nuovo quella di prima, e
+   non carica niente. Installato prima degli script di pagina, come INIT_SOLO_MOUSE. */
+const INIT_PAUSA_IO = `(() => {
+  addEventListener('scroll', e => { if (window.__gwPausaIO) e.stopImmediatePropagation(); }, true);
+  const Originale = window.IntersectionObserver;
+  if (!Originale) return;
+  window.IntersectionObserver = class extends Originale {
+    constructor(callback, opzioni) {
+      super((voci, osservatore) => { if (!window.__gwPausaIO) callback(voci, osservatore); }, opzioni);
+    }
+  };
+})();`;
+
+async function rimisuraContrastiFuoriVista(page, incomplete, violations) {
+  const regola = (incomplete || []).find(r => r.id === 'color-contrast');
+  if (!regola) return { incomplete, violations, rimisurati: 0 };
+
+  const candidati = regola.nodes.filter(n => n.target.length === 1 && (n.any || []).some(c => FUORI_VISTA.has(c.data?.messageKey)));
+  if (!candidati.length) return { incomplete, violations, rimisurati: 0 };
+
+  const restano = new Set(regola.nodes);
+  const nuoveViolazioni = [];
+  let rimisurati = 0;
+
+  for (const nodo of candidati) {
+    // Il selettore di axe e' corto ("p") e vale per il DOM di quell'analisi: l'elemento si
+    // ritrova fra quelli che corrispondono confrontando l'HTML registrato da axe, e si marca.
+    // Anche un elemento in vista ma coperto in parte da una barra fissa (il campo di scrittura in
+    // fondo a una chat) si porta al centro: scorrendo esce da sotto la barra. Se resta coperto
+    // anche li' (un velo modale), axe lo lascia da verificare, e l'incertezza e' reale.
+    const scorrimenti = await page.evaluate(([sel, html]) => {
+      const inizio = html.slice(0, 120);
+      const el = Array.from(document.querySelectorAll(sel)).find(e => e.outerHTML.slice(0, 120) === inizio);
+      if (!el) return null;
+      const salvati = [];
+      for (let a = el.parentElement; a; a = a.parentElement) if (a.scrollHeight > a.clientHeight || a.scrollWidth > a.clientWidth) salvati.push([a, a.scrollTop, a.scrollLeft]);
+      window.__gwScorrimenti = { salvati, x: scrollX, y: scrollY, el };
+      window.__gwPausaIO = true;
+      el.setAttribute('data-gw-rimisura', '');
+      el.scrollIntoView({ block: 'center', inline: 'nearest' });
+      return true;
+    }, [nodo.target[0], nodo.html || '']).catch(() => null);
+    if (!scorrimenti) continue;
+
+    try {
+      // Solo l'elemento marcato (e il suo testo): passato se axe non ha piu' dubbi ne' violazioni
+      const esito = await new AxeBuilder({ page }).withRules(['color-contrast']).include('[data-gw-rimisura]').analyze();
+      const nodi = r => r.flatMap(x => x.nodes || []);
+      const violati = nodi(esito.violations);
+      const passato = !violati.length && !nodi(esito.incomplete).length && nodi(esito.passes).length > 0;
+      if (passato || violati.length) {
+        restano.delete(nodo);
+        rimisurati++;
+        if (violati.length) nuoveViolazioni.push({ ...esito.violations[0], nodes: violati });
+      }
+    } finally {
+      await page.evaluate(() => {
+        const s = window.__gwScorrimenti;
+        if (!s) return;
+        s.el.removeAttribute('data-gw-rimisura');
+        for (const [a, top, left] of s.salvati) { a.scrollTop = top; a.scrollLeft = left; }
+        scrollTo(s.x, s.y);
+        delete window.__gwScorrimenti;
+        // La pausa resta finche' l'osservatore non ha consegnato le notifiche dello scorrimento
+        return new Promise(fine => requestAnimationFrame(() => requestAnimationFrame(() => { window.__gwPausaIO = false; fine(); })));
+      }).catch(() => {});
+    }
+  }
+
+  const altre = incomplete.filter(r => r !== regola);
+  const nodi = regola.nodes.filter(n => restano.has(n));
+  const regolaViolata = violations.find(v => v.id === 'color-contrast');
+  const piuViolazioni = nuoveViolazioni.flatMap(v => v.nodes);
+  let violazioni = violations;
+  if (piuViolazioni.length) {
+    violazioni = regolaViolata
+      ? violations.map(v => (v === regolaViolata ? { ...v, nodes: [...v.nodes, ...piuViolazioni] } : v))
+      : [...violations, { ...nuoveViolazioni[0], nodes: piuViolazioni }];
+  }
+  return { incomplete: nodi.length ? [...altre, { ...regola, nodes: nodi }] : altre, violations: violazioni, rimisurati, violati: piuViolazioni.length };
+}
+
 async function analyzeMouseOnly(page, opzioni) {
   const { ignora = null, massimo = 40 } = opzioni || {};
   try {
@@ -834,6 +1114,23 @@ async function analyzeMouseOnly(page, opzioni) {
         role: e.getAttribute('role') || null,
         testo: (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || null,
       });
+      /* Popup delle combobox ARIA 1.2 (ng-select, mat-autocomplete...): il fuoco resta sulla
+         combobox e le opzioni si scelgono con le frecce (aria-activedescendant), quindi le opzioni
+         e il pannello che le contiene hanno un gestore del clic ma non devono essere focalizzabili. */
+      const popupCombobox = [];
+      document.querySelectorAll('[role="combobox"][aria-controls], [role="combobox"][aria-owns]').forEach((c) => {
+        `${c.getAttribute('aria-controls') || ''} ${c.getAttribute('aria-owns') || ''}`.split(/\s+/)
+          .filter(Boolean).forEach((id) => { const p = document.getElementById(id); if (p) popupCombobox.push(p); });
+      });
+      const inPopupCombobox = (e) => popupCombobox.some((p) => p.contains(e) || e.contains(p));
+      /* Sfondo di un dialog aperto (cdk-overlay-backdrop, MUI Backdrop...): elemento senza ruolo
+         ne' testo che chiude il dialog al clic; da tastiera la stessa azione e' Esc (verifica
+         manuale, come per tutti i widget compositi). Non solo aria-modal: Angular Material 17+
+         non lo imposta e rende inerte il resto della pagina con aria-hidden. */
+      const dialogModali = Array.from(document.querySelectorAll(
+        '[aria-modal="true"], [role="dialog"], [role="alertdialog"], dialog[open]')).filter(visibile);
+      const sfondoDialog = (e) => dialogModali.length > 0 && !e.getAttribute('role')
+        && !(e.textContent || '').trim() && !dialogModali.some((d) => d.contains(e) || e.contains(d));
       const candidati = [];
       const esamina = (e) => {
         if (!(e instanceof Element) || !visibile(e)) return;
@@ -846,6 +1143,8 @@ async function analyzeMouseOnly(page, opzioni) {
         if (e.getAttribute('role') && e.getAttribute('tabindex') === '-1') return;
         if (e.closest(focalizzabile)) return;                             // dentro un comando
         if (e.querySelector(focalizzabile)) return;                       // contenitore con delega
+        if (inPopupCombobox(e)) return;                                   // opzioni via aria-activedescendant
+        if (sfondoDialog(e)) return;                                      // sfondo del dialog: Esc
         if (ignora) { try { if (e.matches(ignora) || e.closest(ignora)) return; } catch (x) { /* selettore non valido: si ignora l'esclusione */ } }
         candidati.push(descrivi(e));
       };
@@ -996,7 +1295,621 @@ async function nodiAccessibili(page) {
   } catch { return null; }
 }
 
-async function recordScan(browser, page, target, name, pageResults, sourceHint) {
+/* ------------- controlli di presentazione e tastiera (fuori da axe) ------------- */
+/* I risultati escono nel formato delle violazioni di axe (id, impact, tags, help, nodes): cosi'
+   finiscono senza altro lavoro nel report HTML, in JUnit, SARIF, Sonar e nel gate --fail-on.
+   Gli id hanno il prefisso 'gova11y-' per distinguerli dalle regole di axe. */
+const CRITERI = {
+  '1.4.10': { tag: 'wcag21aa', titolo: 'Reflow', slug: 'reflow' },
+  '1.4.12': { tag: 'wcag21aa', titolo: 'Text Spacing', slug: 'text-spacing' },
+  '2.1.1': { tag: 'wcag2a', titolo: 'Keyboard', slug: 'keyboard' },
+  '2.1.2': { tag: 'wcag2a', titolo: 'No Keyboard Trap', slug: 'no-keyboard-trap' },
+  '2.4.3': { tag: 'wcag2a', titolo: 'Focus Order', slug: 'focus-order' },
+  '2.4.7': { tag: 'wcag2aa', titolo: 'Focus Visible', slug: 'focus-visible' },
+  '2.4.11': { tag: 'wcag22aa', titolo: 'Focus Not Obscured (Minimum)', slug: 'focus-not-obscured-minimum' },
+  '1.4.13': { tag: 'wcag21aa', titolo: 'Content on Hover or Focus', slug: 'content-on-hover-or-focus' },
+  '3.1.2': { tag: 'wcag2aa', titolo: 'Language of Parts', slug: 'language-of-parts' },
+  '4.1.2': { tag: 'wcag2a', titolo: 'Name, Role, Value', slug: 'name-role-value' },
+};
+
+// Una violazione nel formato di axe. 'nodi': [{ target: '<selettore>', html?, messaggio }].
+function violazione(id, criterio, impatto, help, nodi) {
+  const c = CRITERI[criterio] || {};
+  return {
+    id, impact: impatto, help, description: help,
+    tags: ['gov-a11y', ...(c.tag ? [c.tag] : []), `wcag${criterio.replace(/\./g, '')}`],
+    helpUrl: c.slug ? `https://www.w3.org/WAI/WCAG22/Understanding/${c.slug}.html` : 'https://www.w3.org/WAI/WCAG22/quickref/',
+    nodes: nodi.map(n => ({ target: [n.target], html: n.html || '', failureSummary: n.messaggio, impact: impatto })),
+  };
+}
+
+/* Problemi dichiarati da uno script di flow (scan(nome, { problemi })): verifiche che solo
+   l'applicazione sa fare, come "il menu si apre con Invio" o "Esc riporta il focus al bottone".
+   Uno per voce: { criterio: '2.1.1', messaggio, selettore?, impatto? (predefinito 'serious') }. */
+function violazioniDaProblemi(problemi) {
+  const out = new Map();
+  for (const p of problemi || []) {
+    const criterio = String(p.criterio || '').trim();
+    if (!criterio || !p.messaggio) throw new Error("problema dichiarato senza 'criterio' o 'messaggio'");
+    const impatto = p.impatto || 'serious';
+    const id = `gova11y-script-${criterio.replace(/\./g, '')}`;
+    const chiave = `${id}|${impatto}`;
+    if (!out.has(chiave)) out.set(chiave, violazione(id, criterio, impatto, `${criterio} ${CRITERI[criterio]?.titolo || ''}`.trim() + ' (verifica dello script del target)', []));
+    out.get(chiave).nodes.push({ target: [p.selettore || 'html'], html: '', failureSummary: p.messaggio, impact: impatto });
+  }
+  return [...out.values()];
+}
+
+// Descrizione breve di un elemento, usata come 'target' dei nodi (tag#id.classi). Installata nella
+// pagina prima di ogni controllo: le funzioni passate a page.evaluate non vedono questo modulo.
+async function installaDescrivi(page) {
+  await page.evaluate(() => {
+    window.__gwDescrivi = e => {
+      const s = e.tagName.toLowerCase();
+      if (e.id) return s + '#' + CSS.escape(e.id);
+      const cl = typeof e.className === 'string' ? e.className.split(/\s+/).filter(Boolean).slice(0, 2) : [];
+      return s + cl.map(c => '.' + CSS.escape(c)).join('');
+    };
+  });
+}
+
+// 1.4.10: a 320 px CSS di larghezza la vista non deve richiedere lo scorrimento orizzontale.
+async function analyzeReflow(page) {
+  const prima = page.viewportSize() || { width: 1280, height: 720 };
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.waitForTimeout(300);
+  try {
+    await installaDescrivi(page);
+    const r = await page.evaluate(() => {
+      const larghezza = document.documentElement.scrollWidth;
+      const larghi = [...document.querySelectorAll('body *')].filter(e => {
+        const b = e.getBoundingClientRect();
+        return e.offsetParent && b.right > innerWidth + 1 && getComputedStyle(e).position !== 'fixed';
+      }).slice(0, 5).map(e => ({ target: window.__gwDescrivi(e), html: e.outerHTML.slice(0, 200), destra: Math.round(e.getBoundingClientRect().right) }));
+      return { larghezza, larghi };
+    });
+    if (r.larghezza <= 321) return [];
+    const nodi = r.larghi.length ? r.larghi : [{ target: 'html', html: '', destra: r.larghezza }];
+    return [violazione('gova11y-reflow-320', '1.4.10', 'serious', 'A 320px di larghezza la vista scorre in orizzontale',
+      nodi.map(n => ({ target: n.target, html: n.html, messaggio: `Larghezza del documento ${r.larghezza}px a 320px: l'elemento arriva a ${n.destra}px` })))];
+  } finally {
+    await page.setViewportSize(prima);
+    await page.waitForTimeout(150);
+  }
+}
+
+/* 1.4.12: con interlinea 1.5, spaziatura lettere 0.12em, parole 0.16em, paragrafi 2em nessun testo si perde.
+   Il criterio riguarda il testo che si perde PER EFFETTO della spaziatura: si misura quali testi sono
+   tagliati prima di applicarla e quali dopo.
+   - tagliato solo dopo: violazione (gova11y-text-spacing);
+   - tagliato gia' prima, e visibile: caso da verificare (gova11y-text-truncated), non una violazione
+     1.4.12. Un testo troncato all'origine (es. con i puntini) e' un difetto solo se il testo completo
+     non e' disponibile altrove; come caso da verificare ha lo screenshot e si puo' dichiarare nel
+     registro dei falsi positivi;
+   - nascosto di proposito (testo per screen reader, testo sostituito da un'icona): ignorato. Si
+     riconosce dallo stile (clip, riquadro di 1px, text-indent fuori schermo), non dal nome della classe.
+   Restituisce { violazioni, daVerificare } nel formato di axe. */
+async function analyzeTextSpacing(page) {
+  await installaDescrivi(page);
+  const esito = await page.evaluate(() => {
+    const nascostoDiProposito = (e, cs) => {
+      if (/sr-only|visually-hidden/.test(e.getAttribute('class') || '')) return true;
+      const b = e.getBoundingClientRect();
+      if (b.width <= 1 || b.height <= 1) return true;
+      if (/^rect\(\s*0(px)?[\s,]+0(px)?[\s,]+0(px)?[\s,]+0(px)?\s*\)$/.test(cs.clip)) return true;
+      if (/^inset\(\s*(50|100)%/.test(cs.clipPath || '')) return true;
+      return Math.abs(parseFloat(cs.textIndent) || 0) >= 999;   // testo spostato fuori dal riquadro (icona)
+    };
+    // Nodi di testo che si leggono: non il contenuto di style e script (un contenitore puo' includerli).
+    const nodiDiTesto = e => {
+      const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT, { acceptNode: n =>
+        !n.nodeValue.trim() || n.parentElement.closest('style, script, noscript, template') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+      const nodi = []; while (w.nextNode()) nodi.push(w.currentNode); return nodi;
+    };
+    const testoDi = e => nodiDiTesto(e).map(n => n.nodeValue.trim()).join(' ');
+    // Tagliato: il contenitore nasconde cio' che esce e almeno un testo finisce fuori dalla sua area
+    // visibile. Non basta che il contenuto sia piu' grande (margini o spazio vuoto non tolgono testo);
+    // con text-overflow:ellipsis il testo occupa comunque tutta la sua lunghezza, quindi esce anch'esso.
+    const tagliato = e => {
+      const cs = getComputedStyle(e);
+      const nasconde = cs.overflow === 'hidden' || cs.overflowX === 'hidden' || cs.overflowY === 'hidden' || cs.textOverflow === 'ellipsis';
+      if (!nasconde || (e.scrollWidth <= e.clientWidth + 2 && e.scrollHeight <= e.clientHeight + 2)) return false;
+      const b = e.getBoundingClientRect();
+      const sx = b.left + e.clientLeft, sy = b.top + e.clientTop, dx = sx + e.clientWidth, gy = sy + e.clientHeight;
+      const r = document.createRange();
+      return nodiDiTesto(e).some(n => { r.selectNodeContents(n);
+        return [...r.getClientRects()].some(t => t.width > 0 && (t.right > dx + 2 || t.bottom > gy + 2 || t.left < sx - 2 || t.top < sy - 2)); });
+    };
+    const candidati = [...document.querySelectorAll('body *')].filter(e =>
+      e.offsetParent && e.children.length <= 3 && testoDi(e) && !nascostoDiProposito(e, getComputedStyle(e)));
+    const giaTagliati = new Set(candidati.filter(tagliato));
+    const st = document.createElement('style');
+    st.textContent = '*{line-height:1.5!important;letter-spacing:.12em!important;word-spacing:.16em!important}p{margin-bottom:2em!important}';
+    document.head.appendChild(st);
+    const voce = e => ({ target: window.__gwDescrivi(e), html: e.outerHTML.slice(0, 200), testo: testoDi(e).slice(0, 40) });
+    const violazioni = [], daVerificare = [];
+    for (const e of candidati) {
+      if (giaTagliati.has(e)) { if (daVerificare.length < 5) daVerificare.push(voce(e)); }
+      else if (violazioni.length < 5 && tagliato(e)) violazioni.push(voce(e));
+      if (violazioni.length >= 5 && daVerificare.length >= 5) break;
+    }
+    st.remove();
+    return { violazioni, daVerificare };
+  });
+  const violazioni = esito.violazioni.length ? [violazione('gova11y-text-spacing', '1.4.12', 'moderate', 'Con la spaziatura del testo aumentata il testo viene tagliato',
+    esito.violazioni.map(t => ({ target: t.target, html: t.html, messaggio: `Testo tagliato con la spaziatura aumentata: "${t.testo}"` })))] : [];
+  const daVerificare = esito.daVerificare.length ? [{
+    id: 'gova11y-text-truncated', impact: 'moderate', tags: ['gov-a11y', 'best-practice'],
+    help: 'Testo gia\' troncato con la spaziatura normale: verificare che il testo completo sia disponibile',
+    description: 'Il testo e\' tagliato dal suo contenitore anche senza spaziatura aggiunta: non e\' un effetto della spaziatura (1.4.12), ma va verificato che il testo completo si possa leggere altrove.',
+    helpUrl: 'https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html',
+    nodes: esito.daVerificare.map(t => ({ target: [t.target], html: t.html, impact: 'moderate',
+      failureSummary: `Testo gia' troncato senza spaziatura aggiunta: "${t.testo}"`,
+      any: [{ id: 'gova11y-text-truncated', data: { messageKey: 'giaTroncato' }, message: 'testo troncato dal contenitore' }], all: [], none: [] })),
+  }] : [];
+  return { violazioni, daVerificare };
+}
+
+/* 2.4.7 / 2.4.11 / 2.1.2: percorre la vista col tasto Tab dall'inizio del documento. Per ogni fermata
+   verifica che il focus si veda, che non sia coperto da un altro elemento e che
+   il focus non resti fermo (trappola). Restituisce anche l'ordine di focus, evidenza per la revisione
+   manuale (2.4.3). Si parte da un segnaposto non tabulabile in cima al body, cosi' il percorso non
+   dipende da dove si trovava il focus e nessun clic tocca la pagina.
+   Il focus si vede se l'elemento ha un outline o un box-shadow, oppure se lui o uno dei due
+   contenitori piu' vicini cambia aspetto rispetto a prima del percorso (bordo, fondo, colore,
+   sottolineatura): e' il caso dei menu che evidenziano la voce con ':focus-within' sul contenitore.
+   L'aspetto di partenza si registra prima del primo Tab, senza togliere il focus durante il percorso,
+   che altrimenti cambierebbe lo stato della pagina (un calendario che si apre col focus).
+   Se la vista ha una finestra modale aperta (aria-modal="true" o <dialog> modale) il percorso parte
+   dentro la finestra: il resto della pagina e' inerte per contratto, e partendo dall'inizio del
+   documento si visiterebbero i comandi sotto la maschera. Una finestra modale con un solo comando
+   trattiene il focus su quello: e' il giro della finestra, non una trappola. */
+async function analyzeKeyboard(page, massimo = 45) {
+  await installaDescrivi(page);
+  await page.evaluate(() => {
+    const visibile = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
+    const modale = [...document.querySelectorAll('[aria-modal="true"], dialog[open]')]
+      .filter(e => visibile(e) && (e.getAttribute('aria-modal') === 'true' || e.matches(':modal'))).pop() || null;
+    window.__gwModale = modale;
+    const s = document.createElement('span'); s.id = '__gw_partenza'; s.tabIndex = -1;
+    (modale || document.body).prepend(s); s.focus(); if (!modale) window.scrollTo(0, 0);
+    const proprieta = ['outlineStyle', 'outlineWidth', 'outlineColor', 'boxShadow', 'backgroundColor', 'backgroundImage', 'color', 'textDecorationLine',
+      ...['Top', 'Right', 'Bottom', 'Left'].flatMap(l => [`border${l}Style`, `border${l}Width`, `border${l}Color`])];
+    const aspetto = e => { const cs = getComputedStyle(e); return proprieta.map(p => cs[p]).join('|'); };
+    const daConfrontare = e => { const l = [e]; for (let p = e.parentElement; p && l.length < 3 && p !== document.body; p = p.parentElement) l.push(p); return l; };
+    const base = new Map();
+    for (const e of document.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]'))
+      for (const x of daConfrontare(e)) if (!base.has(x)) base.set(x, aspetto(x));
+    // true/false: cambia o no rispetto alla partenza; null: elemento comparso dopo, senza aspetto di partenza
+    window.__gwFocusCambiaAspetto = e => base.has(e) ? daConfrontare(e).some(x => base.has(x) && base.get(x) !== aspetto(x)) : null;
+  });
+  const ordine = [], senzaFocus = [], coperti = [];
+  let trappola = null, prec = null, uguali = 0;
+  try {
+    for (let i = 0; i < massimo; i++) {
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(120);
+      const f = await page.evaluate(() => {
+        const e = document.activeElement;
+        if (!e || e === document.body || e.id === '__gw_partenza') return null;
+        const cs = getComputedStyle(e);
+        const visibile = c => c && !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(c);
+        const outline = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && visibile(cs.outlineColor);
+        const ombra = cs.boxShadow !== 'none' && cs.boxShadow.split(/,(?![^(]*\))/).some(s => /0px 0px 0px [1-9]/.test(s) || /[1-9]px -?\d+px [1-9]/.test(s)) && /rgb\(|rgba\((?!.*, 0\))/.test(cs.boxShadow);
+        const b = e.getBoundingClientRect();
+        // Coperto (2.4.11, "Minimum") vuol dire nascosto DEL TUTTO, e da qualcosa che si vede: si
+        // provano piu' punti, cioe' il centro del riquadro e centro e angoli di ogni riga dell'elemento
+        // (un link che va a capo ha un riquadro complessivo che comprende anche i vicini), e basta che
+        // uno solo mostri l'elemento. Non conta chi copre restando trasparente (opacity 0: lo strato
+        // che alcuni componenti stendono sopra un select per intercettare il clic).
+        const fuori = b.bottom < 0 || b.top > innerHeight;
+        const trasparente = t => { for (let x = t; x && x.nodeType === 1; x = x.parentElement) if (parseFloat(getComputedStyle(x).opacity) < 0.05) return true; return false; };
+        const copritore = (x, y) => { const t = document.elementFromPoint(x, y);
+          return t && t !== e && !e.contains(t) && !t.contains(e) && !trasparente(t) ? t : null; };
+        const punti = [[b.left + b.width / 2, b.top + Math.min(b.height / 2, 5)]];
+        for (const r of e.getClientRects()) if (r.width > 4 && r.height > 4)
+          punti.push([r.left + r.width / 2, r.top + r.height / 2], [r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]);
+        const inVista = punti.filter(([x, y]) => y >= 0 && y < innerHeight && x >= 0 && x < innerWidth);
+        const coperture = fuori || !inVista.length ? [] : inVista.map(([x, y]) => copritore(x, y));
+        const copre = coperture.length && coperture.every(Boolean) ? window.__gwDescrivi(coperture[0]) : null;
+        const testo = ((e.innerText || '').trim() || e.value || e.getAttribute('aria-label') || e.getAttribute('title')
+          || e.querySelector('img[alt]')?.getAttribute('alt') || '').trim().slice(0, 30);
+        const nome = e.getAttribute('name');
+        const ok = outline || ombra || window.__gwFocusCambiaAspetto(e) === true;
+        const m = window.__gwModale;
+        const unicoNellaModale = !!m && m.contains(e) && [...m.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')]
+          .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden').length === 1;
+        return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok, copre, unicoNellaModale };
+      });
+      if (!f) { if (ordine.length) break; else continue; }
+      const chiave = `${f.target} "${f.testo}"`;
+      if (chiave === prec) { if (++uguali > 2) { if (!f.unicoNellaModale) trappola = f; break; } continue; }
+      uguali = 0;
+      if (ordine.includes(chiave)) break;   // giro completo
+      prec = chiave; ordine.push(chiave);
+      if (!f.ok) senzaFocus.push(f);
+      if (f.copre) coperti.push(f);
+    }
+  } finally {
+    await page.evaluate(() => { document.getElementById('__gw_partenza')?.remove(); delete window.__gwFocusCambiaAspetto; delete window.__gwModale; }).catch(() => {});
+  }
+  const violazioni = [];
+  if (senzaFocus.length) violazioni.push(violazione('gova11y-focus-visible', '2.4.7', 'serious', 'Indicatore del focus non visibile',
+    senzaFocus.map(f => ({ target: f.target, html: f.html, messaggio: `Con il focus da tastiera l'elemento "${f.testo}" non cambia aspetto: né outline o box-shadow, né bordo, fondo o colore suoi o del contenitore` }))));
+  if (coperti.length) violazioni.push(violazione('gova11y-focus-obscured', '2.4.11', 'moderate', "L'elemento con il focus è coperto da un altro elemento",
+    coperti.map(f => ({ target: f.target, html: f.html, messaggio: `Coperto da ${f.copre}` }))));
+  if (trappola) violazioni.push(violazione('gova11y-keyboard-trap', '2.1.2', 'critical', 'Il focus resta bloccato su un elemento',
+    [{ target: trappola.target, html: trappola.html, messaggio: 'Premendo Tab il focus non si sposta' }]));
+  return { violazioni, ordine };
+}
+
+/* 3.1.2: testo in una lingua diversa da quella dichiarata per la sua parte di pagina. Le espressioni
+   le dichiara il target, per lingua: { "it": ["Accedendo accetti", ...], "en": ["\\b(the|your)\\b"] }.
+   Un testo che corrisponde a un'espressione della lingua L e la cui lingua effettiva (l'attributo
+   lang piu' vicino) non comincia per L e' una violazione. Si guardano anche i testi negli attributi
+   letti dalle tecnologie assistive (aria-label, placeholder, title, value dei pulsanti). */
+async function analyzeLanguageParts(page, espressioni) {
+  await installaDescrivi(page);
+  const trovati = await page.evaluate(espressioni => {
+    const regole = Object.entries(espressioni).map(([l, v]) => [l.toLowerCase(), [].concat(v).map(r => new RegExp(r, 'i'))]);
+    const lingua = el => ((el.closest('[lang]') || document.documentElement).getAttribute('lang') || '').toLowerCase();
+    const out = [];
+    const prova = (el, testo) => {
+      const ling = lingua(el);
+      for (const [l, rs] of regole) if (!ling.startsWith(l) && rs.some(r => r.test(testo))) out.push({ target: window.__gwDescrivi(el), testo: testo.trim().slice(0, 50), l, ling });
+    };
+    const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (w.nextNode()) {
+      const el = w.currentNode.parentElement;
+      if (!el || !el.offsetParent || el.closest('script,style,code,noscript')) continue;
+      if (w.currentNode.textContent.trim()) prova(el, w.currentNode.textContent);
+    }
+    for (const el of document.querySelectorAll('[aria-label],[placeholder],[title],input[type=submit],input[type=button]')) {
+      if (!el.offsetParent) continue;
+      for (const v of [el.getAttribute('aria-label'), el.getAttribute('placeholder'), el.getAttribute('title'), /^(submit|button)$/.test(el.type) ? el.value : null]) if (v) prova(el, v);
+    }
+    const visti = new Set();
+    return out.filter(o => { const k = o.target + o.testo; if (visti.has(k)) return false; visti.add(k); return true; }).slice(0, 8);
+  }, espressioni);
+  if (!trovati.length) return [];
+  return [violazione('gova11y-language-of-parts', '3.1.2', 'serious', 'Testo in una lingua diversa da quella dichiarata',
+    trovati.map(t => ({ target: t.target, html: '', messaggio: `"${t.testo}" è in '${t.l}' ma la lingua dichiarata è '${t.ling || '(nessuna)'}'` })))];
+}
+
+/* ---------------------- secondo motore: IBM Equal Access ------------------- */
+/* Il motore (accessibility-checker-engine, Apache-2.0) e' lo stesso dell'estensione e del checker
+   di IBM, senza il loro contorno (browser proprio, telemetria): un unico script da eseguire nella
+   pagina, come axe. Si inietta con evaluate e non con un tag <script>, cosi' una Content Security
+   Policy che vieta gli script inline non lo blocca. Si usa l'insieme di regole WCAG 2.2, che
+   contiene i soli criteri di livello A e AA. Esiti tenuti come li classifica il motore: FAIL e'
+   una violazione, POTENTIAL un caso da verificare; raccomandazioni e verifiche manuali no. */
+const EA_RULESET = 'WCAG_2_2';
+let _eaSorgente = null;
+async function runEqualAccess(page, include) {
+  if (_eaSorgente === null) _eaSorgente = readFileSync(resolveModule('accessibility-checker-engine'), 'utf8');
+  const presente = await page.evaluate(() => typeof window.ace !== 'undefined' && !!window.ace.Checker).catch(() => false);
+  if (!presente) await page.evaluate(_eaSorgente);
+  return page.evaluate(async ({ include, ruleset }) => {
+    const checker = new window.ace.Checker();
+    const regole = checker.getGuidelines().find(g => g.id === ruleset);
+    const criteri = {};
+    for (const cp of regole.checkpoints) {
+      for (const r of cp.rules || []) {
+        criteri[r.id] = criteri[r.id] || [];
+        if (!criteri[r.id].includes(cp.num)) criteri[r.id].push(cp.num);
+      }
+    }
+    const radice = (include && document.querySelector(include)) || document;
+    const esito = await checker.check(radice, [ruleset]);
+    const voce = x => ({
+      regola: x.ruleId, motivo: x.reasonId, messaggio: x.message,
+      snippet: String(x.snippet || '').slice(0, 300), xpath: (x.path && x.path.dom) || null,
+      wcag: criteri[x.ruleId] || [],
+    });
+    const violazioni = [], daVerificare = [];
+    for (const x of esito.results) {
+      if (x.value[0] !== 'VIOLATION') continue;
+      if (x.value[1] === 'FAIL') violazioni.push(voce(x));
+      else if (x.value[1] === 'POTENTIAL') daVerificare.push(voce(x));
+    }
+    return { violazioni, daVerificare };
+  }, { include: include || null, ruleset: EA_RULESET });
+}
+
+/* ------------------------- screenshot delle occorrenze --------------------- */
+/* Chi riceve il report deve poter vedere dove sta il problema senza ricostruirlo dal selettore.
+   Per ogni occorrenza (violazione, caso da verificare, esito del secondo motore) si fotografa la
+   porzione di vista intorno all'elemento, evidenziato da un bordo rosso che poi si toglie. Lo
+   stesso elemento segnalato da piu' regole ha una sola immagine. Gli elementi dentro iframe o
+   shadow DOM (selettore axe composto) e quelli non visibili restano senza immagine. Il nome del
+   file porta l'indice della vista, unico nella scansione. */
+async function fotografaOccorrenze(page, indiceVista, nodi) {
+  mkdirSync(resolve(OUT, 'screenshot'), { recursive: true });
+  const vp = page.viewportSize() || { width: 1280, height: 720 };
+  const fatte = new Map();
+  let k = 0;
+  for (const n of nodi) {
+    const chiave = chiaveOccorrenza(n);
+    if (!chiave) continue;
+    if (fatte.has(chiave)) { n.screenshot = fatte.get(chiave); continue; }
+    if (k >= SCREENSHOT_MAX) break;
+    const loc = page.locator(chiave).first();
+    let stile;
+    try {
+      if (!(await loc.count())) continue;
+      await loc.scrollIntoViewIfNeeded({ timeout: 2000 });
+      const bb = await loc.boundingBox();
+      if (!bb || bb.width < 1 || bb.height < 1) continue;
+      stile = await loc.evaluate(el => {
+        const s = el.getAttribute('style');
+        el.style.outline = '3px solid #d00';
+        el.style.outlineOffset = '2px';
+        return s;
+      });
+      const m = 40;
+      const x = Math.max(0, bb.x - m), y = Math.max(0, bb.y - m);
+      const clip = { x, y, width: Math.min(vp.width, bb.x + bb.width + m) - x, height: Math.min(vp.height, bb.y + bb.height + m) - y };
+      if (clip.width < 1 || clip.height < 1) continue;
+      const file = `screenshot/v${indiceVista}-${k + 1}.png`;
+      await page.screenshot({ path: resolve(OUT, file), clip });
+      k++;
+      n.screenshot = file;
+      fatte.set(chiave, file);
+    } catch { /* elemento sparito o non fotografabile: l'occorrenza resta senza immagine */ }
+    finally {
+      if (stile !== undefined) await loc.evaluate((el, s) => { if (s === null) el.removeAttribute('style'); else el.setAttribute('style', s); }, stile).catch(() => {});
+    }
+  }
+  return k;
+}
+
+/* ---------------- stima del contrasto sui casi da verificare --------------- */
+/* axe lascia "da verificare" il contrasto di un testo quando non sa ricavarne lo sfondo (un
+   gradiente, un'immagine, uno pseudo-elemento, un elemento sovrapposto) o quando il testo e' di uno o
+   due caratteri; il secondo motore ne segnala altri. Lo sfondo vero pero' e' sullo schermo. Si
+   rende trasparente il testo dell'elemento (pseudo-elementi compresi), si fotografa la sola area
+   delle sue righe di testo e si confronta il colore del testo con ogni pixel di sfondo: ne escono il
+   rapporto minimo e massimo e la soglia richiesta (4,5:1, oppure 3:1 per il testo grande).
+   E' una STIMA. L'opacita' si applica al solo colore del testo; filtri, ombre e testi sopra
+   contenuti in movimento non sono considerati; il 2% dei pixel per parte si scarta (bordi, puntini).
+   Non sposta nulla fra violazioni e casi da verificare e non tocca il gate: e' il punto di partenza
+   della verifica manuale, e la misura da citare in un falso positivo. */
+const REGOLE_CONTRASTO = new Set(['color-contrast', 'text_contrast_sufficient']);
+
+/* PNG -> pixel RGBA, senza dipendenze: gli screenshot di Chromium sono a 8 bit, non interlacciati. */
+function decodificaPng(buf) {
+  if (buf.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('non è un PNG');
+  let pos = 8, w = 0, h = 0, prof = 0, tipo = 0, interl = 0;
+  const idat = [];
+  while (pos + 8 <= buf.length) {
+    const len = buf.readUInt32BE(pos), nome = buf.toString('ascii', pos + 4, pos + 8);
+    const dati = buf.subarray(pos + 8, pos + 8 + len);
+    if (nome === 'IHDR') { w = dati.readUInt32BE(0); h = dati.readUInt32BE(4); prof = dati[8]; tipo = dati[9]; interl = dati[12]; }
+    else if (nome === 'IDAT') idat.push(dati);
+    else if (nome === 'IEND') break;
+    pos += 12 + len;
+  }
+  const canali = { 0: 1, 2: 3, 4: 2, 6: 4 }[tipo];
+  if (prof !== 8 || !canali || interl) throw new Error(`PNG non supportato (profondità ${prof}, tipo ${tipo}, interlacciato ${interl})`);
+  const raw = inflateSync(Buffer.concat(idat));
+  const riga = w * canali;
+  const out = new Uint8Array(w * h * 4);
+  let prec = new Uint8Array(riga), cur = new Uint8Array(riga);
+  for (let y = 0; y < h; y++) {
+    const base = y * (riga + 1), filtro = raw[base];
+    for (let i = 0; i < riga; i++) {
+      const a = i >= canali ? cur[i - canali] : 0, b = prec[i], c = i >= canali ? prec[i - canali] : 0;
+      let v = raw[base + 1 + i];
+      if (filtro === 1) v += a;
+      else if (filtro === 2) v += b;
+      else if (filtro === 3) v += (a + b) >> 1;
+      else if (filtro === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      cur[i] = v & 255;
+    }
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4, i = x * canali;
+      if (canali >= 3) { out[o] = cur[i]; out[o + 1] = cur[i + 1]; out[o + 2] = cur[i + 2]; out[o + 3] = canali === 4 ? cur[i + 3] : 255; }
+      else { out[o] = out[o + 1] = out[o + 2] = cur[i]; out[o + 3] = canali === 2 ? cur[i + 1] : 255; }
+    }
+    [prec, cur] = [cur, prec];
+  }
+  return { larghezza: w, altezza: h, dati: out };
+}
+
+// Luminanza relativa e rapporto di contrasto come li definiscono le WCAG 2.x
+const lumCanale = c => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+const luminanza = ([r, g, b]) => 0.2126 * lumCanale(r) + 0.7152 * lumCanale(g) + 0.0722 * lumCanale(b);
+function rapportoContrasto(a, b) {
+  const x = luminanza(a), y = luminanza(b);
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/* Testo [r,g,b,alfa] contro gli sfondi misurati, [[r,g,b], pixel]. Il testo semitrasparente si
+   compone su ogni sfondo. Esito: 'conforme' se al piu' il 2% dell'area sta sotto la soglia, 'non
+   conforme' se ci sta almeno il 98%, altrimenti 'parziale' (un gradiente che passa la soglia a meta'). */
+function valutaContrasto(testo, sfondi, richiesto) {
+  const [r, g, b, a = 1] = testo;
+  const voci = [];
+  let totale = 0;
+  for (const [s, n] of sfondi) {
+    const fg = [r * a + s[0] * (1 - a), g * a + s[1] * (1 - a), b * a + s[2] * (1 - a)];
+    voci.push([rapportoContrasto(fg, s), n]);
+    totale += n;
+  }
+  if (!totale) return null;
+  voci.sort((x, y) => x[0] - y[0]);
+  const quantile = q => { let acc = 0; for (const [v, n] of voci) { acc += n; if (acc >= q * totale) return v; } return voci[voci.length - 1][0]; };
+  const sotto = voci.reduce((s, [v, n]) => s + (v < richiesto ? n : 0), 0) / totale;
+  const perDifetto = v => Math.floor(v * 100) / 100;   // 4,499 resta 4,49: non diventa conforme arrotondando
+  return {
+    minimo: perDifetto(quantile(0.02)), massimo: perDifetto(quantile(0.98)), richiesto,
+    sotto: Math.round(sotto * 100) / 100,
+    esito: sotto <= 0.02 ? 'conforme' : sotto >= 0.98 ? 'non conforme' : 'parziale',
+  };
+}
+
+const esadecimale = ([r, g, b]) => '#' + [r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+
+// Locator di un'occorrenza: XPath del secondo motore o selettore axe semplice (no iframe/shadow DOM)
+function chiaveOccorrenza(n) {
+  if (n.xpath) return `xpath=${n.xpath}`;
+  return Array.isArray(n.target) && n.target.length === 1 && typeof n.target[0] === 'string' ? n.target[0] : null;
+}
+
+/* Nella pagina: colore e dimensione del testo, aree delle sue righe (nella vista), firma del
+   componente; poi rende trasparente il testo. Il foglio di stile e' "adottato" (CSSOM), non un tag
+   <style>: una Content Security Policy senza 'unsafe-inline' non lo blocca. Lo stesso elemento
+   segnalato da piu' regole o da tutti e due i motori si misura una volta: torna l'id della misura. */
+function misuraTestoInPagina(el, { vp, giro }) {
+  // Il segno vale per un solo giro di misure: in una SPA lo stesso elemento resta da una vista all'altra
+  if (el.__gwStima && el.__gwStima.startsWith(giro + ':')) return { gia: el.__gwStima };
+  window.__gwStimaSeq = (window.__gwStimaSeq || 0) + 1;
+  const id = el.__gwStima = `${giro}:${window.__gwStimaSeq}`;
+  // Firma: tag, id se stabile (senza cifre: quelli generati ne hanno), al piu' tre classi non di Angular
+  const pulisci = e => e.tagName.toLowerCase() + (/^[a-z][a-z_-]*$/i.test(e.id) ? '#' + e.id : '')
+    + [...e.classList].filter(c => !/^ng-/.test(c)).slice(0, 3).map(c => '.' + c).join('');
+  const componente = [el.parentElement, el].filter(Boolean).map(pulisci).join(' > ');
+  const cs = getComputedStyle(el);
+  const m = cs.color.match(/^rgba?\(([^)]+)\)$/);
+  if (!m) return { id, componente, errore: `colore del testo in un formato non gestito: ${cs.color}` };
+  const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+  let alfa = p.length > 3 ? p[3] : 1;
+  for (let a = el; a; a = a.parentElement) alfa *= parseFloat(getComputedStyle(a).opacity) || 0;
+  if (alfa < 0.05) return { id, componente, errore: 'testo trasparente o elemento invisibile' };
+  // Righe di testo: i nodi di testo propri dell'elemento, altrimenti quelli dei discendenti; per un
+  // campo senza testo (input, select) l'area del contenuto. Si tagliano sull'elemento e sulla vista.
+  const testi = [...el.childNodes].filter(t => t.nodeType === 3 && t.textContent.trim());
+  if (!testi.length) {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    while (w.nextNode()) if (w.currentNode.textContent.trim()) testi.push(w.currentNode);
+  }
+  const box = el.getBoundingClientRect();
+  let rett = [];
+  for (const t of testi) { const r = document.createRange(); r.selectNodeContents(t); rett.push(...r.getClientRects()); }
+  if (!rett.length) {
+    const px = k => parseFloat(cs[k]) || 0;
+    rett = [{ left: box.left + px('paddingLeft') + px('borderLeftWidth'), top: box.top + px('paddingTop') + px('borderTopWidth'),
+      right: box.right - px('paddingRight') - px('borderRightWidth'), bottom: box.bottom - px('paddingBottom') - px('borderBottomWidth') }];
+  }
+  const vis = rett.map(r => ({
+    x0: Math.ceil(Math.max(0, r.left, box.left)), y0: Math.ceil(Math.max(0, r.top, box.top)),
+    x1: Math.floor(Math.min(vp.width, r.right, box.right)), y1: Math.floor(Math.min(vp.height, r.bottom, box.bottom)),
+  })).filter(r => r.x1 - r.x0 >= 1 && r.y1 - r.y0 >= 1);
+  if (!vis.length) return { id, componente, errore: 'testo fuori dalla vista o senza area' };
+  const dim = parseFloat(cs.fontSize) || 16, peso = parseInt(cs.fontWeight, 10) || 400;
+  el.setAttribute('data-gw-contrasto', '');
+  const sel = '[data-gw-contrasto]';
+  const foglio = new CSSStyleSheet();
+  foglio.replaceSync(`${[sel, `${sel} *`, `${sel}::before`, `${sel}::after`, `${sel} *::before`, `${sel} *::after`, `${sel}::placeholder`].join(', ')}
+    { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important;
+      text-decoration-color: transparent !important; caret-color: transparent !important; transition: none !important; }`);
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, foglio];
+  window.__gwContrasto = { el, foglio };
+  return new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => ok({
+    id, componente, colore: [p[0], p[1], p[2], Math.round(alfa * 1000) / 1000], rettangoli: vis,
+    grande: dim >= 24 || (dim >= 18.66 && peso >= 700), dimensione: dim, peso,
+  }))));
+}
+
+async function stimaContrasti(page, nodi) {
+  const vp = page.viewportSize() || { width: 1280, height: 720 };
+  const perChiave = new Map(), perId = new Map();
+  const giro = `g${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  let misurati = 0;
+  for (const n of nodi) {
+    const chiave = chiaveOccorrenza(n);
+    if (!chiave) continue;
+    if (perChiave.has(chiave)) { if (perChiave.get(chiave)) n.contrasto = perChiave.get(chiave); continue; }
+    if (misurati >= CONTRASTO_MAX) break;
+    const loc = page.locator(chiave).first();
+    let stima = null, nascosto = false;
+    try {
+      if (!(await loc.count())) { perChiave.set(chiave, null); continue; }
+      await loc.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+      const info = await loc.evaluate(misuraTestoInPagina, { vp, giro });
+      if (info.gia) { stima = perId.get(info.gia) || null; continue; }
+      misurati++;
+      if (info.errore) { stima = { componente: info.componente, errore: info.errore }; perId.set(info.id, stima); continue; }
+      nascosto = true;
+      const x0 = Math.min(...info.rettangoli.map(r => r.x0)), y0 = Math.min(...info.rettangoli.map(r => r.y0));
+      const x1 = Math.max(...info.rettangoli.map(r => r.x1)), y1 = Math.max(...info.rettangoli.map(r => r.y1));
+      const img = decodificaPng(await page.screenshot({ clip: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }, scale: 'css' }));
+      // Solo i pixel sotto le righe di testo: un'icona fra due nodi di testo non e' sfondo
+      const conteggio = new Map();
+      for (const r of info.rettangoli) {
+        for (let y = r.y0 - y0; y < Math.min(img.altezza, r.y1 - y0); y++) {
+          for (let x = r.x0 - x0; x < Math.min(img.larghezza, r.x1 - x0); x++) {
+            const o = (y * img.larghezza + x) * 4;
+            const k = (img.dati[o] << 16) | (img.dati[o + 1] << 8) | img.dati[o + 2];
+            conteggio.set(k, (conteggio.get(k) || 0) + 1);
+          }
+        }
+      }
+      const sfondi = [...conteggio].map(([k, c]) => [[(k >> 16) & 255, (k >> 8) & 255, k & 255], c]);
+      const valutazione = valutaContrasto(info.colore, sfondi, info.grande ? 3 : 4.5);
+      stima = valutazione
+        ? { componente: info.componente, testo: esadecimale(info.colore), alfa: info.colore[3], grande: info.grande, dimensione: info.dimensione, peso: info.peso, ...valutazione }
+        : { componente: info.componente, errore: 'nessun pixel di sfondo misurabile' };
+      perId.set(info.id, stima);
+    } catch (e) {
+      stima = { errore: `misura non riuscita: ${String(e.message || e).split('\n')[0]}` };
+    } finally {
+      if (nascosto) {
+        await page.evaluate(() => {
+          const s = window.__gwContrasto;
+          if (!s) return;
+          s.el.removeAttribute('data-gw-contrasto');
+          document.adoptedStyleSheets = document.adoptedStyleSheets.filter(f => f !== s.foglio);
+          delete window.__gwContrasto;
+        }).catch(() => {});
+      }
+      perChiave.set(chiave, stima);
+      if (stima) n.contrasto = stima;
+    }
+  }
+  return [...new Set(perId.values())];
+}
+
+/* Le stime raggruppate per componente su tutta la scansione: il colore da cambiare (o il falso
+   positivo da dichiarare) e' uno per componente, non uno per vista. Lo stesso elemento visto da
+   tutti e due i motori conta una volta. */
+const ORDINE_ESITO = { 'non conforme': 0, parziale: 1, conforme: 2, 'non stimabile': 3 };
+function contrastiPerComponente(results) {
+  const gruppi = new Map();
+  for (const pr of results) {
+    const nodi = [
+      ...(pr.incomplete || []).filter(v => REGOLE_CONTRASTO.has(v.id)).flatMap(v => (v.nodes || []).map(n => ['axe', n])),
+      ...[...(pr.equalAccess?.violazioni || []), ...(pr.equalAccess?.daVerificare || [])].filter(x => REGOLE_CONTRASTO.has(x.regola)).map(x => ['IBM', x]),
+    ];
+    for (const [motore, n] of nodi) {
+      const c = n.contrasto;
+      if (!c) continue;
+      const componente = c.componente || selettoreComponente(n.target) || n.xpath || '?';
+      const g = gruppi.get(componente) || { componente, motori: new Set(), viste: new Set(), stime: new Set(), testi: new Set(), minimo: null, massimo: null, richiesto: new Set(), esiti: {} };
+      g.motori.add(motore);
+      g.viste.add(pr.name);
+      if (!g.stime.has(c)) {
+        g.stime.add(c);
+        const esito = c.errore ? 'non stimabile' : c.esito;
+        g.esiti[esito] = (g.esiti[esito] || 0) + 1;
+        if (!c.errore) {
+          g.testi.add(c.alfa < 1 ? `${c.testo} (${Math.round(c.alfa * 100)}%)` : c.testo);
+          g.richiesto.add(c.richiesto);
+          g.minimo = g.minimo == null ? c.minimo : Math.min(g.minimo, c.minimo);
+          g.massimo = g.massimo == null ? c.massimo : Math.max(g.massimo, c.massimo);
+        } else g.errore = c.errore;
+      }
+      gruppi.set(componente, g);
+    }
+  }
+  return [...gruppi.values()].map(g => {
+    const esito = Object.keys(g.esiti).sort((a, b) => ORDINE_ESITO[a] - ORDINE_ESITO[b])[0];
+    return { componente: g.componente, motori: [...g.motori], viste: [...g.viste], occorrenze: g.stime.size, testi: [...g.testi],
+      minimo: g.minimo, massimo: g.massimo, richiesto: [...g.richiesto], esiti: g.esiti, esito, errore: g.errore || null };
+  }).sort((a, b) => ORDINE_ESITO[a.esito] - ORDINE_ESITO[b.esito] || b.viste.length - a.viste.length || b.occorrenze - a.occorrenze);
+}
+
+async function recordScan(browser, page, target, name, pageResults, sourceHint, extra = {}) {
   const url = page.url();
   /* axe fotografa il DOM com'e' in quel momento: con una richiesta ancora in volo puo'
      trovare in pagina gli elementi transitori dell'attesa (maschere, indicatori di
@@ -1026,7 +1939,12 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   for (let tentativo = 0; tentativo < 3; tentativo++) {
     const marcatore = `gw-${Date.now()}-${tentativo}`;
     await page.evaluate(m => { window.__gwMarcatore = m; }, marcatore).catch(() => {});
-    r = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+    /* 'include' (selettore CSS) limita l'analisi a una parte della vista: serve negli stati in cui
+       un elemento sovrapposto (una tendina aperta) copre per costruzione cio' che ha sotto, che
+       axe non potrebbe misurare e che si analizza comunque nella vista a riposo. */
+    let builder = new AxeBuilder({ page }).withTags(TAGS);
+    if (extra.include) builder = builder.include(extra.include);
+    r = await builder.analyze();
     const dopo = await page.evaluate(() => ({ marcatore: window.__gwMarcatore, stato: document.readyState })).catch(() => ({}));
     if (dopo.marcatore === marcatore && dopo.stato === 'complete') break;
     console.warn(`    [vista non ferma durante l'analisi] ${name}: rifaccio (tentativo ${tentativo + 2}/3)`);
@@ -1042,11 +1960,22 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   // ridisegno parziale sostituisce interi rami, e gli elementi da confrontare sparivano. Su
   // una vista di govwayMonitor questo bastava a far figurare 38 occorrenze fra quelle da
   // verificare, pur essendo coperte dal registro su tutte le altre viste.
-  const { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
-  let lhScore = null;
+  let { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
+  // Il secondo motore subito dopo axe: deve vedere lo stesso stato della vista.
+  let equalAccess = null;
+  if (DO_EA) {
+    try { equalAccess = await runEqualAccess(page, extra.include); }
+    catch (e) { console.warn(`    [${name}] IBM Equal Access non eseguito: ${e.message.split('\n')[0]}`); }
+    if (equalAccess) {
+      const ea = await separaFalsiPositiviEA(page, equalAccess, url);
+      equalAccess = ea.equalAccess;
+      derogati = [...derogati, ...ea.derogati];
+    }
+  }
+  let lhScore = null, lhMotivo = null;
   if (DO_LH && !LH_ESCLUSO_NEL_FLOW) {
     const sessione = await lhPreparaSessione(page, target);
-    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); }
+    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; }
     finally { await sessione.rilascia(); }
   }
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
@@ -1057,9 +1986,88 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const soloMouse = DO_MOUSE_ONLY ? await analyzeMouseOnly(page, { ignora: MOUSE_ONLY_IGNORE, massimo: MOUSE_ONLY_MAX }) : { totale: 0, elementi: [] };
   let sr = null;
   if (DO_SR) sr = await runScreenReader(page);
+  /* Controlli fuori da axe, in fondo: cambiano la larghezza della vista, la spaziatura e il focus,
+     e non devono disturbare le analisi precedenti, che fotografano la vista a riposo. */
+  const aggiuntive = violazioniDaProblemi(extra.problemi);
+  let tabOrder = null;
+  /* I controlli che falliscono restano nel risultato della vista: un controllo non eseguito e' un'evidenza.
+     Quelli che decidono il gate si ripetono una volta, se la pagina e' ancora la stessa: di norma l'errore
+     e' dell'ambiente (un refresh automatico o una risposta lenta proprio durante la misura). Se nel
+     frattempo la pagina e' cambiata non si riprova, perche' si misurerebbe un'altra vista. */
+  const nonEseguiti = [], eseguiti = [];
+  const prova = async (nome, fn) => {
+    const urlPrima = page.url();
+    for (let tentativo = 1; ; tentativo++) {
+      try { const esito = await fn(); eseguiti.push(nome); return esito; } catch (e) {
+        const m = e.message.split('\n')[0];
+        const stessa = !page.isClosed() && page.url() === urlPrima;
+        if (tentativo === 1 && stessa && CONTROLLI_DA_RIPETERE.has(nome)) {
+          console.warn(`    [${name}] controllo ${nome}: primo tentativo non riuscito (${m}), riprovo`);
+          await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+          continue;
+        }
+        const errore = `${m}${stessa ? '' : ` (la pagina e' cambiata durante la misura: ${page.isClosed() ? 'scheda chiusa' : page.url()})`}${tentativo > 1 ? ' (anche al secondo tentativo)' : ''}`;
+        nonEseguiti.push({ controllo: nome, errore });
+        console.warn(`    [${name}] controllo ${nome} non eseguito: ${errore}`);
+        return null;
+      }
+    }
+  };
+  if (DO_REFLOW) aggiuntive.push(...(await prova('reflow', () => analyzeReflow(page)) || []));
+  // spaziatura del testo: le violazioni con le altre; i testi gia' troncati fra i casi da verificare (piu' sotto)
+  let troncati = [];
+  if (DO_TEXT_SPACING) {
+    const ts = await prova('textSpacing', () => analyzeTextSpacing(page));
+    if (ts) { aggiuntive.push(...ts.violazioni); troncati = ts.daVerificare; }
+  }
+  if (LANGUAGE_PARTS) aggiuntive.push(...(await prova('languageParts', () => analyzeLanguageParts(page, LANGUAGE_PARTS)) || []));
+  if (DO_KEYBOARD && extra.keyboard !== false) {
+    const k = await prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX));
+    if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
+  }
+  // In fondo, per ultima: scorre la vista (vedi rimisuraContrastiFuoriVista)
+  const rimisura = await prova('contrasti fuori vista', () => rimisuraContrastiFuoriVista(page, incomplete, r.violations));
+  if (rimisura?.rimisurati) {
+    incomplete = rimisura.incomplete;
+    r.violations = rimisura.violations;
+    console.log(`    [contrasto] ${rimisura.rimisurati} elementi fuori vista rimisurati in vista${rimisura.violati ? `: ${rimisura.violati} violazioni` : ', tutti conformi'}`);
+  }
+  r.violations = [...r.violations, ...aggiuntive];
+  // i testi gia' troncati sono casi da verificare: passano anche dal registro dei falsi positivi
+  if (troncati.length) {
+    const sep = await separaFalsiPositivi(page, troncati, url);
+    incomplete = [...(incomplete || []), ...sep.incomplete];
+    derogati = [...derogati, ...sep.derogati];
+  }
+  /* Stima del contrasto prima degli screenshot: nasconde per un attimo il testo, e l'immagine deve
+     mostrarlo. Sui casi che axe non ha deciso e su quelli del secondo motore. */
+  if (DO_CONTRASTO) {
+    const nodi = [
+      ...(incomplete || []).filter(v => REGOLE_CONTRASTO.has(v.id)).flatMap(v => v.nodes || []),
+      ...(equalAccess ? [...equalAccess.violazioni, ...equalAccess.daVerificare].filter(x => REGOLE_CONTRASTO.has(x.regola)) : []),
+    ];
+    const stime = nodi.length ? await prova('stima del contrasto', () => stimaContrasti(page, nodi)) : null;
+    if (stime?.length) {
+      CONTROLLI_USATI.add('contrastEstimate');
+      const conta = e => stime.filter(s => (s.errore ? 'non stimabile' : s.esito) === e).length;
+      console.log(`    [contrasto] stima sullo sfondo reale di ${stime.length} testi: ${conta('non conforme')} sotto soglia, ${conta('parziale')} in parte, ${conta('conforme')} conformi${conta('non stimabile') ? `, ${conta('non stimabile')} non stimabili` : ''}`);
+    }
+  }
+  if (DO_SCREENSHOT) {
+    /* In ordine di importanza, perche' il numero di immagini per vista ha un tetto: prima le
+       violazioni dei due motori, poi i casi da verificare (quelli del secondo motore sono molti). */
+    const nodi = [
+      ...r.violations.flatMap(v => v.nodes || []),
+      ...(equalAccess ? equalAccess.violazioni : []),
+      ...(incomplete || []).flatMap(v => v.nodes || []),
+      ...(equalAccess ? equalAccess.daVerificare : []),
+    ];
+    if (nodi.length) await prova('screenshot', () => fotografaOccorrenze(page, pageResults.length, nodi));
+  }
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, axTree, soloMouse, ariaSnapshot, sr, vuota,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, lhMotivo, axTree, soloMouse, ariaSnapshot, sr, vuota, tabOrder, equalAccess,
+    controlliNonEseguiti: nonEseguiti, controlliEseguiti: eseguiti,
   });
   const counts = summarizeImpacts(r.violations);
   const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -1067,8 +2075,9 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint) 
   const nm = axTree.nameless.length ? `  a11y-tree: ${axTree.nameless.length} elem. interattivi senza nome` : '';
   const mo = soloMouse.totale ? `  solo-mouse: ${soloMouse.totale} comandi non raggiungibili da tastiera` : '';
   const srN = sr ? `  SR: ${sr.stops} annunci${sr.roleOnly.length ? `, ${sr.roleOnly.length} solo-ruolo` : ''}` : '';
+  const eaN = equalAccess ? `  IBM: ${equalAccess.violazioni.length} violazioni, ${equalAccess.daVerificare.length} da verificare` : '';
   if (vuota) console.warn(`  ! [${name}] VISTA VUOTA: nessun contenuto accessibile dopo l'attesa (pagina non renderizzata?). Il suo esito non e' valido`);
-  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${mo}${srN}`);
+  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${mo}${srN}${eaN}`);
 }
 
 function slug(s) { return String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
@@ -1252,7 +2261,9 @@ async function selectOption(page, sel, to) {
 // Esegue un singolo step di azione di un flow.
 async function runStep(page, step) {
   const to = step.timeoutMs || 8000;
-  if (step.goto) await page.goto(BASE + step.goto, { waitUntil: 'domcontentloaded' });
+  // 'goto' accetta anche un URL assoluto: serve per i link che non stanno sotto --base (es. un link
+  // ricevuto per email, un IdP su un'altra origine). Un path resta relativo a --base come sempre.
+  if (step.goto) await page.goto(absUrl(step.goto), { waitUntil: 'domcontentloaded' });
   else if (step.fill) await fieldLocator(page, step.fill, 'fill').fill(step.fill.env ? envValue(step.fill.env) : step.fill.value, { timeout: to });
   else if (step.upload) await page.setInputFiles(step.upload.selector, risolviFileUpload(step.upload), { timeout: to });
   else if (step.select) await selectOption(page, step.select, to);
@@ -1264,12 +2275,52 @@ async function runStep(page, step) {
      scansionata sulla sua porta resterebbe ferma sullo stato "in attesa". Funziona con le app
      che non verificano la provenienza del messaggio. */
   else if (step.postMessage !== undefined) await page.evaluate(m => window.postMessage(m, '*'), step.postMessage);
+  /* Tastiera e storia di navigazione. 'focus' + 'press' riproducono l'uso da tastiera di un comando
+     (un menu che si apre con Invio e si chiude con Esc) per poi analizzare lo stato che ne risulta.
+     'clearCookies' + 'back' + 'reload' portano l'applicazione negli stati di sessione scaduta o
+     persa, che hanno pagine proprie e non si raggiungono con un URL. */
+  else if (step.focus) await page.focus(step.focus, { timeout: to });
+  else if (step.press) await page.keyboard.press(step.press);
+  else if (step.clearCookies) await page.context().clearCookies();
+  else if (step.back) await page.goBack({ waitUntil: 'domcontentloaded' });
+  else if (step.reload) await page.reload({ waitUntil: 'domcontentloaded' });
+  else if (step.script) throw new Error("passo 'script' ammesso solo nei flow");
   await applyWait(page, step);
+}
+
+/* Passo 'script': esegue una funzione JavaScript dichiarata accanto al config, per le viste che
+   nessun passo dichiarativo raggiunge (un'email da leggere, un codice TOTP da calcolare, un
+   autenticatore WebAuthn virtuale, una chiamata alle API di amministrazione). La logica specifica
+   di un'applicazione resta nella cartella del suo target, e lo strumento non ne sa nulla.
+   Forma: "file.mjs#funzione" (senza '#' si usa l'export default). Il file si risolve sulla
+   directory del config e deve stare al suo interno: il config e' versionato insieme agli script
+   che richiama, e un percorso che ne esce verrebbe da altrove. */
+const SCRIPT_CACHE = new Map();
+
+async function caricaScript(spec) {
+  const [file, nome = 'default'] = String(spec).split('#');
+  const radice = dirname(CONFIG);
+  const percorso = resolve(radice, file);
+  if (isAbsolute(file) || !percorso.startsWith(radice + sep)) throw new Error(`script '${file}' fuori dalla directory del config (${radice})`);
+  if (!existsSync(percorso)) throw new Error(`script non trovato: ${percorso}`);
+  if (!SCRIPT_CACHE.has(percorso)) SCRIPT_CACHE.set(percorso, await import(pathToFileURL(percorso).href));
+  const fn = SCRIPT_CACHE.get(percorso)[nome];
+  if (typeof fn !== 'function') throw new Error(`script '${file}': nessuna funzione esportata '${nome}'`);
+  return fn;
 }
 
 // Esegue i flows di navigazione scriptata (raggiungono viste non GET-navigabili).
 // Ogni flow gira in un contesto/login PULITI: le app JSF conservano lo stato di vista in
 // sessione, quindi riusare la sessione del BFS falserebbe i flow (es. "Cerca" -> "Nuova Ricerca").
+/* Perimetro NON coperto: flow saltati o interrotti, pagine in errore o rimbalzate su una vista gia'
+   analizzata, login non confermato. Finiva solo nel log della console, che non accompagna il
+   report: chi lo leggeva non poteva sapere che una vista prevista dal config non era stata
+   analizzata, e gli zeri del report sembravano valere anche per lei. */
+const PERIMETRO = [];
+function annotaPerimetro(target, tipo, nome, esito, motivo) {
+  PERIMETRO.push({ target: target.name || target.key, tipo, nome, esito, motivo: maskSecrets(String(motivo || '')) });
+}
+
 async function runFlows(browser, target, pageResults) {
   for (const flow of target.flows) {
     LH_ESCLUSO_NEL_FLOW = flow.lighthouse === false;
@@ -1280,23 +2331,34 @@ async function runFlows(browser, target, pageResults) {
     const envMancanti = missingEnv(flowEnvRefs(flow));
     if (envMancanti.length) {
       console.warn(`    flow '${flow.name}' saltato: variabili d'ambiente mancanti ${envMancanti.join(', ')}`);
+      annotaPerimetro(target, 'flow', flow.name, 'saltato', `variabili d'ambiente non impostate: ${envMancanti.join(', ')}`);
       continue;
     }
-    const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
-    if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
-    const page = await ctx.newPage();
+    // Contesti aperti dal flow: quello principale e quelli chiesti dagli script (newPage), chiusi
+    // tutti a fine flow. Stesse opzioni e stessa strumentazione solo-mouse per tutti.
+    const contesti = [];
+    const nuovaPagina = async () => {
+      const c = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
+      if (DO_MOUSE_ONLY) await c.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
+      await c.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
+      c.setDefaultNavigationTimeout(90000);   // backend lenti: il default di 30 s fa fallire i flussi
+      contesti.push(c);
+      return c.newPage();
+    };
+    const page = await nuovaPagina();
     try {
       await login(page, target);
       await postLogin(page, target);
       // Coerente con la navigazione delle pages: onora navWait/navDelayMs del target (le SPA con
       // HMR non raggiungono 'networkidle' e le liste async non sono pronte al momento di skipIfMissing).
-      await page.goto(BASE + flow.start, { waitUntil: target.navWait || 'networkidle' });
+      await page.goto(absUrl(flow.start), { waitUntil: target.navWait || 'networkidle' });
       if (target.navDelayMs) await page.waitForTimeout(target.navDelayMs);
       // skipIfMissing: se un elemento-sentinella non c'e' (es. lista vuota), salta il flow. Attende
       // (non controllo istantaneo): le liste async possono comparire dopo navDelayMs; l'assenza va
       // confermata solo dopo un timeout ragionevole.
       if (flow.skipIfMissing && !(await page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).catch(() => null))) {
         console.warn(`    flow '${flow.name}' saltato: sentinella '${flow.skipIfMissing}' assente (dati mancanti?)`);
+        annotaPerimetro(target, 'flow', flow.name, 'saltato', `elemento '${flow.skipIfMissing}' assente in ${flow.start}: dati mancanti o pagina diversa da quella attesa`);
         continue;
       }
       let aborted = false, scanned = false;
@@ -1304,7 +2366,7 @@ async function runFlows(browser, target, pageResults) {
         // Step 'scan': scansiona lo stato CORRENTE (permette piu' scan in un flow, es. i tab di un dettaglio).
         if (step.scan !== undefined) {
           const name = step.scan ? `flow:${flow.name}/${step.scan}` : `flow:${flow.name}`;
-          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint);
+          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint, { keyboard: step.keyboard, include: step.include });
           scanned = true;
           continue;
         }
@@ -1553,7 +2615,7 @@ async function runFlows(browser, target, pageResults) {
           const menus = Array.isArray(raw) ? raw
             : (typeof raw === 'string' ? [{ item: raw }]
               : [{ item: raw.menuItem || raw.item || '#menuct a.voceMenuRC', open: raw.open, listRow: raw.listRow, skip: raw.skip }]);
-          const start = flow.start ? BASE + flow.start : absUrl(target.loginPath);
+          const start = flow.start ? BASE + flow.start : loginUrl(target);
           const to = step.timeoutMs || 8000;
           for (const m of menus) {
             const menuSel = m.item || m.menuItem || '#menuct a.voceMenuRC';
@@ -1691,12 +2753,32 @@ async function runFlows(browser, target, pageResults) {
           }
           continue;
         }
-        const label = step.desc || step.click || step.clickText || step.goto || (step.fill && (step.fill.selector || step.fill.label)) || (step.upload && step.upload.selector) || (step.select && (step.select.selector || step.select.label)) || 'step';
+        const label = step.desc || step.script || step.click || step.clickText || step.goto || (step.fill && (step.fill.selector || step.fill.label)) || (step.upload && step.upload.selector) || (step.select && (step.select.selector || step.select.label)) || step.focus || step.press || 'step';
         try {
-          await runStep(page, step);
+          if (step.script) {
+            /* Lo script riceve la pagina del flow e puo' produrre piu' viste: 'scan(nome)' analizza lo
+               stato corrente (o quello di un'altra pagina, { page }), con lo stesso nome 'flow:<flow>/<nome>'
+               dei passi 'scan'. Con { problemi } aggiunge alla vista le verifiche fatte dallo script
+               (vedi violazioniDaProblemi); con { keyboard: false } salta il percorso col Tab, che
+               sposterebbe il focus da uno stato che lo script vuole ancora usare (un menu aperto).
+               'newPage()' apre una sessione separata (un secondo utente, una nuova visita senza
+               cookie), chiusa con il flow. */
+            const fn = await caricaScript(step.script);
+            await fn({
+              page, browser, target, base: BASE, args: step.args || {},
+              newPage: nuovaPagina,
+              runStep: (s, p = page) => runStep(p, s),
+              scan: async (nome, { page: p = page, sourceHint, problemi, keyboard, include } = {}) => {
+                await recordScan(browser, p, target, nome ? `flow:${flow.name}/${nome}` : `flow:${flow.name}`, pageResults, sourceHint || step.sourceHint || flow.sourceHint, { problemi, keyboard, include });
+                scanned = true;
+              },
+            });
+            await applyWait(page, step);
+          } else await runStep(page, step);
         } catch (e) {
           if (step.optional) { console.warn(`    step '${label}' non riuscito (opzionale, proseguo): ${maskSecrets(e.message)}`); continue; }
           console.warn(`    step '${label}' non riuscito: ${maskSecrets(e.message)} → flow '${flow.name}' interrotto`);
+          annotaPerimetro(target, 'flow', flow.name, 'interrotto', `passo '${label}' non riuscito: ${e.message.split('\n')[0]}${scanned ? ' (le viste precedenti sono state analizzate)' : ''}`);
           aborted = true; break;
         }
       }
@@ -1704,8 +2786,9 @@ async function runFlows(browser, target, pageResults) {
       if (!scanned && !aborted) await recordScan(browser, page, target, `flow:${flow.name}`, pageResults, flow.sourceHint);
     } catch (e) {
       console.warn(`  flow '${flow.name}' errore: ${maskSecrets(e.message)}`);
+      annotaPerimetro(target, 'flow', flow.name, 'errore', e.message.split('\n')[0]);
     } finally {
-      await ctx.close();
+      for (const c of contesti) await c.close().catch(() => {});
     }
   }
   LH_ESCLUSO_NEL_FLOW = false;
@@ -1715,15 +2798,27 @@ async function runFlows(browser, target, pageResults) {
 async function scan() {
   const targets = loadTargets();
   if (!targets.length) { console.error('Nessun target abilitato.'); process.exit(2); }
+  for (const t of targets) {
+    const lb = resolveParam(CLI_LOGIN_BASE, t, 'loginBase', null);
+    if (lb && !isAbsUrl(lb)) { console.error(`loginBase del target ${t.key} non è un URL http(s): ${lb}`); process.exit(2); }
+  }
+  // Un'intestazione con una variabile non impostata autenticherebbe come nessuno: meglio fermarsi.
+  const senzaEnv = targets.filter(t => t.envMancanti);
+  if (senzaEnv.length) {
+    for (const t of senzaEnv) console.error(`❌ Target '${t.key}': extraHTTPHeaders usa variabili d'ambiente non impostate: ${t.envMancanti.join(', ')}`);
+    process.exit(2);
+  }
+  PERIMETRO.length = 0;
 
   // Lighthouse può essere abilitato per-target: la porta di debug serve se ANCHE UN SOLO target lo usa.
   // '--no-lighthouse' vince anche qui: senza questa precedenza la sola soglia nel config lo terrebbe
   // acceso per il preflight e lo farebbe dichiarare come eseguito nel report.
   const anyLh = CLI_LH === false ? false : (MIN_SCORE !== null || featureRequested(CLI_LH, 'lighthouse', targets));
   const anySr = featureRequested(CLI_SR, 'screenReader', targets);
+  const anyEa = CLI_EA === false ? false : featureRequested(CLI_EA, 'equalAccess', targets);
   // Prerequisiti PRIMA di aprire il browser: se una feature richiesta non e' installata si esce
   // subito con errore, invece di scansionare tutto e produrre punteggi/annunci vuoti.
-  preflightOptionalDeps({ lighthouse: anyLh, screenReader: anySr });
+  preflightOptionalDeps({ lighthouse: anyLh, screenReader: anySr, equalAccess: anyEa });
 
   mkdirSync(OUT, { recursive: true });   // solo dopo i controlli: niente directory report a vuoto
   const browser = await chromium.launch({
@@ -1734,24 +2829,29 @@ async function scan() {
 
   for (const target of targets) {
     applyTargetParams(target);   // risolve tags/crawl/lighthouse/screen-reader/... per QUESTO target
-    console.log(`\n== ${target.name} (${absUrl(target.loginPath)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
+    console.log(`\n== ${target.name} (${loginUrl(target)})${LOCALE ? ` [lingua ${LOCALE}]` : ''} ==`);
     const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, extraHTTPHeaders: target.extraHTTPHeaders || undefined, viewport: target.viewport || undefined, locale: LOCALE || undefined });
     if (DO_MOUSE_ONLY) await ctx.addInitScript(INIT_SOLO_MOUSE);   // annota i gestori del clic: va installato prima degli script di pagina
+    await ctx.addInitScript(INIT_PAUSA_IO);   // vedi rimisuraContrastiFuoriVista
+    ctx.setDefaultNavigationTimeout(90000);   // backend lenti: il default di 30 s fa fallire i flussi
     const page = await ctx.newPage();
 
     const logged = await login(page, target);
     await postLogin(page, target);
     if (!logged) {
       console.warn(`  ! login non confermato per ${target.name} come '${credsFor(target).user}' (url=${page.url()}). Proseguo comunque.`);
-    } else {
+      annotaPerimetro(target, 'login', target.loginPath || '/', 'non confermato', `dopo il login l'indirizzo è ${page.url()}: le viste seguenti potrebbero essere quelle di un utente non autenticato`);
+    } else if (target.login) {
       console.log(`  login ok (utenza '${credsFor(target).user}')`);
+    } else {
+      console.log('  nessun login a form (pagine pubbliche, header o SSO)');
     }
 
     // Coda BFS: pagine in config (depth 0, sempre scansionate) + crawl opzionale.
     const ctxPath = defaultCtxPath(target);
     const configPages = (target.pages || []).map(p => ({ path: p.path, name: p.name, depth: 0 }));
     const queue = [...configPages];
-    if (CRAWL > 0 && queue.length === 0) queue.push({ path: isAbsUrl(target.loginPath) ? '/' : target.loginPath, name: 'landing', depth: 0 });
+    if (CRAWL > 0 && queue.length === 0) queue.push({ path: loginAltrove(target) ? '/' : target.loginPath, name: 'landing', depth: 0 });
     const visited = new Set();
     const scannedFinal = new Set();   // dedup per URL EFFETTIVO (dopo redirect)
     let crawlCount = 0;
@@ -1772,6 +2872,7 @@ async function scan() {
         // Dedup: se l'URL effettivo e' gia' stato scansionato (es. piu' pagine rimbalzano su welcome), salta.
         if (scannedFinal.has(normUrl(finalUrl))) {
           console.warn(`  [${item.name}] gia' scansionata come ${finalUrl.replace(BASE, '')}, salto`);
+          if (item.depth === 0) annotaPerimetro(target, 'pagina', item.name, 'non analizzata', `${item.path} rimanda a ${finalUrl.replace(BASE, '')}, già analizzata`);
           continue;
         }
         scannedFinal.add(normUrl(finalUrl));
@@ -1789,6 +2890,7 @@ async function scan() {
         }
       } catch (e) {
         console.warn(`  [${item.name}] errore su ${url}: ${e.message}`);
+        if (item.depth === 0) annotaPerimetro(target, 'pagina', item.name, 'errore', `${item.path}: ${e.message.split('\n')[0]}`);
       }
     }
     if (CRAWL > 0) console.log(`  crawl: ${crawlCount} pagine scoperte (depth<=${CRAWL_DEPTH}), ${visited.size} pagine scansionate in totale`);
@@ -1811,6 +2913,7 @@ async function scan() {
   // Per la reportistica complessiva: un livello risulta attivo se lo è stato per almeno un target.
   DO_SR = anySr;
   DO_LH = anyLh;
+  DO_EA = anyEa;
   DO_MOUSE_ONLY = targets.some(t => resolveParam(CLI_MOUSE_ONLY, t, 'mouseOnly', true) !== false);
   return pageResults;
 }
@@ -1856,61 +2959,146 @@ function writeAriaTrees(results) {
   return files;
 }
 
-function writeSarif(results) {
-  const rulesMap = new Map();
-  const sarifResults = [];
-  const levelOf = imp => (imp === 'critical' || imp === 'serious') ? 'error' : 'warning';
+// I report leggono l'esito dei controlli calcolato una volta (summary) o, in uso programmatico, lo ricalcolano.
+function esitoControlli(results, summary) {
+  return summary && summary.controlli ? { controlli: summary.controlli, gate: summary.gate } : valutaControlli(results);
+}
+
+/* Evidenze dei controlli fuori da axe, per vista: una voce per elemento o per vista, con il livello
+   che il controllo ha nel gate. Le usano SARIF e Sonar. */
+const REGOLE_GOVA11Y = {
+  'gova11y-nameless': { titolo: 'Elemento interattivo senza nome accessibile (albero di accessibilità)', criterio: '4.1.2' },
+  'gova11y-mouse-only': { titolo: 'Comando utilizzabile col solo mouse (non raggiungibile da tastiera)', criterio: '2.1.1' },
+  'gova11y-sr-role-only': { titolo: 'Annuncio del virtual screen reader col solo ruolo', criterio: '4.1.2' },
+  'gova11y-lighthouse-score': { titolo: 'Punteggio Lighthouse accessibilità sotto la soglia', criterio: null },
+  'gova11y-lighthouse-missing': { titolo: 'Vista senza punteggio Lighthouse: soglia non verificabile', criterio: null },
+  'gova11y-empty-view': { titolo: 'Vista vuota: pagina non renderizzata, esito non valido', criterio: null },
+  'gova11y-check-not-run': { titolo: 'Controllo non eseguito sulla vista', criterio: null },
+  'gova11y-perimeter': { titolo: 'Vista prevista dal config non analizzata', criterio: null },
+  'gova11y-gate': { titolo: "Esito del gate di accessibilita'", criterio: null },
+};
+function evidenzeControlli(results, controlli) {
+  const decide = id => !!(controlli.find(c => c.id === id) || {}).decide;
+  const out = [];
+  const push = (pr, ruleId, bloccante, messaggio, selettore, html) => out.push({ pr, ruleId, bloccante, messaggio, selettore: selettore || null, html: html || null });
   for (const pr of results) {
-    for (const v of pr.violations) {
-      if (!rulesMap.has(v.id)) {
-        rulesMap.set(v.id, {
-          id: v.id,
-          name: v.id,
-          shortDescription: { text: v.help },
-          fullDescription: { text: v.description },
-          helpUri: v.helpUrl,
-          properties: { tags: v.tags, impact: v.impact },
-        });
-      }
+    for (const n of (pr.axTree ? pr.axTree.nameless : [])) push(pr, 'gova11y-nameless', decide('nameless'), `${n.role} senza nome accessibile — ${n.context || '(radice)'}`, null);
+    for (const e of (pr.soloMouse ? pr.soloMouse.elementi : [])) {
+      const segno = e.id ? `#${e.id}` : (e.classe ? `.${e.classe.split(' ').join('.')}` : '');
+      push(pr, 'gova11y-mouse-only', decide('mouseOnly'), `comando col solo mouse: ${e.tag}${segno}${e.role ? ` role=${e.role}` : ''}${e.testo ? ` — ${e.testo}` : ''}`, `${e.tag}${segno}`);
+    }
+    if (pr.soloMouse && pr.soloMouse.totale > pr.soloMouse.elementi.length) push(pr, 'gova11y-mouse-only', decide('mouseOnly'), `e altri ${pr.soloMouse.totale - pr.soloMouse.elementi.length} comandi col solo mouse (elenco limitato da mouseOnlyMax)`, null);
+    for (const f of (pr.sr ? pr.sr.roleOnly : [])) push(pr, 'gova11y-sr-role-only', decide('screenReader'), `annuncio col solo ruolo: "${f}"`, null);
+    if (pr.lhScore != null && MIN_SCORE != null && pr.lhScore < MIN_SCORE) push(pr, 'gova11y-lighthouse-score', decide('lighthouse'), `Lighthouse ${(pr.lhScore * 100).toFixed(0)}% < soglia ${(MIN_SCORE * 100).toFixed(0)}%`, null);
+    if (pr.lhScore == null && !pr.lhEscluso && (pr.lhMotivo || DO_LH)) push(pr, 'gova11y-lighthouse-missing', decide('lighthouse'), `senza punteggio Lighthouse${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`, null);
+    if (pr.vuota) push(pr, 'gova11y-empty-view', decide('emptyViews'), 'vista vuota: nessun contenuto accessibile (pagina non renderizzata?)', null);
+    for (const c of (pr.controlliNonEseguiti || [])) push(pr, 'gova11y-check-not-run', CONTROLLI_DA_RIPETERE.has(c.controllo) && decide(c.controllo), `controllo ${c.controllo} non eseguito (esito non verificabile): ${c.errore}`, null);
+  }
+  return out;
+}
+
+function writeSarif(results, summary) {
+  const { controlli, gate } = esitoControlli(results, summary);
+  const levelOf = imp => (imp === 'critical' || imp === 'serious') ? 'error' : 'warning';
+  const regolaSarif = v => ({ id: v.id, name: v.id, shortDescription: { text: v.help }, fullDescription: { text: v.description || v.help }, helpUri: v.helpUrl, properties: { tags: v.tags, impact: v.impact } });
+  const risultatoNodo = (pr, v, node) => {
+    const selector = (node.target || []).join(' ');
+    return {
+      ruleId: v.id, level: levelOf(v.impact),
+      message: { text: `${v.help} — ${node.failureSummary || ''}`.trim() },
+      locations: [{ physicalLocation: { artifactLocation: { uri: pr.url }, region: { startLine: 1 } }, logicalLocations: [{ fullyQualifiedName: selector, kind: 'element' }] }],
+      properties: { impact: v.impact, page: pr.name, target: pr.targetName, selector, html: node.html },
+    };
+  };
+  // run 1: axe-core, le sue regole
+  const regoleAxe = new Map(), risAxe = [];
+  // run 2: gov-a11y, i controlli fuori da axe, le evidenze degli altri livelli e l'esito del gate
+  const regoleGov = new Map(), risGov = [];
+  for (const pr of results) for (const v of pr.violations) {
+    const gov = String(v.id).startsWith('gova11y-');
+    const [regole, ris] = gov ? [regoleGov, risGov] : [regoleAxe, risAxe];
+    if (!regole.has(v.id)) regole.set(v.id, regolaSarif(v));
+    for (const node of v.nodes) ris.push(risultatoNodo(pr, v, node));
+  }
+  const regolaGovDa = id => { if (!regoleGov.has(id)) regoleGov.set(id, { id, name: id, shortDescription: { text: id } }); };
+  const regolaGov = id => { if (!regoleGov.has(id)) regoleGov.set(id, { id, name: id, shortDescription: { text: REGOLE_GOVA11Y[id].titolo }, properties: REGOLE_GOVA11Y[id].criterio ? { tags: [`wcag${REGOLE_GOVA11Y[id].criterio.replace(/\./g, '')}`] } : {} }); };
+  for (const e of evidenzeControlli(results, controlli)) {
+    regolaGov(e.ruleId);
+    risGov.push({
+      ruleId: e.ruleId, level: e.bloccante ? 'error' : 'note', message: { text: e.messaggio },
+      locations: [{ physicalLocation: { artifactLocation: { uri: e.pr.url }, region: { startLine: 1 } }, ...(e.selettore ? { logicalLocations: [{ fullyQualifiedName: e.selettore, kind: 'element' }] } : {}) }],
+      properties: { page: e.pr.name, target: e.pr.targetName, bloccante: e.bloccante },
+    });
+  }
+  for (const p of PERIMETRO) {
+    regolaGov('gova11y-perimeter');
+    risGov.push({ ruleId: 'gova11y-perimeter', level: 'note', message: { text: `${p.tipo} '${p.nome}' ${p.esito}: ${p.motivo}` }, properties: { target: p.target, nome: p.nome, esito: p.esito } });
+  }
+  /* L'esito del gate e' un risultato solo se fallisce: i lettori di SARIF (Jenkins Warnings, Code Scanning)
+     contano ogni risultato come una segnalazione, anche con level 'none'. Superato, sta in invocations e
+     properties del run, con la sintesi di tutti i controlli. */
+  if (!gate.superato) {
+    regolaGov('gova11y-gate');
+    risGov.push({ ruleId: 'gova11y-gate', level: 'error', kind: 'fail',
+      message: { text: `Gate di accessibilita' NON superato: ${gate.motivi.join('; ')}` }, properties: { superato: false, motivi: gate.motivi } });
+  }
+  /* Casi da verificare (non decidono): 'note'. Falsi positivi dichiarati: risultati soppressi, con la
+     motivazione del registro; restano come evidenza ma i lettori di SARIF non li contano. */
+  for (const pr of results) {
+    for (const v of pr.incomplete || []) {
+      const gov = String(v.id).startsWith('gova11y-');
+      const [regole, ris] = gov ? [regoleGov, risGov] : [regoleAxe, risAxe];
+      if (!regole.has(v.id)) regole.set(v.id, regolaSarif(v));
       for (const node of v.nodes) {
-        const selector = (node.target || []).join(' ');
-        sarifResults.push({
-          ruleId: v.id,
-          level: levelOf(v.impact),
-          message: { text: `${v.help} — ${node.failureSummary || ''}`.trim() },
-          locations: [{
-            physicalLocation: {
-              artifactLocation: { uri: pr.url },
-              region: { startLine: 1 },
-            },
-            logicalLocations: [{ fullyQualifiedName: selector, kind: 'element' }],
-          }],
-          properties: {
-            impact: v.impact, page: pr.name, target: pr.targetName,
-            selector, html: node.html,
-          },
-        });
+        const r = risultatoNodo(pr, v, node);
+        r.level = 'note';
+        r.message.text = `Da verificare: ${r.message.text}${node.contrasto && node.contrasto.esito ? ` — contrasto stimato: ${node.contrasto.esito}` : ''}`;
+        r.properties.tipo = 'da verificare';
+        ris.push(r);
       }
     }
+    for (const fp of pr.falsePositives || []) {
+      const voce = FALSE_POSITIVES_USATI.find(v => v.id === fp.id) || {};
+      const ea = fp.engine === 'equalAccess';
+      if (!ea && !regoleAxe.has(fp.rule)) regoleAxe.set(fp.rule, { id: fp.rule, name: fp.rule, shortDescription: { text: fp.rule } });
+      if (ea) { regolaGovDa(fp.rule); }
+      (ea ? risGov : risAxe).push({
+        ruleId: fp.rule, level: 'note',
+        message: { text: `Falso positivo dichiarato (${fp.id}): ${voce.reason || ''}`.trim() },
+        locations: [{ physicalLocation: { artifactLocation: { uri: pr.url }, region: { startLine: 1 } }, logicalLocations: [{ fullyQualifiedName: [].concat(fp.target || []).join(' '), kind: 'element' }] }],
+        suppressions: [{ kind: 'external', status: 'accepted', justification: `${fp.id}: ${voce.verification || voce.reason || ''}`.trim() }],
+        properties: { page: pr.name, target: pr.targetName, motore: ea ? 'IBM Equal Access' : 'axe-core', tipo: fp.tipo, voce: fp.id, html: fp.html },
+      });
+    }
   }
+  // secondo motore (non decide l'esito): un run a parte, a livello 'note'
+  const regoleEa = new Map(), risEa = [];
+  for (const pr of results) for (const x of pr.equalAccess ? pr.equalAccess.violazioni : []) {
+    if (!regoleEa.has(x.regola)) regoleEa.set(x.regola, { id: x.regola, name: x.regola, shortDescription: { text: x.messaggio }, properties: { tags: (x.wcag || []).map(c => `wcag${String(c).replace(/\./g, '')}`) } });
+    risEa.push({ ruleId: x.regola, level: 'note', message: { text: x.messaggio },
+      locations: [{ physicalLocation: { artifactLocation: { uri: pr.url }, region: { startLine: 1 } }, ...(x.xpath ? { logicalLocations: [{ fullyQualifiedName: x.xpath, kind: 'element' }] } : {}) }],
+      properties: { page: pr.name, target: pr.targetName, html: x.snippet } });
+  }
+  const controlliSintesi = controlli.map(({ viste, ...c }) => ({ ...c, viste: viste.length }));
   const sarif = {
     $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
     version: '2.1.0',
-    runs: [{
-      tool: { driver: {
-        name: 'axe-core',
-        informationUri: 'https://github.com/dequelabs/axe-core',
-        rules: [...rulesMap.values()],
-      } },
-      results: sarifResults,
-    }],
+    runs: [
+      { tool: { driver: { name: 'axe-core', informationUri: 'https://github.com/dequelabs/axe-core', rules: [...regoleAxe.values()] } }, results: risAxe },
+      { tool: { driver: { name: 'gov-a11y', informationUri: 'https://www.w3.org/WAI/WCAG22/quickref/', rules: [...regoleGov.values()] } },
+        invocations: [{ executionSuccessful: true, properties: { gate, failOn: FAIL_ON, minScore: MIN_SCORE } }],
+        properties: { gate, controlli: controlliSintesi }, results: risGov },
+      ...(risEa.length ? [{ tool: { driver: { name: 'IBM Equal Access', informationUri: 'https://github.com/IBMa/equal-access', rules: [...regoleEa.values()] } }, results: risEa }] : []),
+    ],
   };
   writeReport(resolve(OUT, 'a11y.sarif'), JSON.stringify(sarif, null, 2));
 }
 
-function writeSonar(results) {
+function writeSonar(results, summary) {
   // Generic Issue Import Format. filePath deve esistere nel progetto analizzato:
   // usiamo sourceHint (template della console). La posizione precisa e' nel selettore/message.
+  // Le voci senza un file (perimetro, esito del gate) non sono importabili: stanno in SARIF e JUnit.
+  const { controlli } = esitoControlli(results, summary);
   const sonarSevOf = imp => ({ critical: 'BLOCKER', serious: 'CRITICAL', moderate: 'MAJOR', minor: 'MINOR' }[imp] || 'MINOR');
   const issues = [];
   for (const pr of results) {
@@ -1918,7 +3106,7 @@ function writeSonar(results) {
       for (const node of v.nodes) {
         const selector = (node.target || []).join(' ');
         issues.push({
-          engineId: 'axe-core',
+          engineId: String(v.id).startsWith('gova11y-') ? 'gov-a11y' : 'axe-core',
           ruleId: v.id,
           severity: sonarSevOf(v.impact),
           type: 'CODE_SMELL',
@@ -1931,39 +3119,86 @@ function writeSonar(results) {
       }
     }
   }
+  for (const e of evidenzeControlli(results, controlli)) {
+    issues.push({
+      engineId: 'gov-a11y', ruleId: e.ruleId, severity: e.bloccante ? 'CRITICAL' : 'MINOR', type: 'CODE_SMELL',
+      primaryLocation: { message: `[${e.pr.targetName}] ${e.messaggio} | pagina=${e.pr.url}${e.selettore ? ` | selettore=${e.selettore}` : ''}`, filePath: e.pr.sourceHint, textRange: { startLine: 1 } },
+    });
+  }
   writeReport(resolve(OUT, 'sonar-issues.json'), JSON.stringify({ issues }, null, 2));
 }
 
 function xmlEscape(s) {
   return String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
 }
-function writeJUnit(results) {
-  let tests = 0, failures = 0;
-  const cases = [];
+function writeJUnit(results, summary) {
+  const { controlli, gate } = esitoControlli(results, summary);
+  const decide = id => !!(controlli.find(c => c.id === id) || {}).decide;
+  // una suite per le viste, una per i controlli (anche quelli superati: sono evidenza), una per il gate
+  const viste = [];
+  let fallite = 0;
   for (const pr of results) {
-    tests++;
+    const nome = `classname="a11y.${xmlEscape(pr.targetName)}" name="${xmlEscape(pr.name)} (${xmlEscape(pr.url)})"`;
     const blocking = pr.violations.filter(v => (SEVERITY_ORDER[v.impact] || 1) >= FAIL_THRESHOLD);
     const nodes = blocking.reduce((n, v) => n + v.nodes.length, 0);
+    const motivi = [], dettagli = [], note = [];
     if (pr.vuota && FAIL_ON_EMPTY) {
       // una vista non renderizzata non e' superata: il suo "nessuna violazione" non dice nulla
-      failures++;
-      cases.push(`    <testcase classname="a11y.${xmlEscape(pr.targetName)}" name="${xmlEscape(pr.name)} (${xmlEscape(pr.url)})">
-      <failure message="vista vuota: nessun contenuto accessibile (pagina non renderizzata?)">L'albero di accessibilita' della vista e' vuoto: l'analisi non ha esaminato nulla.</failure>
-    </testcase>`);
-    } else if (blocking.length) {
-      failures++;
-      const detail = blocking.map(v => `${v.id} [${v.impact}] x${v.nodes.length}: ${v.help}`).join('\n');
-      cases.push(`    <testcase classname="a11y.${xmlEscape(pr.targetName)}" name="${xmlEscape(pr.name)} (${xmlEscape(pr.url)})">
-      <failure message="${xmlEscape(`${blocking.length} regole, ${nodes} occorrenze >= ${FAIL_ON}`)}">${xmlEscape(detail)}</failure>
-    </testcase>`);
-    } else {
-      cases.push(`    <testcase classname="a11y.${xmlEscape(pr.targetName)}" name="${xmlEscape(pr.name)} (${xmlEscape(pr.url)})"/>`);
+      motivi.push('vista vuota: nessun contenuto accessibile (pagina non renderizzata?)');
+      dettagli.push("L'albero di accessibilita' della vista e' vuoto: l'analisi non ha esaminato nulla.");
     }
+    if (blocking.length && FAIL_THRESHOLD > 0) {
+      motivi.push(`${blocking.length} regole, ${nodes} occorrenze >= ${FAIL_ON}`);
+      dettagli.push(...blocking.map(v => `${v.id} [${v.impact}] x${v.nodes.length}: ${v.help}`));
+    }
+    const nameless = pr.axTree ? pr.axTree.nameless.length : 0;
+    if (nameless) (decide('nameless') ? (motivi.push(`${nameless} elementi senza nome accessibile`), dettagli) : note).push(`a11y-tree: ${nameless} elementi interattivi senza nome accessibile`);
+    const mo = pr.soloMouse ? pr.soloMouse.totale : 0;
+    if (mo) (decide('mouseOnly') ? (motivi.push(`${mo} comandi col solo mouse`), dettagli) : note).push(`solo mouse: ${mo} comandi non raggiungibili da tastiera`);
+    const sr = pr.sr ? pr.sr.roleOnly.length : 0;
+    if (sr) (decide('screenReader') ? (motivi.push(`${sr} annunci col solo ruolo`), dettagli) : note).push(`screen reader: ${sr} annunci col solo ruolo`);
+    if (pr.lhScore != null && MIN_SCORE != null && pr.lhScore < MIN_SCORE) (decide('lighthouse') ? (motivi.push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}% < ${(MIN_SCORE * 100).toFixed(0)}%`), dettagli) : note).push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}%`);
+    if (pr.lhScore == null && !pr.lhEscluso && (pr.lhMotivo || DO_LH)) (decide('lighthouse') ? (motivi.push('senza punteggio Lighthouse'), dettagli) : note).push(`Lighthouse senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`);
+    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%`); else if (pr.lhEscluso) note.push('Lighthouse: escluso dal flow');
+    const c = summarizeImpacts(pr.violations);
+    note.push(`axe e controlli aggiuntivi: critical ${c.critical}, serious ${c.serious}, moderate ${c.moderate}, minor ${c.minor}`);
+    const inc = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
+    if (inc) note.push(`da verificare (incomplete): ${inc}`);
+    for (const x of pr.controlliNonEseguiti || []) {
+      const riga = `controllo ${x.controllo} non eseguito (esito non verificabile): ${x.errore}`;
+      if (CONTROLLI_DA_RIPETERE.has(x.controllo) && decide(x.controllo)) { motivi.push(`controllo ${x.controllo} non eseguito`); dettagli.push(riga); } else note.push(riga);
+    }
+    const out = `\n      <system-out>${xmlEscape(note.join('\n'))}</system-out>`;
+    if (motivi.length) {
+      fallite++;
+      viste.push(`    <testcase ${nome}>
+      <failure message="${xmlEscape(motivi.join('; '))}">${xmlEscape(dettagli.join('\n'))}</failure>${out}
+    </testcase>`);
+    } else viste.push(`    <testcase ${nome}>${out}\n    </testcase>`);
   }
+  const casiControlli = controlli.map(c => {
+    const nome = `classname="a11y.controlli" name="${xmlEscape(c.nome)}"`;
+    const testo = xmlEscape(`soglia: ${c.soglia}\nrisultato: ${c.risultato}\nesito: ${c.esito}${c.decide ? '' : " (non decide l'esito)"}`);
+    if (c.esito === 'non superato') return `    <testcase ${nome}>\n      <failure message="${xmlEscape(c.motivi.join('; '))}">${testo}</failure>\n    </testcase>`;
+    if (c.esito === 'non eseguito') return `    <testcase ${nome}>\n      <skipped message="${xmlEscape(c.risultato)}"/>\n      <system-out>${testo}</system-out>\n    </testcase>`;
+    return `    <testcase ${nome}>\n      <system-out>${testo}</system-out>\n    </testcase>`;
+  });
+  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <skipped message="${xmlEscape(`${p.esito}: ${p.motivo}`)}"/>\n    </testcase>`);
+  const caseGate = gate.superato
+    ? `    <testcase classname="a11y.gate" name="gate di accessibilita'"/>`
+    : `    <testcase classname="a11y.gate" name="gate di accessibilita'">\n      <failure message="gate NON superato">${xmlEscape(gate.motivi.join('\n'))}</failure>\n    </testcase>`;
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="accessibility-wcag21aa" tests="${tests}" failures="${failures}">
-${cases.join('\n')}
+<testsuites name="gov-a11y" tests="${results.length + controlli.length + perimetro.length + 1}" failures="${fallite + controlli.filter(c => c.esito === 'non superato').length + (gate.superato ? 0 : 1)}">
+<testsuite name="accessibility-wcag21aa" tests="${results.length}" failures="${fallite}">
+${viste.join('\n')}
 </testsuite>
+<testsuite name="controlli" tests="${controlli.length}" failures="${controlli.filter(c => c.esito === 'non superato').length}" skipped="${controlli.filter(c => c.esito === 'non eseguito').length}">
+${casiControlli.join('\n')}
+</testsuite>
+${perimetro.length ? `<testsuite name="perimetro" tests="${perimetro.length}" failures="0" skipped="${perimetro.length}">\n${perimetro.join('\n')}\n</testsuite>\n` : ''}<testsuite name="gate" tests="1" failures="${gate.superato ? 0 : 1}">
+${caseGate}
+</testsuite>
+</testsuites>
 `;
   writeReport(resolve(OUT, 'a11y-junit.xml'), xml);
 }
@@ -2008,6 +3243,73 @@ function wcagVerificato(tags) {
 }
 function elenco(v) { return v.length > 1 ? `${v.slice(0, -1).join(', ')} e ${v[v.length - 1]}` : (v[0] || ''); }
 
+/* Criteri di successo WCAG di una regola, dai suoi tag axe: 'wcag143' -> '1.4.3', 'wcag1410' ->
+   '1.4.10'. I tag di versione e livello ('wcag2aa', 'wcag21a') non sono criteri e si ignorano. */
+function criteriWcag(tags) {
+  const out = [];
+  for (const t of tags || []) {
+    const m = String(t).toLowerCase().match(/^wcag(\d)(\d)(\d{1,2})$/);
+    if (m && !out.includes(`${m[1]}.${m[2]}.${m[3]}`)) out.push(`${m[1]}.${m[2]}.${m[3]}`);
+  }
+  return out;
+}
+
+/* Riferimento EN 301 549 v3.2.1 di un criterio WCAG: la clausola 9 (contenuti web) ripete i criteri
+   WCAG 2.1 di livello A e AA con il prefisso '9.'. E' lo standard su cui poggiano la norma italiana e
+   il monitoraggio AgID. I criteri introdotti dalle WCAG 2.2 non vi sono ancora: per loro null. */
+const SOLO_WCAG22 = new Set(['2.4.11', '2.4.12', '2.4.13', '2.5.7', '2.5.8', '3.2.6', '3.3.7', '3.3.8', '3.3.9']);
+const rifEn = c => (SOLO_WCAG22.has(c) ? null : `9.${c}`);
+const fmtCriterio = c => (rifEn(c) ? `${c} (EN ${rifEn(c)})` : `${c} (solo WCAG 2.2)`);
+
+/* Il componente di un'occorrenza, ripulito di cio' che cambia da una vista all'altra pur essendo lo
+   stesso elemento: gli attributi di incapsulamento di Angular ('_ngcontent-ng-c894269316') e la
+   posizione fra i fratelli (':nth-child(3)'). */
+function selettoreComponente(target) {
+  const s = Array.isArray(target) ? target.join(' ') : String(target || '');
+  return s.replace(/\[_ng(?:content|host)-[^\]]*\]/g, '').replace(/:nth-(?:child|of-type)\(\d+\)/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/* Errori SISTEMATICI: la stessa regola sullo stesso componente in piu' viste. E' un difetto del
+   modello di pagina (un componente condiviso, l'intestazione, il menu), da correggere una volta
+   sola; elencato vista per vista sembrerebbe un problema N volte piu' grande di quello che e'. Vale
+   per le violazioni e per i casi da verificare (una verifica manuale fatta sul componente vale per
+   tutte le viste). */
+function erroriSistematici(results, minViste = 2) {
+  const gruppi = new Map();
+  const aggiungi = (tipo, v, n, vista) => {
+    const componente = selettoreComponente(n.target);
+    if (!componente) return;
+    const chiave = `${tipo}\u0000${v.id}\u0000${componente}`;
+    const g = gruppi.get(chiave) || { tipo, regola: v.id, descrizione: v.help, impatto: v.impact || null, criteri: criteriWcag(v.tags), componente, viste: new Set(), occorrenze: 0 };
+    g.viste.add(vista);
+    g.occorrenze++;
+    gruppi.set(chiave, g);
+  };
+  for (const pr of results) {
+    for (const v of pr.violations || []) for (const n of v.nodes || []) aggiungi('violazione', v, n, pr.name);
+    for (const v of pr.incomplete || []) for (const n of v.nodes || []) aggiungi('da verificare', v, n, pr.name);
+  }
+  return [...gruppi.values()]
+    .filter(g => g.viste.size >= minViste)
+    .map(g => ({ ...g, viste: [...g.viste] }))
+    .sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'violazione' ? -1 : 1) || b.viste.length - a.viste.length || b.occorrenze - a.occorrenze);
+}
+
+/* Confronto fra i due motori per criterio WCAG: quanti casi trova ciascuno. Un criterio segnalato da
+   un solo motore e' proprio cio' che la verifica con due strumenti serve a far emergere. */
+function confrontoMotori(results) {
+  const righe = new Map();
+  const riga = c => righe.get(c) || righe.set(c, { criterio: c, axeViolazioni: 0, axeDaVerificare: 0, eaViolazioni: 0, eaDaVerificare: 0 }).get(c);
+  for (const pr of results) {
+    for (const v of pr.violations || []) for (const c of criteriWcag(v.tags)) riga(c).axeViolazioni += (v.nodes || []).length;
+    for (const v of pr.incomplete || []) for (const c of criteriWcag(v.tags)) riga(c).axeDaVerificare += (v.nodes || []).length;
+    for (const x of pr.equalAccess?.violazioni || []) for (const c of x.wcag) riga(c).eaViolazioni++;
+    for (const x of pr.equalAccess?.daVerificare || []) for (const c of x.wcag) riga(c).eaDaVerificare++;
+  }
+  const num = c => c.split('.').map(Number);
+  return [...righe.values()].sort((a, b) => { const x = num(a.criterio), y = num(b.criterio); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; });
+}
+
 /* Copertura dichiarata nel report: si costruisce sui livelli DAVVERO attivi nella scansione.
    Dichiarare una verifica non eseguita (o tacere di una eseguita) renderebbe il report inutile
    come evidenza a supporto della dichiarazione di accessibilita'. */
@@ -2017,6 +3319,12 @@ function buildCoverage() {
   if (DO_SR) strumenti.push('screen reader virtuale');
   if (DO_MOUSE_ONLY) strumenti.push('rilevazione dei comandi utilizzabili col solo mouse');
   if (DO_LH) strumenti.push('Lighthouse');
+  if (DO_EA) strumenti.push('IBM Equal Access come secondo motore indipendente');
+  if (CONTROLLI_USATI.has('contrastEstimate')) strumenti.push('stima del contrasto sullo sfondo reale dei casi da verificare');
+  if (CONTROLLI_USATI.has('reflow')) strumenti.push('riflusso a 320px');
+  if (CONTROLLI_USATI.has('textSpacing')) strumenti.push('spaziatura del testo');
+  if (CONTROLLI_USATI.has('keyboardWalk')) strumenti.push('percorso col tasto Tab');
+  if (CONTROLLI_USATI.has('languageParts')) strumenti.push('lingua delle parti');
   const esempi = ['contrasto colore', 'testi alternativi e label mancanti', 'attributo lang',
     'ruoli/nomi ARIA', 'ordine degli heading', "struttura dell'albero di accessibilità"];
   if ([...TAG_USATI].some(t => /^wcag22/.test(String(t).toLowerCase()))) esempi.push('dimensione minima dei bersagli');
@@ -2037,7 +3345,10 @@ function buildCoverage() {
       : 'Test con screen reader: in questa scansione non è stato eseguito alcun controllo sugli '
         + 'annunci, né virtuale né reale.',
     "Qualità del testo alternativo e delle label (l'automazione vede se mancano, non se hanno senso).",
-    'Ingrandimento e riflusso del contenuto: zoom al 200% e 400%, orientamento, spaziatura del testo.',
+    CONTROLLI_USATI.has('reflow') && CONTROLLI_USATI.has('textSpacing')
+      ? 'Ingrandimento: zoom al 200% e 400% e orientamento (riflusso a 320px e spaziatura del testo sono '
+        + 'stati verificati in automatico, ma solo sullo stato analizzato di ogni vista).'
+      : 'Ingrandimento e riflusso del contenuto: zoom al 200% e 400%, orientamento, spaziatura del testo.',
     "Comprensibilità di istruzioni, messaggi d'errore e suggerimenti di correzione nei moduli.",
     'Contenuti multimediali, se presenti: sottotitoli, trascrizioni, audiodescrizioni.',
   ];
@@ -2089,7 +3400,9 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   const WCAG = wcagVerificato(TAG_USATI);
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], lighthouse: [] };
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], lighthouse: [],
+    equalAccess: DO_EA ? { motore: 'IBM Equal Access (accessibility-checker-engine)', versione: moduleVersion('accessibility-checker-engine'), regole: EA_RULESET, violazioni: 0, daVerificare: 0 } : null,
+    perimetro: [...PERIMETRO], erroriSistematici: [], confrontoMotori: null, stimaContrasti: null };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
     for (const k of Object.keys(summary.totals)) if (k !== 'namelessTotal') summary.totals[k] += c[k];
@@ -2102,7 +3415,9 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.falsePositivesTotal += (pr.falsePositives || []).length;
     const srRoleOnly = pr.sr ? pr.sr.roleOnly.length : 0;
     summary.srRoleOnlyTotal += srRoleOnly;
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    const ea = pr.equalAccess ? { violazioni: pr.equalAccess.violazioni.length, daVerificare: pr.equalAccess.daVerificare.length } : null;
+    if (ea && summary.equalAccess) { summary.equalAccess.violazioni += ea.violazioni; summary.equalAccess.daVerificare += ea.daVerificare; }
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
     if (pr.vuota) summary.emptyViews.push({ target: pr.targetName, name: pr.name, url: pr.url });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
     perTarget[pr.targetName] = perTarget[pr.targetName] || [];
@@ -2110,14 +3425,55 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   }
   // le deroghe finiscono anche nel riepilogo, con il conteggio delle occorrenze coperte
   summary.falsePositives = FALSE_POSITIVES_USATI.map(v => ({
-    id: v.id, rule: v.rule, cause: v.cause || null, selector: v.selector || null,
+    id: v.id, engine: v.engine, rule: v.rule, cause: v.cause || null, selector: v.selector || null,
     reason: v.reason, verification: v.verification, author: v.author || null,
     expires: v.expires || null, expired: !!v.expired, matches: v.matches,
   }));
+  summary.erroriSistematici = erroriSistematici(results);
+  const perComponente = contrastiPerComponente(results);
+  if (perComponente.length) {
+    const totale = e => perComponente.reduce((n, g) => n + (g.esiti[e] || 0), 0);
+    summary.stimaContrasti = { nonConformi: totale('non conforme'), parziali: totale('parziale'), conformi: totale('conforme'), nonStimabili: totale('non stimabile'), perComponente };
+  }
+  if (DO_EA) {
+    summary.confrontoMotori = confrontoMotori(results);
+    // violazioni del secondo motore per regola: cosa correggere, come la tabella delle regole axe
+    const perRegola = new Map();
+    for (const pr of results) for (const x of pr.equalAccess?.violazioni || []) {
+      const g = perRegola.get(x.regola) || { regola: x.regola, wcag: x.wcag, messaggio: x.messaggio, occorrenze: 0, viste: new Set() };
+      g.occorrenze++; g.viste.add(pr.name); perRegola.set(x.regola, g);
+    }
+    summary.equalAccess.perRegola = [...perRegola.values()].map(g => ({ ...g, viste: g.viste.size })).sort((a, b) => b.viste - a.viste || b.occorrenze - a.occorrenze);
+  }
+  // esito di ogni controllo e del gate: in summary.json e in cima al report, con i motivi
+  const { controlli, gate } = valutaControlli(results);
+  summary.generatedAt = new Date().toISOString();
+  summary.gate = gate;
+  summary.controlli = controlli;
   writeReport(resolve(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
 
   const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   const impClass = imp => imp === 'critical' ? 'crit' : imp === 'serious' ? 'ser' : imp === 'moderate' ? 'mod' : 'min';
+  // Screenshot dell'occorrenza (vedi fotografaOccorrenze): miniatura che apre l'immagine intera.
+  const immagine = n => (n.screenshot ? `<a href="${esc(n.screenshot)}" target="_blank"><img class="shot" src="${esc(n.screenshot)}" alt="Posizione nella pagina dell'elemento segnalato" loading="lazy"></a>` : '');
+  // Stima del contrasto (vedi stimaContrasti): una riga sotto l'occorrenza
+  const fmtR = v => (v == null ? '?' : v.toFixed(2).replace('.', ','));
+  const ESITI_CC = { 'non conforme': ['ser', 'sotto soglia: probabile violazione'], parziale: ['mod', 'sotto soglia in parte'], conforme: ['min', 'sopra soglia: probabile falso positivo'], 'non stimabile': ['min', 'non stimabile'] };
+  const intervallo = (a, b) => `${fmtR(a)}${b != null && b > a ? `–${fmtR(b)}` : ''}:1`;
+  const stimaHtml = c => (!c ? '' : c.errore
+    ? `<div class="fs">Contrasto non stimato: ${esc(c.errore)}</div>`
+    : `<div class="fs">Contrasto stimato sullo sfondo reale: <b>${intervallo(c.minimo, c.massimo)}</b> (richiesto ${fmtR(c.richiesto)}:1${c.grande ? ', testo grande' : ''}; testo ${esc(c.testo)}${c.alfa < 1 ? ` al ${Math.round(c.alfa * 100)}%` : ''}) → <span class="${ESITI_CC[c.esito][0]}">${ESITI_CC[c.esito][1]}</span>${c.esito === 'parziale' ? ` (${Math.round(c.sotto * 100)}% dell'area)` : ''}</div>`);
+  const nodoHtml = n => `<li><code class="sel">${esc((n.target || []).join(' '))}</code>
+          <pre>${esc((n.html || '').slice(0, 400))}</pre>
+          ${n.failureSummary ? `<div class="fs">${esc(n.failureSummary)}</div>` : ''}${stimaHtml(n.contrasto)}${immagine(n)}</li>`;
+  const rigaControllo = c => `<tr class="${ESITO_CLASSE[c.esito] || ''}"><td><b>${esc(c.nome)}</b><br><small>${esc(c.criteri || '')}</small></td>
+<td>${c.decide ? 'sì' : 'no'}</td><td>${esc(c.soglia)}</td>
+<td>${esc(c.risultato)}${c.viste.length ? `<details><summary>${c.viste.length} ${c.viste.length === 1 ? 'vista coinvolta' : 'viste coinvolte'}</summary><ul class="viste">${c.viste.slice(0, 200).map(v => `<li>${v.indice >= 0 ? `<a href="#pg${v.indice}">${esc(v.nome)}</a>` : `<code>${esc(v.nome)}</code>`}${v.valore !== 0 && v.valore != null ? ` — <b>${esc(v.valore)}</b>` : ''}${v.nota ? ` <small>${esc(v.nota)}</small>` : ''}</li>`).join('')}${c.viste.length > 200 ? `<li><small>… e altre ${c.viste.length - 200}</small></li>` : ''}</ul></details>` : ''}</td>
+<td><span class="esito ${ESITO_CLASSE[c.esito] || ''}">${esc(c.esito)}</span></td></tr>`;
+  const ESITO_CLASSE = { 'superato': 'e-ok', 'nessuna segnalazione': 'e-ok', 'non superato': 'e-ko', 'segnalazioni': 'e-warn', 'incompleto': 'e-warn', 'non eseguito': 'e-off' };
+  const sistematici = summary.erroriSistematici;
+  const confronto = summary.confrontoMotori;
+  const perimetro = summary.perimetro;
 
   // Tabella riepilogo per pagina
   const rows = results.map((pr, i) => {
@@ -2127,10 +3483,11 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     return `<tr${pr.vuota ? ' style="background:#fde8e8"' : ''}><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a>${pr.vuota ? ' <span class="crit">VISTA VUOTA</span>' : ''}</td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
-      <td>${pr.lhScore != null ? (pr.lhScore * 100).toFixed(0) + '%' : (pr.lhEscluso ? 'escluso' : '-')}</td>
+      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}">${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? 'escluso' : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
       <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td>
-      <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td></tr>`;
+      <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td>
+      ${DO_EA ? `<td>${pr.equalAccess ? `<span class="${pr.equalAccess.violazioni.length ? 'ser' : ''}">${pr.equalAccess.violazioni.length}</span> / ${pr.equalAccess.daVerificare.length}` : 'non eseguito'}</td>` : ''}</tr>`;
   }).join('\n');
 
   // Riepilogo aggregato per REGOLA WCAG (cosa correggere, per priorita')
@@ -2143,7 +3500,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     .sort((a, b) => (SEVERITY_ORDER[b.impact] - SEVERITY_ORDER[a.impact]) || (b.nodes - a.nodes))
     .map(r => `<tr><td><code>${esc(r.id)}</code></td><td class="${impClass(r.impact)}">${esc(r.impact)}</td>
       <td>${esc(r.help)}</td><td>${r.nodes}</td><td>${r.pages.size}</td>
-      <td>${(r.tags || []).filter(t => /wcag\d/.test(t)).map(esc).join(', ')}</td>
+      <td>${criteriWcag(r.tags).map(fmtCriterio).map(esc).join(', ') || '<small>buona pratica</small>'}</td>
       <td><a href="${esc(r.helpUrl)}" target="_blank">regola ↗</a></td></tr>`).join('\n');
 
   // Render ricorsivo dell'albero ARIA come nodi espandibili (contenitori = <details>).
@@ -2188,8 +3545,21 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     let incBlock = '';
     const incomplete = pr.incomplete || [];
     if (SHOW_INCOMPLETE && incomplete.length) {
-      const irows = incomplete.map(v => `<li><code>${esc(v.id)}</code> — ${esc(v.help)} <b>(${v.nodes.length})</b></li>`).join('\n');
+      const irows = incomplete.map(v => `<li><code>${esc(v.id)}</code> — ${esc(v.help)} <b>(${v.nodes.length})</b>${criteriWcag(v.tags).length ? ` <small>WCAG ${criteriWcag(v.tags).map(fmtCriterio).map(esc).join(', ')}</small>` : ''}
+        <ul class="nodes">${v.nodes.map(nodoHtml).join('\n')}</ul></li>`).join('\n');
       incBlock = `<details><summary><span class="mod">da verificare</span> ${incomplete.reduce((n, v) => n + v.nodes.length, 0)} elementi che axe non ha deciso (sfondi calcolati/gradienti): NON sono un pass, verifica manuale</summary><ul class="nodes">${irows}</ul></details>`;
+    }
+    let eaBlock = '';
+    if (pr.equalAccess && (pr.equalAccess.violazioni.length || pr.equalAccess.daVerificare.length)) {
+      const voci = (lista, classe, etichetta) => lista.map(x => `<li><span class="${classe}">${etichetta}</span> <code>${esc(x.regola)}</code> — ${esc(x.messaggio)}${x.wcag.length ? ` <small>WCAG ${x.wcag.map(fmtCriterio).map(esc).join(', ')}</small>` : ''}
+          <pre>${esc(x.snippet)}</pre>${x.xpath ? `<div class="fs">${esc(x.xpath)}</div>` : ''}${stimaHtml(x.contrasto)}${immagine(x)}</li>`).join('\n');
+      /* I casi da verificare del secondo motore sono molti (molte sue regole chiedono una conferma
+         manuale per ogni elemento focalizzabile): stanno in un blocco a parte, per non coprire le
+         violazioni. */
+      eaBlock = (pr.equalAccess.violazioni.length ? `<details><summary><span class="ser">IBM Equal Access</span> ${pr.equalAccess.violazioni.length} violazioni
+        <small>— secondo motore, indipendente da axe; senza gate</small></summary><ul class="nodes">${voci(pr.equalAccess.violazioni, 'ser', 'violazione')}</ul></details>` : '')
+        + (pr.equalAccess.daVerificare.length ? `<details><summary><span class="mod">IBM Equal Access</span> ${pr.equalAccess.daVerificare.length} da verificare
+        <small>— conferme manuali chieste dal secondo motore</small></summary><ul class="nodes">${voci(pr.equalAccess.daVerificare, 'mod', 'da verificare')}</ul></details>` : '');
     }
     let srBlock = '';
     if (pr.sr) {
@@ -2198,19 +3568,21 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       const lines = pr.sr.phrases.map(p => `<li class="${SR_ROLE_ONLY.test(p.trim()) ? 'ser' : ''}">${esc(p)}</li>`).join('\n');
       srBlock = `<details><summary><span class="mod">screen reader</span> ${roMark}${pr.sr.stops} annunci del virtual screen reader (trascrizione)</summary><ol class="nodes">${lines}</ol></details>`;
     }
-    if (!pr.violations.length && !axBlock && !moBlock && !incBlock && !srBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${axTreeBlock}`;
+    // controlli che su questa vista non hanno dato esito: Lighthouse senza punteggio, analisi fallite
+    const mancati = [...(pr.lhMotivo ? [{ controllo: 'Lighthouse', errore: `senza punteggio — ${pr.lhMotivo}` }] : []), ...(pr.controlliNonEseguiti || [])];
+    const neBlock = mancati.length ? `<details open><summary><span class="ser">controlli senza esito</span> ${mancati.length} <small>— su questa vista non hanno potuto decidere</small></summary><ul class="nodes">${mancati.map(c => `<li><b>${esc(c.controllo)}</b>: ${esc(c.errore)}</li>`).join('')}</ul></details>` : '';
+    if (!pr.violations.length && !axBlock && !moBlock && !incBlock && !srBlock && !eaBlock && !neBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${axTreeBlock}`;
     const vs = pr.violations
       .sort((a, b) => SEVERITY_ORDER[b.impact] - SEVERITY_ORDER[a.impact])
       .map(v => {
-        const nodes = v.nodes.map(n => `<li><code class="sel">${esc((n.target || []).join(' '))}</code>
-          <pre>${esc((n.html || '').slice(0, 400))}</pre>
-          ${n.failureSummary ? `<div class="fs">${esc(n.failureSummary)}</div>` : ''}</li>`).join('\n');
+        const nodes = v.nodes.map(nodoHtml).join('\n');
+        const crit = criteriWcag(v.tags);
         return `<details><summary><span class="${impClass(v.impact)}">${esc(v.impact)}</span>
-          <code>${esc(v.id)}</code> — ${esc(v.help)} <b>(${v.nodes.length})</b>
+          <code>${esc(v.id)}</code> — ${esc(v.help)} <b>(${v.nodes.length})</b>${crit.length ? ` <small>WCAG ${crit.map(fmtCriterio).map(esc).join(', ')}</small>` : ''}
           <a href="${esc(v.helpUrl)}" target="_blank">↗</a></summary>
           <ul class="nodes">${nodes}</ul></details>`;
       }).join('\n');
-    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${axTreeBlock}${axBlock}${moBlock}${incBlock}${srBlock}${vs}`;
+    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${neBlock}${axTreeBlock}${axBlock}${moBlock}${incBlock}${srBlock}${vs}${eaBlock}`;
   }).join('\n');
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(app)} — Accessibility Report</title>
@@ -2224,15 +3596,51 @@ summary{cursor:pointer}ul.nodes{margin:.4rem 0}li{margin:.5rem 0}
 code.sel{background:#eef;padding:1px 4px}pre{background:#f6f6f6;padding:.4rem;overflow-x:auto;font-size:12px;margin:.2rem 0;white-space:pre-wrap}
 .fs{font-size:12px;color:#555;white-space:pre-wrap}h3{margin-top:1.5rem;border-bottom:1px solid #eee}
 .disclaimer{border:1px solid #d9a441;background:#fff8e8;border-left:5px solid #d9a441;padding:.8rem 1rem;margin:1rem 0;border-radius:4px}
-.disclaimer h2{margin:.2rem 0 .5rem;font-size:1.05rem;border:0}.disclaimer ul{margin:.3rem 0 .3rem 1.1rem}.disclaimer .note{font-weight:600;margin-top:.5rem}
+.disclaimer h2{margin:.2rem 0 .5rem;font-size:1.05rem;border:0}details.disclaimer>summary h2{display:inline;margin:0}details.disclaimer[open]>summary{margin-bottom:.5rem}.disclaimer ul{margin:.3rem 0 .3rem 1.1rem}.disclaimer .note{font-weight:600;margin-top:.5rem}
 ul.axtree{list-style:none;margin:.1rem 0;padding-left:1.1rem;border-left:1px dotted #ccc}
 ul.axtree li{margin:.05rem 0}.axtree details{border:0;background:none;padding:0;margin:0}.axtree summary{cursor:pointer}
 .axtree span{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
-.ax-land{color:#0a7;font-weight:600}.ax-head{color:#06c;font-weight:700}.ax-nameless{color:#b00;font-weight:700}.ax-muted{color:#999}</style></head>
+.ax-land{color:#0a7;font-weight:600}.ax-head{color:#06c;font-weight:700}.ax-nameless{color:#b00;font-weight:700}.ax-muted{color:#999}
+img.shot{display:block;max-width:420px;max-height:240px;margin:.3rem 0;border:1px solid #ccc}
+table.info th{width:11rem;background:#f7f7f9;font-weight:600}table.info td{background:#fff}
+.gate{border:1px solid;border-left-width:6px;border-radius:4px;padding:.6rem 1rem;margin:1rem 0 1.5rem}.gate h2{margin:.2rem 0 .4rem;font-size:1.2rem;border:0}.gate ul{margin:.3rem 0 .3rem 1.2rem}.gate p{margin:.3rem 0}
+.gate-ok{border-color:#2e7d32;background:#eef7ee}.gate-ko{border-color:#b00;background:#fdecec}
+table.controlli td{vertical-align:top}table.controlli details{background:none;border:0;padding:0;margin:.3rem 0 0}table.controlli summary{font-size:13px;color:#444}
+ul.viste{margin:.2rem 0 .2rem 1rem;padding:0;font-size:13px}ul.viste li{margin:.1rem 0}
+span.esito{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px;font-weight:600;white-space:nowrap;background:#eee;color:#444}
+span.esito.e-ok{background:#e3f1e4;color:#1b5e20}span.esito.e-ko{background:#fbdcdc;color:#a00}span.esito.e-warn{background:#fff1cc;color:#7a5200}span.esito.e-off{background:#eee;color:#666}
+tr.e-ko td{background:#fff6f6}details.non-eseguiti{margin:-1rem 0 1.5rem;background:none;border-left:3px solid #ccc}details.non-eseguiti>summary{color:#555}details.non-eseguiti table{margin:.5rem 0 0}</style></head>
 <body><h1>${esc(app)} — Report Accessibilità ${esc(WCAG.breve)}</h1>
-<p>Base: <code>${esc(BASE)}</code>${PRODUCT_VERSION ? ` — versione in prova: <code>${esc(PRODUCT_VERSION)}</code>` : ''} — tag: <code>${esc(TAGS.join(', '))}</code> — gate: <code>fail-on=${esc(FAIL_ON)}${MIN_SCORE != null && DO_LH ? `, min-score=${MIN_SCORE}` : ''}</code></p>
-<p>Totali occorrenze axe: <span class="crit">critical ${summary.totals.critical}</span>, <span class="ser">serious ${summary.totals.serious}</span>, moderate ${summary.totals.moderate}, minor ${summary.totals.minor}
-${SHOW_INCOMPLETE ? ` — <span class="mod">da verificare (incomplete): ${summary.incompleteTotal}</span>` : ''}${summary.falsePositivesTotal ? ` — <span class="mod">falsi positivi dichiarati: ${summary.falsePositivesTotal}</span>` : ''} — <span class="ser">a11y-tree: ${summary.namelessTotal} elementi interattivi senza nome accessibile</span> (verifica screen-reader-oriented)${DO_MOUSE_ONLY ? ` — <span class="ser">solo mouse: ${summary.mouseOnlyTotal} comandi non raggiungibili da tastiera</span>` : ''}${DO_SR ? ` — <span class="ser">screen reader: ${summary.srRoleOnlyTotal} annunci solo-ruolo</span>` : ''}</p>
+<table class="info"><caption>Scansione</caption>
+<tr><th>Applicazione</th><td>${esc(app)}</td><th>Data</th><td>${esc(new Date(summary.generatedAt).toLocaleString('it-IT'))}</td></tr>
+<tr><th>Indirizzo</th><td><code>${esc(BASE)}</code></td><th>Versione in prova</th><td>${PRODUCT_VERSION ? `<code>${esc(PRODUCT_VERSION)}</code>` : '<small>non dichiarata</small>'}</td></tr>
+<tr><th>Standard</th><td>${esc(WCAG.breve)}<br><small>tag: ${esc([...TAG_USATI].join(', '))}</small></td><th>Viste analizzate</th><td>${results.length}${Object.keys(perTarget).length > 1 ? `<br><small>${Object.entries(perTarget).map(([t, l]) => `${esc(t)}: ${l.length}`).join(', ')}</small>` : ''}</td></tr>
+<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'}</td></tr>
+</table>
+
+<div class="gate ${gate.superato ? 'gate-ok' : 'gate-ko'}">
+<h2>${gate.superato ? '✅ Gate superato' : '❌ Gate NON superato'}</h2>
+${gate.superato ? `<p>Tutti i controlli che decidono l'esito sono superati${controlli.some(c => c.esito === 'incompleto' || (c.esito === 'non eseguito' && c.decide)) ? ' (alcuni controlli sono incompleti: vedi la tabella)' : ''}.</p>`
+    : `<p>Motivi del fallimento:</p><ul>${gate.motivi.map(m => `<li>${esc(m)}</li>`).join('')}</ul>`}
+</div>
+
+<table class="controlli"><caption>Controlli eseguiti — ogni controllo con la sua soglia, il risultato e le viste coinvolte</caption>
+<tr><th>Controllo</th><th>Decide l'esito</th><th>Soglia</th><th>Risultato</th><th>Esito</th></tr>
+${controlli.filter(c => c.esito !== 'non eseguito').map(rigaControllo).join('\n')}
+</table>
+${controlli.some(c => c.esito === 'non eseguito') ? `<details class="non-eseguiti"><summary>Controlli non eseguiti in questa scansione — ${controlli.filter(c => c.esito === 'non eseguito').length} <small>(clic per vederli)</small></summary>
+<table class="controlli"><tr><th>Controllo</th><th>Decide l'esito</th><th>Soglia</th><th>Motivo</th><th>Esito</th></tr>
+${controlli.filter(c => c.esito === 'non eseguito').map(rigaControllo).join('\n')}
+</table></details>` : ''}
+
+${perimetro.length ? `<details class="disclaimer" style="border-left-color:#b00">
+<summary><h2>Perimetro non coperto — ${perimetro.length} ${perimetro.length === 1 ? 'voce' : 'voci'}</h2> <small>(non decide l'esito: clic per espandere)</small></summary>
+<p>Viste previste dal config che <b>non</b> sono state analizzate, o solo in parte. Gli esiti di questo report
+<b>non</b> valgono per loro: vanno ripristinate (dati, selettori, ambiente) e la scansione rifatta, oppure
+dichiarate fuori perimetro.</p>
+<table><tr><th>Console</th><th>Tipo</th><th>Nome</th><th>Esito</th><th>Motivo</th></tr>
+${perimetro.map(p => `<tr><td>${esc(p.target)}</td><td>${esc(p.tipo)}</td><td><code>${esc(p.nome)}</code></td><td>${esc(p.esito)}</td><td>${esc(p.motivo)}</td></tr>`).join('\n')}</table>
+</details>` : ''}
 
 ${summary.emptyViews.length ? `<div class="disclaimer" style="border-left-color:#b00">
 <h2>Viste vuote — ${summary.emptyViews.length}: esito non valido</h2>
@@ -2242,14 +3650,16 @@ fallire, quindi i loro zeri <b>non</b> indicano viste accessibili. Rifare la sca
 <ul>${summary.emptyViews.map(v => `<li>${esc(v.target)} — <b>${esc(v.name)}</b> — <code>${esc(v.url)}</code></li>`).join('')}</ul>
 </div>` : ''}
 
-${FALSE_POSITIVES_USATI.length ? `<div class="disclaimer">
-<h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse da "Da verificare"</h2>
-<p>Occorrenze <b>incomplete</b> già esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
+${FALSE_POSITIVES_USATI.length ? `<details class="disclaimer">
+<summary><h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse dalle segnalazioni</h2> <small>(non decidono l'esito: clic per espandere)</small></summary>
+<p>Occorrenze già esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
 elencate qui con la motivazione e la verifica che le giustificano, così da poter essere contestate.
-Le violazioni non sono mai derogabili.</p>
-<table><tr><th>Voce</th><th>Regola / causa</th><th>Occorrenze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
+Per axe-core valgono solo per i casi <b>da verificare</b>: le sue violazioni, che decidono l'esito
+della scansione, non sono mai derogabili. Per il secondo motore (IBM Equal Access), che non decide
+l'esito, valgono anche per le violazioni.</p>
+<table><tr><th>Voce</th><th>Motore</th><th>Regola / causa</th><th>Occorrenze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
 ${FALSE_POSITIVES_USATI.filter(v => v.matches > 0 || v.expired).map(v => `<tr${v.expired ? ' style="opacity:.55"' : ''}><td><code>${esc(v.id)}</code></td>
-<td><code>${esc(v.rule)}</code>${v.cause ? ` / <code>${esc(v.cause)}</code>` : ''}</td>
+<td>${v.engine === 'equalAccess' ? 'IBM Equal Access' : 'axe-core'}</td><td><code>${esc(v.rule)}</code>${v.cause ? ` / <code>${esc(v.cause)}</code>` : ''}</td>
 <td>${v.expired ? '<b>scaduta</b>' : v.matches}</td><td>${esc(v.reason)}</td><td>${esc(v.verification)}</td>
 <td>${esc(v.author || '-')}</td><td>${esc(v.expires || 'nessuna')}</td></tr>`).join('\n')}</table>
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).length ? `<p><b>Senza riscontro:</b> le voci
@@ -2260,24 +3670,52 @@ semplicemente non essere stata attraversata.</p>` : ''}
 ${FALSE_POSITIVES_USATI.filter(v => v.expired).length ? `<p><b>Scadute:</b> le occorrenze coperte da
 ${FALSE_POSITIVES_USATI.filter(v => v.expired).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
 sono tornate fra quelle da verificare: la misura va rifatta e la scadenza rinnovata.</p>` : ''}
-</div>` : ''}
+</details>` : ''}
 
-<div class="disclaimer">
-<h2>⚠️ Copertura e limiti dell'automazione</h2>
+<details class="disclaimer">
+<summary><h2>⚠️ Copertura e limiti dell'automazione</h2> <small>(clic per espandere)</small></summary>
 <p>${esc(COVERAGE.automated)}</p>
 <p>Restano <b>necessari test manuali/assistiti</b> non delegabili all'automazione:</p>
 <ul>${COVERAGE.manualRequired.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
 <p class="note">${esc(COVERAGE.note)}</p>
-</div>
-
-<table><caption>Riepilogo per pagina (clicca la pagina per il dettaglio)</caption>
-<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th><th>Solo mouse<br><small>(tastiera)</small></th></tr>
-${rows}
-</table>
+</details>
 
 <table><caption>Riepilogo per regola WCAG — cosa correggere (ordinato per gravità e diffusione)</caption>
-<tr><th>Regola axe</th><th>Gravità</th><th>Descrizione</th><th>Occorrenze</th><th>Pagine</th><th>WCAG</th><th>Rif.</th></tr>
+<tr><th>Regola axe</th><th>Gravità</th><th>Descrizione</th><th>Occorrenze</th><th>Pagine</th><th>WCAG (EN 301 549)</th><th>Rif.</th></tr>
 ${ruleRows}
+</table>
+
+${sistematici.length ? `<table><caption>Errori sistematici — la stessa regola sullo stesso componente in più viste: da correggere nel modello di pagina, una volta sola</caption>
+<tr><th>Tipo</th><th>Regola axe</th><th>Descrizione</th><th>Componente</th><th>Viste</th><th>Occorrenze</th><th>WCAG (EN 301 549)</th></tr>
+${sistematici.map(g => `<tr><td class="${g.tipo === 'violazione' ? 'ser' : 'mod'}">${esc(g.tipo)}</td><td><code>${esc(g.regola)}</code></td><td>${esc(g.descrizione)}</td>
+<td><code class="sel">${esc(g.componente)}</code></td><td>${g.viste.length} di ${results.length}<br><small>${esc(g.viste.join(', '))}</small></td><td>${g.occorrenze}</td>
+<td>${g.criteri.map(fmtCriterio).map(esc).join(', ') || '<small>buona pratica</small>'}</td></tr>`).join('\n')}
+</table>` : ''}
+
+${summary.stimaContrasti ? `<table><caption>Contrasti da verificare — stima sullo sfondo reale, per componente (${summary.stimaContrasti.nonConformi} testi sotto soglia, ${summary.stimaContrasti.parziali} in parte, ${summary.stimaContrasti.conformi} conformi, ${summary.stimaContrasti.nonStimabili} non stimabili)</caption>
+<tr><th>Esito</th><th>Componente</th><th>Motori</th><th>Viste</th><th>Testi</th><th>Colore del testo</th><th>Contrasto stimato</th><th>Richiesto</th></tr>
+${summary.stimaContrasti.perComponente.map(g => `<tr><td class="${ESITI_CC[g.esito][0]}">${esc(g.esito)}${Object.keys(g.esiti).length > 1 ? `<br><small>${Object.entries(g.esiti).map(([e, n]) => `${esc(e)}: ${n}`).join(', ')}</small>` : ''}</td>
+<td><code class="sel">${esc(g.componente)}</code>${g.errore ? `<br><small>${esc(g.errore)}</small>` : ''}</td><td>${esc(g.motori.join(', '))}</td>
+<td>${g.viste.length}<br><small>${esc(g.viste.slice(0, 8).join(', '))}${g.viste.length > 8 ? ' …' : ''}</small></td><td>${g.occorrenze}</td>
+<td>${esc(g.testi.join(', ') || '-')}</td><td>${g.minimo != null ? intervallo(g.minimo, g.massimo) : '-'}</td><td>${g.richiesto.map(r => fmtR(r) + ':1').join(', ') || '-'}</td></tr>`).join('\n')}
+</table>
+<p><small>Stima fatta sui pixel della vista, col testo reso trasparente: sfondi sfumati, immagini e pseudo-elementi compresi.
+Non è una decisione: un componente sotto soglia va corretto, uno sopra soglia può diventare un falso positivo dichiarato, citando questa misura.</small></p>` : ''}
+
+${confronto ? `<table><caption>Confronto fra i due motori per criterio WCAG — occorrenze segnalate da axe-core e da IBM Equal Access</caption>
+<tr><th>Criterio WCAG (EN 301 549)</th><th>axe: violazioni</th><th>axe: da verificare</th><th>IBM: violazioni</th><th>IBM: da verificare</th></tr>
+${confronto.map(c => `<tr><td>${esc(fmtCriterio(c.criterio))}</td><td class="${c.axeViolazioni ? 'ser' : ''}">${c.axeViolazioni || '-'}</td><td>${c.axeDaVerificare || '-'}</td><td class="${c.eaViolazioni ? 'ser' : ''}">${c.eaViolazioni || '-'}</td><td>${c.eaDaVerificare || '-'}</td></tr>`).join('\n') || '<tr><td colspan="5">Nessuna occorrenza da nessuno dei due motori.</td></tr>'}
+</table>
+<p><small>Motore IBM Equal Access ${esc(summary.equalAccess.versione || '')}, regole ${esc(summary.equalAccess.regole)} (livelli A e AA), eseguito sullo stesso stato di ogni vista analizzato da axe-core.
+Un criterio segnalato da un solo motore va esaminato: i due motori hanno regole e algoritmi diversi.</small></p>
+${summary.equalAccess.perRegola.length ? `<table><caption>IBM Equal Access — violazioni per regola (ordinate per diffusione)</caption>
+<tr><th>Regola</th><th>Esempio di messaggio</th><th>Occorrenze</th><th>Viste</th><th>WCAG (EN 301 549)</th></tr>
+${summary.equalAccess.perRegola.map(g => `<tr><td><code>${esc(g.regola)}</code></td><td>${esc(g.messaggio)}</td><td>${g.occorrenze}</td><td>${g.viste}</td><td>${g.wcag.map(fmtCriterio).map(esc).join(', ')}</td></tr>`).join('\n')}
+</table>` : ''}` : ''}
+
+<table><caption>Riepilogo per pagina (clicca la pagina per il dettaglio)</caption>
+<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th><th>Solo mouse<br><small>(tastiera)</small></th>${DO_EA ? '<th>IBM Equal Access<br><small>violazioni / da verificare</small></th>' : ''}</tr>
+${rows}
 </table>
 
 <h2>Dettaglio violazioni per pagina</h2>
@@ -2287,57 +3725,203 @@ ${details}
   return summary;
 }
 
+/* ----------------------------- controlli -------------------------------- */
+/* Esito di OGNI controllo eseguito (o previsto e non eseguito), con soglia, risultato e viste
+   coinvolte. E' l'unica fonte per il gate, il report HTML, summary.json, SARIF, JUnit e Sonar:
+   cosi' nessun report puo' tacere un controllo che ha deciso l'esito, o che non ha potuto deciderlo.
+   Esiti: 'superato' / 'non superato' (controlli che decidono il gate), 'nessuna segnalazione' /
+   'segnalazioni' (controlli che non decidono), 'incompleto' (non eseguito su alcune viste),
+   'non eseguito'. */
+const GRUPPI_GOVA11Y = [
+  { id: 'reflow', nome: 'Riflusso a 320px', criteri: 'WCAG 1.4.10', usato: 'reflow', regola: r => r === 'gova11y-reflow-320' },
+  { id: 'textSpacing', nome: 'Spaziatura del testo', criteri: 'WCAG 1.4.12', usato: 'textSpacing', regola: r => r === 'gova11y-text-spacing' },
+  { id: 'keyboardWalk', nome: 'Percorso da tastiera', criteri: 'WCAG 2.1.2, 2.4.7, 2.4.11', usato: 'keyboardWalk', regola: r => ['gova11y-focus-visible', 'gova11y-focus-obscured', 'gova11y-keyboard-trap'].includes(r) },
+  { id: 'languageParts', nome: 'Lingua delle parti', criteri: 'WCAG 3.1.2', usato: 'languageParts', regola: r => r === 'gova11y-language-of-parts' },
+  { id: 'script', nome: 'Verifiche degli script dei flow', criteri: 'criteri dichiarati dagli script', usato: null, regola: r => String(r).startsWith('gova11y-script-') },
+];
+const ESITI_KO = new Set(['non superato']);
+// controlli che decidono il gate: se falliscono su una vista si ripetono una volta (vedi prova() in recordScan)
+const CONTROLLI_DA_RIPETERE = new Set(GRUPPI_GOVA11Y.map(g => g.usato).filter(Boolean));
+
+function valutaControlli(results) {
+  const controlli = [];
+  const bloccante = v => FAIL_THRESHOLD > 0 && (SEVERITY_ORDER[v.impact] || 1) >= FAIL_THRESHOLD;
+  const diGova11y = v => String(v.id).startsWith('gova11y-');
+  const occorrenze = (pr, f) => pr.violations.filter(f).reduce((n, v) => n + v.nodes.length, 0);
+  const vista = (pr, valore, nota) => ({ indice: results.indexOf(pr), target: pr.targetName, nome: pr.name, url: pr.url, sourceHint: pr.sourceHint || null, valore, nota: nota || null });
+  const somma = viste => viste.reduce((n, x) => n + (Number(x.valore) || 0), 0);
+  const nViste = results.length;
+  const nonEseguitoSu = id => results.flatMap(pr => (pr.controlliNonEseguiti || []).filter(c => c.controllo === id).map(c => vista(pr, 0, `non eseguito: ${c.errore}`)));
+  const add = c => controlli.push({ decide: false, eseguito: true, motivi: [], viste: [], ...c });
+  // "nessun elemento su 238 viste" invece di "0 elementi in 0 viste": si vede che il controllo ha lavorato
+  // "su N viste analizzate", al singolare con una vista sola ("su 1 vista analizzata")
+  const su = (n, verbo = 'analizzate') => `su ${n} ${n === 1 ? `vista ${verbo.replace(/e$/, 'a')}` : `viste ${verbo}`}`;
+  const conteggio = (n, unita, viste, tot, verbo = 'analizzate') => n
+    ? `${n} ${n === 1 && unita[2] ? unita[2] : unita[1]} in ${viste} ${viste === 1 ? 'vista' : 'viste'} ${su(tot, verbo)}`
+    : `${unita[0]} ${su(tot, verbo)}`;
+
+  // 1. regole di axe-core
+  {
+    const tot = { critical: 0, serious: 0, moderate: 0, minor: 0 };
+    for (const pr of results) for (const v of pr.violations) if (!diGova11y(v)) tot[v.impact] = (tot[v.impact] || 0) + v.nodes.length;
+    const viste = results.map(pr => vista(pr, occorrenze(pr, v => !diGova11y(v) && bloccante(v)))).filter(x => x.valore);
+    const n = somma(viste);
+    add({ id: 'axe', nome: 'Regole axe-core', criteri: `${TAG_USATI.size ? [...TAG_USATI].join(', ') : TAGS.join(', ')}`, decide: FAIL_THRESHOLD > 0,
+      soglia: FAIL_THRESHOLD > 0 ? `nessuna occorrenza di gravità ≥ ${FAIL_ON}` : 'nessuna (fail-on=none)',
+      risultato: `critical ${tot.critical}, serious ${tot.serious}, moderate ${tot.moderate}, minor ${tot.minor} ${su(nViste)}`,
+      esito: FAIL_THRESHOLD > 0 ? (n ? 'non superato' : 'superato') : (Object.values(tot).some(Boolean) ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi: n ? [`${n} ${n === 1 ? 'occorrenza' : 'occorrenze'} axe di gravita' >= ${FAIL_ON}`] : [], viste });
+  }
+  // 2. controlli fuori da axe (stesso formato delle violazioni, stessa soglia fail-on)
+  for (const g of GRUPPI_GOVA11Y) {
+    const tutte = results.map(pr => vista(pr, occorrenze(pr, v => g.regola(v.id)))).filter(x => x.valore);
+    if (!g.usato && !tutte.length) continue;
+    // attivo se dichiarato da un target, o se ha almeno provato a girare su una vista
+    const eseguito = g.usato ? (CONTROLLI_USATI.has(g.usato) || results.some(pr => (pr.controlliNonEseguiti || []).some(c => c.controllo === g.usato))) : true;
+    const ko = results.map(pr => vista(pr, occorrenze(pr, v => g.regola(v.id) && bloccante(v)))).filter(x => x.valore);
+    // viste su cui il controllo ha misurato (risultati vecchi senza il dato: tutte quelle senza errore)
+    const misurate = id => results.filter(pr => pr.controlliEseguiti ? pr.controlliEseguiti.includes(id) : !(pr.controlliNonEseguiti || []).some(c => c.controllo === id)).length;
+    const mancati = g.usato ? nonEseguitoSu(g.usato) : [];
+    const n = somma(ko);
+    const decide = FAIL_THRESHOLD > 0 && eseguito;
+    /* Una vista su cui il controllo non ha potuto misurare non ha un esito: come per Lighthouse senza
+       punteggio, il gate non lo considera superato ("esito non verificabile", non una violazione). */
+    const motivi = [];
+    if (n) motivi.push(`${n} ${n === 1 ? 'occorrenza' : 'occorrenze'} del controllo '${g.nome}' (${g.criteri}) di gravita' >= ${FAIL_ON}`);
+    if (decide && mancati.length) motivi.push(`controllo '${g.nome}' non eseguito su ${mancati.length} ${mancati.length === 1 ? 'vista' : 'viste'}: esito non verificabile (${mancati.map(v => v.nome).join(', ')})`);
+    add({ id: g.id, nome: g.nome, criteri: g.criteri, decide, eseguito,
+      soglia: FAIL_THRESHOLD > 0 ? `nessuna occorrenza di gravità ≥ ${FAIL_ON}, eseguito su ogni vista` : 'nessuna (fail-on=none)',
+      risultato: !eseguito ? 'non attivo in questa esecuzione' : `${conteggio(somma(tutte), ['nessuna occorrenza', 'occorrenze', 'occorrenza'], tutte.length, misurate(g.usato), 'misurate')}${mancati.length ? `; non eseguito su ${mancati.length} ${mancati.length === 1 ? 'vista' : 'viste'}` : ''}`,
+      esito: !eseguito ? 'non eseguito' : motivi.length ? 'non superato' : mancati.length ? 'incompleto' : 'superato',
+      motivi, viste: [...tutte, ...mancati] });
+  }
+  // 3. elementi interattivi senza nome (albero di accessibilita')
+  {
+    const viste = results.map(pr => vista(pr, pr.axTree ? pr.axTree.nameless.length : 0)).filter(x => x.valore);
+    const n = somma(viste);
+    add({ id: 'nameless', nome: 'Elementi interattivi senza nome accessibile', criteri: 'WCAG 4.1.2 (albero di accessibilità)', decide: FAIL_ON_NAMELESS,
+      soglia: FAIL_ON_NAMELESS ? 'nessun elemento' : 'nessuna (failOnNameless=false)', risultato: conteggio(n, ['nessun elemento', 'elementi', 'elemento'], viste.length, nViste),
+      esito: FAIL_ON_NAMELESS ? (n ? 'non superato' : 'superato') : (n ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi: FAIL_ON_NAMELESS && n ? [`${n} elementi interattivi senza nome accessibile (a11y-tree)`] : [], viste });
+  }
+  // 4. comandi utilizzabili col solo mouse
+  {
+    const viste = results.map(pr => vista(pr, pr.soloMouse ? pr.soloMouse.totale : 0)).filter(x => x.valore);
+    const n = somma(viste);
+    add({ id: 'mouseOnly', nome: 'Comandi utilizzabili col solo mouse', criteri: 'WCAG 2.1.1', decide: FAIL_ON_MOUSE_ONLY && DO_MOUSE_ONLY, eseguito: DO_MOUSE_ONLY,
+      soglia: FAIL_ON_MOUSE_ONLY ? 'nessun comando' : 'nessuna (failOnMouseOnly=false)',
+      risultato: DO_MOUSE_ONLY ? conteggio(n, ['nessun comando', 'comandi', 'comando'], viste.length, nViste) : 'non attivo in questa esecuzione',
+      esito: !DO_MOUSE_ONLY ? 'non eseguito' : FAIL_ON_MOUSE_ONLY ? (n ? 'non superato' : 'superato') : (n ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi: FAIL_ON_MOUSE_ONLY && n ? [`${n} comandi utilizzabili col solo mouse (non raggiungibili da tastiera)`] : [], viste });
+  }
+  // 5. screen reader virtuale
+  {
+    const eseguito = results.some(pr => pr.sr);
+    const viste = results.map(pr => vista(pr, pr.sr ? pr.sr.roleOnly.length : 0)).filter(x => x.valore);
+    const n = somma(viste);
+    const decide = FAIL_ON_SCREEN_READER && eseguito;
+    add({ id: 'screenReader', nome: 'Screen reader virtuale: annunci col solo ruolo', criteri: 'WCAG 4.1.2', decide, eseguito,
+      soglia: FAIL_ON_SCREEN_READER ? 'nessun annuncio col solo ruolo' : 'nessuna (failOnScreenReader=false)',
+      risultato: eseguito ? conteggio(n, ['nessun annuncio col solo ruolo', 'annunci', 'annuncio'], viste.length, results.filter(pr => pr.sr).length, 'lette') : (FAIL_ON_SCREEN_READER ? 'richiesto dal gate ma disattivato in questa esecuzione' : 'non attivo in questa esecuzione'),
+      esito: !eseguito ? 'non eseguito' : decide ? (n ? 'non superato' : 'superato') : (n ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi: decide && n ? [`${n} annunci col solo ruolo del virtual screen reader (elementi letti senza nome)`] : [], viste });
+  }
+  // 6. Lighthouse (un livello disattivato da riga di comando non e' valutabile: il suo gate si salta)
+  {
+    const eseguito = results.some(pr => pr.lhScore != null || pr.lhEscluso || pr.lhMotivo) || (DO_LH && results.length > 0);
+    const decide = MIN_SCORE != null && CLI_LH !== false && eseguito;
+    const conPunteggio = results.filter(pr => pr.lhScore != null);
+    const sotto = MIN_SCORE != null ? conPunteggio.filter(pr => pr.lhScore < MIN_SCORE) : [];
+    const senza = results.filter(pr => pr.lhScore == null && !pr.lhEscluso);
+    const escluse = results.filter(pr => pr.lhEscluso);
+    const minimo = conPunteggio.length ? Math.min(...conPunteggio.map(pr => pr.lhScore)) : null;
+    const pct = v => `${(v * 100).toFixed(0)}%`;
+    const motivi = [];
+    if (decide) {
+      for (const pr of sotto) motivi.push(`Lighthouse ${pct(pr.lhScore)} < soglia ${pct(MIN_SCORE)} su ${pr.url}`);
+      if (senza.length) motivi.push(`${senza.length} viste senza punteggio Lighthouse: soglia --min-score non verificabile (${senza.map(pr => pr.name).join(', ')})`);
+    }
+    add({ id: 'lighthouse', nome: 'Lighthouse (categoria accessibilità)', criteri: 'punteggio 0–100%', decide, eseguito,
+      soglia: MIN_SCORE != null ? `punteggio ≥ ${pct(MIN_SCORE)} su ogni vista` : 'nessuna (minScore non impostato)',
+      risultato: eseguito ? `${conPunteggio.length} ${conPunteggio.length === 1 ? 'vista' : 'viste'} con punteggio su ${nViste} ${nViste === 1 ? 'analizzata' : 'analizzate'}${minimo != null ? ` (minimo ${pct(minimo)})` : ''}: ${sotto.length} sotto soglia, ${senza.length} senza punteggio, ${escluse.length} escluse dal flow` : 'non attivo in questa esecuzione',
+      esito: !eseguito ? 'non eseguito' : decide ? (motivi.length ? 'non superato' : 'superato') : (sotto.length || senza.length ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi, viste: [...sotto.map(pr => vista(pr, pct(pr.lhScore), 'sotto soglia')), ...(eseguito ? senza.map(pr => vista(pr, null, `senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`)) : []), ...escluse.map(pr => vista(pr, 'escluso', "escluso dal flow ('lighthouse': false)"))] });
+  }
+  // 7. viste vuote (pagina non renderizzata: i loro zeri non valgono)
+  {
+    const vuote = results.filter(pr => pr.vuota);
+    add({ id: 'emptyViews', nome: 'Viste renderizzate (non vuote)', criteri: 'validità dell\'esito', decide: FAIL_ON_EMPTY,
+      soglia: FAIL_ON_EMPTY ? 'nessuna vista vuota' : 'nessuna (failOnEmpty=false)', risultato: conteggio(vuote.length, ['nessuna vista vuota', 'viste vuote', 'vista vuota'], vuote.length, nViste).replace(/ in \d+ viste? su/, ' su'),
+      esito: FAIL_ON_EMPTY ? (vuote.length ? 'non superato' : 'superato') : (vuote.length ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi: FAIL_ON_EMPTY && vuote.length ? [`${vuote.length} viste vuote, esito non valido (pagina non renderizzata?): ${vuote.map(v => v.name).join(', ')}`] : [],
+      viste: vuote.map(pr => vista(pr, 'vuota', 'nessun contenuto accessibile')) });
+  }
+  // 8. controlli che non decidono l'esito, riportati come evidenza
+  {
+    const viste = results.map(pr => vista(pr, (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0))).filter(x => x.valore);
+    const n = somma(viste);
+    add({ id: 'incomplete', nome: 'Casi da verificare', criteri: 'verifica manuale (axe incomplete, testi gia\' troncati)', eseguito: SHOW_INCOMPLETE,
+      soglia: 'non decide l\'esito', risultato: SHOW_INCOMPLETE ? conteggio(n, ['nessuna occorrenza', 'occorrenze', 'occorrenza'], viste.length, nViste) : 'non mostrati in questa esecuzione',
+      esito: !SHOW_INCOMPLETE ? 'non eseguito' : n ? 'segnalazioni' : 'nessuna segnalazione', viste });
+  }
+  {
+    const eseguito = CONTROLLI_USATI.has('contrastEstimate');
+    const gruppi = eseguito ? contrastiPerComponente(results) : [];
+    const conta = e => gruppi.reduce((n, g) => n + (g.esiti[e] || 0), 0);
+    add({ id: 'contrastEstimate', nome: 'Stima del contrasto sullo sfondo reale', criteri: 'WCAG 1.4.3 (casi da verificare)', eseguito,
+      soglia: 'non decide l\'esito', risultato: eseguito ? `${conta('non conforme')} testi sotto soglia, ${conta('parziale')} in parte, ${conta('conforme')} conformi, ${conta('non stimabile')} non stimabili` : 'nessun caso da stimare o stima disattivata',
+      esito: !eseguito ? 'non eseguito' : (conta('non conforme') || conta('parziale')) ? 'segnalazioni' : 'nessuna segnalazione' });
+  }
+  {
+    const eseguito = results.some(pr => pr.equalAccess);
+    const viste = results.filter(pr => pr.equalAccess).map(pr => vista(pr, pr.equalAccess.violazioni.length)).filter(x => x.valore);
+    add({ id: 'equalAccess', nome: 'IBM Equal Access (secondo motore)', criteri: 'WCAG A e AA', eseguito,
+      soglia: 'non decide l\'esito', risultato: eseguito ? `${conteggio(somma(viste), ['nessuna violazione', 'violazioni', 'violazione'], viste.length, results.filter(pr => pr.equalAccess).length)}, ${results.reduce((n, pr) => n + (pr.equalAccess ? pr.equalAccess.daVerificare.length : 0), 0)} da verificare` : 'non attivo in questa esecuzione',
+      esito: !eseguito ? 'non eseguito' : somma(viste) ? 'segnalazioni' : 'nessuna segnalazione', viste });
+  }
+  {
+    const nonEseguiti = results.flatMap(pr => (pr.controlliNonEseguiti || []).filter(c => !GRUPPI_GOVA11Y.some(g => g.usato === c.controllo)).map(c => vista(pr, 0, `${c.controllo}: ${c.errore}`)));
+    if (nonEseguiti.length) add({ id: 'altriNonEseguiti', nome: 'Analisi accessorie non eseguite', criteri: 'stima del contrasto, screenshot, rimisura', soglia: 'non decide l\'esito',
+      risultato: `${nonEseguiti.length} analisi non eseguite`, esito: 'incompleto', viste: nonEseguiti });
+  }
+  {
+    const usate = FALSE_POSITIVES_USATI;
+    const scadute = usate.filter(v => v.expired);
+    const coperte = results.reduce((n, pr) => n + (pr.falsePositives || []).length, 0);
+    add({ id: 'falsePositives', nome: 'Falsi positivi dichiarati', criteri: 'registro delle deroghe', eseguito: usate.length > 0,
+      soglia: 'non decide l\'esito (solo casi da verificare)', risultato: usate.length ? `${coperte} occorrenze coperte da ${usate.filter(v => v.matches > 0).length} voci su ${usate.length}${scadute.length ? `; ${scadute.length} voci scadute` : ''}` : 'nessun registro caricato',
+      esito: !usate.length ? 'non eseguito' : scadute.length ? 'segnalazioni' : 'nessuna segnalazione' });
+  }
+  add({ id: 'perimetro', nome: 'Perimetro previsto dal config', criteri: 'copertura della scansione', soglia: 'non decide l\'esito',
+    risultato: PERIMETRO.length ? `${PERIMETRO.length} ${PERIMETRO.length === 1 ? 'vista o flow non analizzato' : 'viste o flow non analizzati'}, o solo in parte` : 'tutte le viste previste sono state analizzate',
+    esito: PERIMETRO.length ? 'segnalazioni' : 'nessuna segnalazione',
+    viste: PERIMETRO.map(p => ({ indice: -1, target: p.target, nome: p.nome, url: null, sourceHint: null, valore: p.esito, nota: p.motivo })) });
+
+  const motivi = controlli.filter(c => ESITI_KO.has(c.esito)).flatMap(c => c.motivi);
+  return { controlli, gate: { superato: motivi.length === 0, motivi } };
+}
+
 /* ----------------------------- gate ------------------------------------- */
 function evaluateGate(results, summary) {
-  const reasons = [];
-  if (FAIL_THRESHOLD > 0) {
-    const blocking = results.reduce((n, pr) =>
-      n + pr.violations.filter(v => (SEVERITY_ORDER[v.impact] || 1) >= FAIL_THRESHOLD)
-        .reduce((m, v) => m + v.nodes.length, 0), 0);
-    if (blocking > 0) reasons.push(`${blocking} occorrenze axe di gravita' >= ${FAIL_ON}`);
-  }
-  /* Un livello disattivato di proposito da riga di comando non e' valutabile: il suo gate si salta,
-     altrimenti la scansione rapida fallirebbe per un audit che si e' scelto di non eseguire. */
-  if (MIN_SCORE != null && CLI_LH !== false) {
-    for (const l of summary.lighthouse) {
-      if (l.score < MIN_SCORE) reasons.push(`Lighthouse ${(l.score * 100).toFixed(0)}% < soglia ${(MIN_SCORE * 100).toFixed(0)}% su ${l.url}`);
-    }
-    // summary.lighthouse contiene SOLO le viste con punteggio: se un audit non e' completato la
-    // soglia non e' verificabile su quella vista. Passare il gate in quel caso sarebbe un falso ok
-    // (con --min-score e tutti gli audit in errore il gate risulterebbe verde).
-    // le viste escluse dal flow ('"lighthouse": false') non hanno punteggio per scelta, non per errore
-    const senzaPunteggio = results.filter(pr => pr.lhScore == null && !pr.lhEscluso).length;
-    if (senzaPunteggio) {
-      reasons.push(`${senzaPunteggio} viste senza punteggio Lighthouse: soglia --min-score non verificabile (vedi i warning [lighthouse] nel log)`);
-    }
-  }
-  if (FAIL_ON_MOUSE_ONLY && summary.mouseOnlyTotal > 0) {
-    reasons.push(`${summary.mouseOnlyTotal} comandi utilizzabili col solo mouse (non raggiungibili da tastiera)`);
-  }
   if (FAIL_ON_SCREEN_READER && !DO_SR && CLI_SR !== false) {
-    console.warn("\u26a0 'failOnScreenReader' richiesto ma il virtual screen reader e' disattivato: il gate non ha nulla da valutare.");
+    console.warn("⚠ 'failOnScreenReader' richiesto ma il virtual screen reader e' disattivato: il gate non ha nulla da valutare.");
   }
-  if (FAIL_ON_SCREEN_READER && summary.srRoleOnlyTotal > 0) {
-    reasons.push(`${summary.srRoleOnlyTotal} annunci col solo ruolo del virtual screen reader (elementi letti senza nome)`);
-  }
-  if (FAIL_ON_NAMELESS && summary.namelessTotal > 0) {
-    reasons.push(`${summary.namelessTotal} elementi interattivi senza nome accessibile (a11y-tree)`);
-  }
-  if (FAIL_ON_EMPTY && summary.emptyViews && summary.emptyViews.length > 0) {
-    reasons.push(`${summary.emptyViews.length} viste vuote, esito non valido (pagina non renderizzata?): ${summary.emptyViews.map(v => v.name).join(', ')}`);
-  }
-  return reasons;
+  // summary e' accettato per compatibilita': l'esito si ricava dai risultati, come per tutti i report
+  return (summary && summary.gate ? summary.gate : valutaControlli(results).gate).motivi;
 }
 
 // Esportate per test/riuso programmatico (vedi test/); l'auto-run resta sotto IS_MAIN.
 export {
-  analyzeAxTree, analyzeMouseOnly, INIT_SOLO_MOUSE, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
+  analyzeAxTree, analyzeMouseOnly, valutaControlli, evidenzeControlli, INIT_SOLO_MOUSE, runScreenReader, loadSR, AX_NAMELESS_RE, SR_ROLE_ONLY,
   // pure / helper
-  parseArgs, resolveParam, credsFor, loadTargets, isAbsUrl, absUrl, defaultCtxPath, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
+  parseArgs, resolveParam, credsFor, loadTargets, isAbsUrl, absUrl, loginUrl, loginAltrove, defaultCtxPath, envValue, flowEnvRefs, missingEnv, maskSecrets, MIN_SECRET,
   resolveModule, moduleVersion, missingModules, featureRequested, preflightOptionalDeps, checkDeps, OPTIONAL_FEATURES, slug, normUrl, normVisit, normalizeLinks,
   summarizeImpacts, fmtCounts, xmlEscape, appLabel, wcagVerificato, buildCoverage,
+  criteriWcag, rifEn, fmtCriterio, selettoreComponente, erroriSistematici, confrontoMotori, espandiEnv, PERIMETRO,
+  runEqualAccess, fotografaOccorrenze,
+  decodificaPng, rapportoContrasto, valutaContrasto, contrastiPerComponente, stimaContrasti, chiaveOccorrenza,
   // browser
-  harvestLinks, recordScan, runStep, selectOption, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
+  harvestLinks, recordScan, runStep, caricaScript, selectOption, analyzeReflow, analyzeTextSpacing, analyzeKeyboard, analyzeLanguageParts, violazioniDaProblemi, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
   // reporters + gate
   writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate,
 };
@@ -2349,11 +3933,12 @@ if (IS_MAIN) (async () => {
 
   const results = await scan();
   writeAxeJson(results);
-  writeSarif(results);
-  writeSonar(results);
-  writeJUnit(results);
   const ariaFiles = writeAriaTrees(results);
+  // summary.json e report.html per primi: calcolano l'esito dei controlli, che gli altri report riusano
   const summary = writeSummaryAndHtml(results, ariaFiles);
+  writeSarif(results, summary);
+  writeSonar(results, summary);
+  writeJUnit(results, summary);
 
   console.log(`\nReport scritti in: ${OUT}`);
   console.log(`  axe-results.json | a11y.sarif | sonar-issues.json | a11y-junit.xml | summary.json | report.html${Object.keys(ariaFiles).length ? ` | aria-tree/ (${Object.keys(ariaFiles).length} file)` : ''}`);

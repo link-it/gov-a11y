@@ -1,0 +1,25 @@
+{
+  "$comment": "Occorrenze esaminate e riconosciute come falsi positivi in GovCat. Per axe-core si applica solo ai casi da verificare (incomplete), mai alle violazioni; le voci con \"engine\": \"equalAccess\" valgono per il secondo motore, violazioni comprese, perché IBM Equal Access non decide l'esito della scansione. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato). Riferito da targets.govcat-2.5.1.json -> defaults.falsePositives.",
+
+  "falsePositives": [
+    {
+      "id": "ancoraggi-focus-trap-dialog",
+      "rule": "aria-hidden-focus",
+      "selector": ".cdk-focus-trap-anchor",
+      "reason": "Ancoraggi del focus trap dei dialog (modal di ngx-bootstrap, che usa ngx-bootstrap/focus-trap, porting del FocusTrap di Angular CDK). Ai due bordi del dialog la libreria mette un div con tabindex=\"0\" e aria-hidden=\"true\": quando riceve il focus, il div lo sposta subito sull'ultimo o sul primo elemento attivabile del dialog. Così il Tab resta dentro il dialog e l'ancoraggio non viene mai annunciato. axe lo lascia da verificare proprio perché c'è un dialog modale aperto.",
+      "verification": "Codice di ngx-bootstrap 21.0.1 usato da GovCat 2.5.1 (focus-trap/fesm2022/ngx-bootstrap-focus-trap.mjs): l'ancoraggio riceve la classe cdk-focus-trap-anchor e aria-hidden=\"true\", e i suoi gestori del focus chiamano focusLastTabbableElement() (inizio) e focusFirstTabbableElement() (fine). Riscontrato sui dialog di aggiunta, creazione e ruolo dell'utente nel dettaglio dell'organizzazione (scansione del 14/11/2026). Da confermare con la prova da tastiera fra le verifiche manuali.",
+      "author": "alfonso.tatarelli@link.it",
+      "expires": "2027-11-14"
+    },
+    {
+      "id": "ancoraggi-focus-trap-dialog-ibm",
+      "engine": "equalAccess",
+      "rule": "aria_hidden_nontabbable",
+      "selector": ".cdk-focus-trap-anchor",
+      "reason": "Stessi ancoraggi della voce ancoraggi-focus-trap-dialog, segnalati dal secondo motore come elemento focalizzabile dentro aria-hidden. È un comportamento voluto della libreria: l'ancoraggio non trattiene il focus, lo rimanda dentro il dialog.",
+      "verification": "Come per ancoraggi-focus-trap-dialog: codice di ngx-bootstrap 21.0.1 (focus-trap), gestori del focus che spostano subito il focus sul primo o sull'ultimo elemento attivabile del dialog. Le occorrenze IBM sono sugli stessi elementi (XPath /html/body/modal-container/div[1] e div[3]).",
+      "author": "alfonso.tatarelli@link.it",
+      "expires": "2027-11-14"
+    }
+  ]
+}

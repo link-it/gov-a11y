@@ -31,9 +31,19 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `crawlDepth` | intero | `2` | Profondità BFS del crawl |
 | `screenReader` | booleano | `false` | Esegue il virtual screen reader su ogni vista |
 | `lighthouse` | booleano | `false` | Calcola il punteggio Lighthouse (lento) |
+| `equalAccess` | booleano | `false` | **Secondo motore**: IBM Equal Access (modulo opzionale `accessibility-checker-engine`, regole `WCAG_2_2`, livelli A e AA) sullo stesso stato di ogni vista analizzato da axe. Violazioni (`FAIL`) e casi da verificare (`POTENTIAL`) in una sezione propria per vista, in `summary.json` (`equalAccess`, `confrontoMotori`) e in un confronto per criterio WCAG fra i due motori. Nessun gate (equiv. CLI `--equal-access` / `--no-equal-access`) |
+| `screenshots` | booleano | `true` | Screenshot di ogni occorrenza (violazioni, casi da verificare, esiti del secondo motore): la zona della vista intorno all'elemento, evidenziato con un bordo rosso, in `screenshot/` e nel report. Lo stesso elemento segnalato da più regole ha un'immagine sola; restano senza immagine gli elementi in iframe o shadow DOM e quelli non visibili (equiv. CLI `--no-screenshots`) |
+| `screenshotsMax` | intero | `20` | Quante immagini al massimo per vista |
+| `contrastEstimate` | booleano | `true` | Stima del contrasto sui testi da verificare (`color-contrast` di axe) e su quelli segnalati dal secondo motore (`text_contrast_sufficient`): il testo si rende trasparente per un attimo, si fotografa l'area delle sue righe e si confronta il suo colore con ogni pixel di sfondo. Rapporto minimo e massimo, soglia (4,5:1 o 3:1 per il testo grande) ed esito accanto all'occorrenza, tabella per componente nel report, `stimaContrasti` in `summary.json`. Non sposta nulla fra violazioni e casi da verificare e non tocca il gate (equiv. CLI `--no-contrast-estimate`) |
+| `contrastEstimateMax` | intero | `40` | Quanti testi al massimo si misurano per vista |
 | `mouseOnly` | booleano | `true` | Cerca i comandi con un gestore del clic **non raggiungibili da tastiera** |
 | `mouseOnlyIgnore` | selettore CSS | — | Esclusioni dal controllo precedente, dichiarate dall'applicazione (es. contenitori con gestione delegata che non sono comandi) |
 | `mouseOnlyMax` | intero | `40` | Quanti elementi elencare per vista nel report (il conteggio resta completo) |
+| `reflow` | booleano | `false` | **1.4.10**: porta la vista a 320px di larghezza e segnala lo scorrimento orizzontale, con gli elementi che sbordano (equiv. CLI `--reflow` / `--no-reflow`) |
+| `textSpacing` | booleano | `false` | **1.4.12**: applica interlinea 1.5, spaziatura lettere 0.12em, parole 0.16em, paragrafi 2em e segnala il testo che viene tagliato per effetto della spaziatura (`overflow: hidden`, ellissi); il testo già troncato con la spaziatura normale è un caso da verificare, quello nascosto di proposito si ignora (equiv. CLI `--text-spacing`) |
+| `keyboardWalk` | booleano | `false` | **2.4.7 / 2.4.11 / 2.1.2**: percorre la vista col tasto Tab dall'inizio (fino a `keyboardWalkMax` fermate) e segnala focus senza indicatore visibile (né outline o box-shadow, né un cambio d'aspetto dell'elemento o dei due contenitori più vicini: bordo, fondo, colore, sottolineatura), focus nascosto del tutto da un altro elemento visibile (non conta uno strato trasparente, né chi copre solo una parte), focus bloccato. Con una finestra modale aperta (`aria-modal="true"` o `<dialog>` modale) il percorso parte dalla finestra; se la finestra ha un solo comando il focus che resta lì non è una trappola. Registra l'ordine di focus in `tabOrder` (evidenza per il 2.4.3). Un passo `scan` con `"keyboard": false` lo salta per quella vista (equiv. CLI `--keyboard-walk`) |
+| `keyboardWalkMax` | intero | `45` | Fermate massime del percorso col Tab per vista (equiv. CLI `--keyboard-walk-max`). Il percorso finisce prima se torna a un elemento già visitato o esce dalla pagina; oltre il limite gli elementi non vengono verificati, e nelle viste con molti comandi ripetuti (righe di tabella, icone di una griglia) di solito sono altre copie degli stessi componenti |
+| `languageParts` | oggetto | — | **3.1.2**: espressioni regolari per lingua, `{ "it": ["Accedendo accetti"], "en": ["\\b(the\|your)\\b"] }`. Un testo (o un `aria-label`, `placeholder`, `title`, valore di un pulsante) che corrisponde a un'espressione della lingua L, dentro una parte di pagina la cui lingua (l'attributo `lang` più vicino) non è L, è una violazione |
 | `failOn` | stringa | `serious` | Gate axe (`critical`\|`serious`\|`moderate`\|`minor`\|`none`) — **globale** |
 | `failOnNameless` | booleano | `true` | Gate: fallisce se elementi interattivi senza nome — **globale**. Attivo di suo: un comando annunciato col solo ruolo è inservibile a chi non vede lo schermo. Si spegne con `false` |
 | `failOnScreenReader` | booleano | `false` | Gate: fallisce se il virtual screen reader produce annunci col solo ruolo — **globale**. Richiede `screenReader` |
@@ -41,11 +51,19 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
-| `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Si applica **solo** agli `incomplete`. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
+| `falsePositives` | stringa | — | File `.json` (o directory di `.json`) con i falsi positivi dichiarati; percorso relativo alla dir del config, oppure assoluto. Per axe si applica **solo** agli `incomplete`; le voci con `"engine": "equalAccess"` anche alle violazioni del secondo motore. Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
 | `showIncomplete` | booleano | `true` | Mostra la colonna/sezione "Da verificare" (incomplete axe) nel report HTML — **globale** (equiv. CLI `--no-incomplete`) |
 | `insecure` | booleano | `true` | Ignora errori certificato HTTPS |
 | `locale` | stringa | — | Lingua del browser, es. `"it-IT"` (equiv. CLI `--locale`): imposta `navigator.language` e `Accept-Language`. Serve alle app che scelgono la lingua dell'interfaccia dal browser: il Chromium di CI è in inglese, e senza `locale` si analizzerebbe una variante che gli utenti non vedono. Per-target; quello globale (CLI o `defaults`) vale anche per la scheda di Lighthouse, che non eredita quello del target |
+| `loginBase` | stringa | — | Indirizzo dell'applicazione su cui si fa il login, quando non è quella di `--base` (equiv. CLI `--login-base`): il `loginPath` relativo si accoda a questo invece che a `--base`. Vedi [Login su un'altra applicazione](#login-su-unaltra-applicazione-loginpath-assoluto-o-loginbase) |
 | `productVersion` | stringa | — | Versione del prodotto in prova, riportata nel report e in `summary.json` — **globale** (equiv. CLI `--product-version`, env `A11Y_PRODUCT_VERSION`). Dichiarativa: nessuno strumento esterno può dedurla |
+
+> I controlli `reflow`, `textSpacing`, `keyboardWalk` e `languageParts` producono violazioni nel formato di axe
+> (id `gova11y-…`, tag del criterio WCAG): compaiono nel report, in JUnit, SARIF e Sonar e contano per `failOn`.
+> Se su una vista non riescono a misurare (la pagina si ricarica o non risponde durante la misura) si
+> ripetono una volta, purché la pagina sia ancora la stessa; se falliscono ancora, la vista resta senza esito
+> per quel controllo e il gate non è superato ("esito non verificabile"), come per Lighthouse senza punteggio.
+> Sono spenti di default perché cambierebbero gli esiti delle applicazioni già in scansione.
 
 > `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnEmpty`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
@@ -69,7 +87,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
   "navWait": "networkidle",              // waitUntil per goto: networkidle|load|domcontentloaded
   "navDelayMs": 0,                        // attesa extra (ms) dopo ogni navigazione
   "viewport": { "width": 1366, "height": 900 },
-  "extraHTTPHeaders": { "X-Auth": "…" }, // header aggiuntivi (es. auth di test SPA)
+  "extraHTTPHeaders": { "X-Auth": "${A11Y_APP_PRINCIPAL}" }, // header aggiuntivi (es. auth di test SPA); ${NOME} = variabile d'ambiente NOME
 
   "pages": [ … ],                        // viste da scansionare sempre (deterministiche)
   "flows": [ … ]                         // navigazioni scriptate (dettagli/report)
@@ -84,32 +102,45 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `usernameSelector` | selettore CSS del campo utente (lista separata da virgola = fallback) |
 | `passwordSelector` | selettore CSS del campo password |
 | `submitSelector` | selettore CSS del bottone di invio |
-| `successUrlIncludes` | sottostringa attesa nell'URL post-login (check soft) |
+| `successUrlIncludes` | sottostringa attesa nell'URL post-login (check soft): dopo l'invio del form si aspetta che compaia, fino a `successWaitMs` |
+| `successWaitMs` | attesa massima (ms) dell'URL post-login (default 15000): il primo login di un'app appena avviata può rispondere dopo diversi secondi |
 | `waitMs` | timeout (ms) di attesa del campo utente (default 8000) |
 
 Se il campo utente non viene trovato, il login viene **saltato** (utile se già autenticati/SSO).
 Usa **selettori stabili** (name/id/classe), non id generati dai framework.
 
-#### Login su un'altra applicazione (`loginPath` assoluto)
+#### Login su un'altra applicazione (`loginPath` assoluto o `loginBase`)
 
 `loginPath` può essere un URL assoluto (`http://…` / `https://…`): il login avviene su quella
 pagina, le `pages` e i `flows` restano relativi a `--base`. Serve quando l'applicazione da
-scansionare non ha un login proprio e usa la sessione di un'altra, come le app GovDesk in sviluppo:
-ognuna gira sulla sua porta (es. `:5212`) e si autentica con la sessione di GovHub (`:5200`).
+scansionare non ha un login proprio e usa la sessione di un'altra, come le app ospitate da un
+portale (shell) che le autentica: in sviluppo ognuna gira sulla sua porta (es. `:4201`) e si
+autentica con la sessione del portale (`:4200`).
 
 ```jsonc
-"loginPath": "http://localhost:5200/auth/realmdb",   // login su GovHub
+"loginPath": "http://localhost:4200/auth/login",     // login sul portale
 "login": { "usernameSelector": "#username", "passwordSelector": "#password",
            "submitSelector": "button[type='submit']", "successUrlIncludes": "select-organization" }
-// --base http://localhost:5212  →  pages e flows sull'app
+// --base http://localhost:4201  →  pages e flows sull'app
 ```
 
 Funziona perché i cookie dipendono dall'**host** e non dalla porta: la sessione aperta su
-`localhost:5200` viene inviata anche a `localhost:5212`. Su host diversi (es. `app.example.it` e
+`localhost:4200` viene inviata anche a `localhost:4201`. Su host diversi (es. `app.example.it` e
 `login.example.it`) il cookie non viene condiviso e il login non vale. Con il login altrove,
 `contextPath` e la pagina di partenza del crawl ricadono sulla radice di `--base`; i passi di
 `postLogin` partono dalla pagina in cui il login è terminato (per esempio la scelta
-dell'organizzazione su GovHub).
+dell'organizzazione sul portale).
+
+L'indirizzo dell'applicazione di login si può tenere fuori dal percorso con `loginBase` (nel target,
+nei `defaults` o da CLI `--login-base`): il `loginPath` resta relativo e si accoda a `loginBase`
+invece che a `--base`. Così lo stesso config vale in ambienti diversi cambiando solo l'opzione, come
+`--base`. `loginBase` può contenere anche un percorso; un `loginPath` assoluto resta com'è.
+
+```jsonc
+"loginBase": "http://localhost:4200",                // default per lo sviluppo locale
+"loginPath": "/auth/login",
+// in collaudo:  --base https://collaudo.example.it/app --login-base https://collaudo.example.it/shell
+```
 
 ### `postLogin.steps[]`
 
@@ -149,17 +180,23 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 
 | Step | Effetto |
 |---|---|
-| `{ "goto": "<path>" }` | Naviga a un URL |
+| `{ "goto": "<path>" }` | Naviga a un URL: un path è relativo a `--base`, un URL assoluto (`http(s)://…`) si apre così com'è (es. un link ricevuto per email, un IdP su un'altra origine). Anche `start` del flow accetta un URL assoluto |
 | `{ "click": "<selettore CSS>" }` | Click (supporta `:has()`, `:text-is()`, `:text-matches()` di Playwright). In `:text-matches("…")` Playwright interpreta gli escape della stringa: nel JSON una classe come `\s` va scritta `\\\\s` (il valore deve contenere `\\s`), altrimenti diventa una semplice `s` e la regex non trova nulla |
 | `{ "clickText": "<testo>", "exact": true }` | Click sul primo elemento con quel testo |
 | `{ "fill": { "selector": "…", "value": "…" } }` | Compila un campo |
 | `{ "upload": { "selector": "…", "files": ["…"] } }` | Carica uno o più file in un `input[type=file]`. I percorsi relativi si risolvono sulla directory del config; un file mancante interrompe lo step |
 | `{ "fill": { "selector": "…", "env": "A11Y_…" } }` | Compila un campo con il valore di una **variabile d'ambiente** (vedi sotto) |
 | `{ "select": { "selector": "…", "value": "…" } }` | Sceglie un'opzione per testo: su `<select>` nativa per etichetta; su una tendina (ng-select, combobox ARIA) apre il controllo e clicca l'opzione con ruolo `option` il cui nome contiene il testo (`"exact": true` per l'uguaglianza). Accetta `"env"` al posto di `"value"` |
-| `{ "postMessage": { … } }` | Invia il messaggio (qualsiasi valore JSON) alla finestra della pagina con `window.postMessage`, come la **shell che ospita l'app in un iframe**. Serve alle app incorporate che ricevono dalla shell il contesto (es. l'organizzazione scelta in GovHub): scansionate sulla loro porta, senza la shell, resterebbero ferme in attesa. Funziona con le app che non verificano la provenienza del messaggio. Va ripetuto in ogni flow che ne ha bisogno (ogni flow parte da una sessione nuova) |
+| `{ "postMessage": { … } }` | Invia il messaggio (qualsiasi valore JSON) alla finestra della pagina con `window.postMessage`, come la **shell che ospita l'app in un iframe**. Serve alle app incorporate che ricevono dalla shell il contesto (es. l'organizzazione scelta nel portale): scansionate sulla loro porta, senza la shell, resterebbero ferme in attesa. Funziona con le app che non verificano la provenienza del messaggio. Va ripetuto in ogni flow che ne ha bisogno (ogni flow parte da una sessione nuova) |
 | `{ "wait": "networkidle" \| "<selettore>" }` | Attesa (load-state o comparsa selettore) |
 | `{ "waitQuietMs": <ms> }` | Attende che il **DOM smetta di cambiare** per quel tratto. Serve dove la rete è già a riposo ma la vista si sta ancora costruendo nel browser (grafici, contenuti disegnati da script). Oltre `timeoutMs` si prosegue comunque |
+| `{ "focus": "<selettore>" }` | Porta il focus sull'elemento |
+| `{ "press": "<tasto>" }` | Preme un tasto (`Enter`, `Escape`, `Tab`, `Shift+Tab`, …) sull'elemento con il focus. Con `focus` riproduce l'uso da tastiera di un comando, per analizzare lo stato che ne risulta (un menu aperto con Invio, chiuso con Esc) |
+| `{ "clearCookies": true }` | Cancella i cookie della sessione del flow |
+| `{ "back": true }` / `{ "reload": true }` | Torna alla pagina precedente / ricarica. Con `clearCookies` portano l'app negli stati di sessione scaduta o persa |
+| `{ "script": "file.mjs#funzione", "args": { … } }` | Esegue una funzione JavaScript accanto al config, per le viste che nessun passo dichiarativo raggiunge (vedi sotto). **Solo nei flow** |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
+| `{ "scan": "<etichetta>", "include": "<selettore CSS>" }` | Come sopra, ma axe analizza **solo** la parte indicata: per gli stati in cui un elemento sovrapposto (es. una tendina aperta) copre per costruzione il resto della vista, che si analizza comunque a riposo |
 | `{ "scanTabs": "<selettore>" }` | Scopre i tab a runtime, clicca e scansiona ognuno |
 | `{ "scanOptions": { "selector": "…", "name": "…", "skip": "<regex>" } }` | Scopre a runtime le opzioni di un `<select>` nativo, le sceglie una alla volta e scansiona lo stato prodotto da ognuna. `name` antepone un prefisso al nome delle viste, `skip` esclude le opzioni il cui testo corrisponde (es. il segnaposto). Accetta anche la sola stringa del selettore |
 | `{ "scanCharts": { … } }` | Enumera icone-report di una griglia, genera e scansiona ognuna |
@@ -177,6 +214,49 @@ fallisce non interrompe il flow), `desc` (etichetta nei log), `sourceHint`.
 
 Se un flow non ha step `scan`/`scanTabs`/`scanCharts`, scansiona lo **stato finale**.
 
+#### Passo `script`
+
+Per le viste che i passi dichiarativi non raggiungono: un'email da leggere e un suo link da seguire,
+un codice TOTP da calcolare, un autenticatore WebAuthn virtuale, una chiamata alle API di
+amministrazione. La logica resta nella cartella del target, lo strumento non ne sa nulla.
+
+- `"script": "passi.mjs#funzione"`; senza `#` si usa l'`export default`.
+- Il file si risolve sulla **directory del config e deve stare al suo interno**: un percorso che
+  ne esce (o assoluto) interrompe il flow.
+- La funzione riceve un oggetto con:
+
+| Campo | |
+|---|---|
+| `page` | la pagina del flow |
+| `args` | il valore di `args` del passo (`{}` se assente) |
+| `base` | il `--base` |
+| `target`, `browser` | il target e il browser Playwright |
+| `scan(nome, { page, sourceHint })` | analizza lo stato corrente; la vista si chiama `flow:<flow>/<nome>` come con il passo `scan`. Con `page` analizza un'altra pagina |
+| `newPage()` | apre una sessione separata (stesse opzioni del flow: locale, header, viewport), chiusa a fine flow. Serve per un secondo utente o una visita senza cookie |
+| `runStep(passo, page?)` | esegue un passo dichiarativo dentro lo script |
+
+Opzioni di `scan(nome, { … })`:
+
+| Opzione | |
+|---|---|
+| `page` | analizza questa pagina invece di quella del flow |
+| `include` | selettore CSS: axe analizza solo quella parte della vista, come `include` del passo `scan` |
+| `keyboard: false` | salta il percorso col Tab (`keyboardWalk`) per questa vista: serve quando lo script vuole ancora usare lo stato corrente (un menu aperto), che il Tab cambierebbe |
+| `problemi` | verifiche fatte dallo script, aggiunte come violazioni della vista: `[{ "criterio": "2.1.1", "messaggio": "Il menu non si apre con Invio", "selettore": "#menu", "impatto": "serious" }]` (`impatto` predefinito `serious`). Diventano violazioni `gova11y-script-<criterio>` |
+
+```js
+// targets/<app>/passi.mjs
+export async function dueViste({ page, scan, newPage, base, args }) {
+  await scan('prima');
+  const altra = await newPage();
+  await altra.goto(base + args.path);
+  await scan('seconda', { page: altra });
+}
+```
+
+Un errore nello script vale come quello di un altro passo: interrompe il flow, salvo `optional: true`.
+Dopo lo script si applicano i modificatori `wait`/`delayMs`.
+
 #### Valori dei campi da variabili d'ambiente (`env`)
 
 I dati con cui si compila un modulo (un codice fiscale, una motivazione) possono essere personali
@@ -184,8 +264,8 @@ anche quando sono di collaudo, mentre il config è versionato e condiviso. Nei p
 `select` si dichiara quindi, al posto del valore, il **nome** della variabile da cui leggerlo:
 
 ```jsonc
-{ "fill":   { "selector": "#codice_fiscale", "env": "A11Y_GOVHUB_CF" } },
-{ "select": { "selector": "ng-select[formcontrolname='reason_id']", "env": "A11Y_GOVHUB_MOTIVAZIONE" } }
+{ "fill":   { "selector": "#codice_fiscale", "env": "A11Y_APP_CF" } },
+{ "select": { "selector": "ng-select[formcontrolname='reason_id']", "env": "A11Y_APP_MOTIVAZIONE" } }
 ```
 
 - **Le variabili richieste si ricavano dai passi**: non c'è un elenco da mantenere. Se ne manca

@@ -9,13 +9,39 @@ rumore nasconde le novità.
 Il **registro dei falsi positivi** serve a questo: registrare una volta l'esito di un esame, con la
 prova che lo sostiene, perché non vada rifatto a ogni scansione.
 
-## Il perimetro: solo gli `incomplete`
+## Il perimetro: solo gli `incomplete` di axe
 
-Il registro si applica **soltanto** alle occorrenze `incomplete`, **mai** alle violazioni. Non è una
-limitazione tecnica ma una scelta: una violazione derogata è il modo in cui questi registri
-degenerano nel posto dove si nascondono i problemi. Se axe ha deciso che qualcosa non è conforme, o
-lo si corregge o si documenta la deroga fuori dallo strumento, sotto la responsabilità di chi firma
-la dichiarazione di accessibilità.
+Per axe-core il registro si applica **soltanto** alle occorrenze `incomplete`, **mai** alle
+violazioni. Non è una limitazione tecnica ma una scelta: una violazione derogata è il modo in cui
+questi registri degenerano nel posto dove si nascondono i problemi. Se axe ha deciso che qualcosa
+non è conforme, o lo si corregge o si documenta la deroga fuori dallo strumento, sotto la
+responsabilità di chi firma la dichiarazione di accessibilità.
+
+### Il secondo motore (IBM Equal Access)
+
+Una voce con `"engine": "equalAccess"` vale per il secondo motore, e lì copre **sia le violazioni
+sia i casi da verificare**. La differenza ha due ragioni:
+
+- IBM Equal Access **non decide l'esito** della scansione (non partecipa al gate): derogarne una
+  violazione non fa passare nulla che altrimenti fallirebbe;
+- alcune sue regole danno per violazione un comportamento **voluto** di una libreria. Esempio: gli
+  ancoraggi del focus trap di Angular CDK (e di ngx-bootstrap) sono `div` focalizzabili con
+  `aria-hidden="true"`, che rimandano subito il focus dentro il dialog. IBM li segnala come
+  violazione (`aria_hidden_nontabbable`), axe come caso da verificare (`aria-hidden-focus`).
+
+Le regole della voce sono le stesse: `rule` è l'id della regola IBM, `cause` (facoltativa) il suo
+`reasonId`, e il `selector` si confronta nella pagina con l'elemento indicato dall'XPath del motore.
+Le occorrenze derogate entrano nella stessa sezione del report, con il motore indicato.
+
+```jsonc
+{
+  "id": "ancoraggi-focus-trap-dialog-ibm",
+  "engine": "equalAccess",                    // "axe" se omesso
+  "rule": "aria_hidden_nontabbable",          // id della regola IBM
+  "selector": ".cdk-focus-trap-anchor",
+  "reason": "...", "verification": "...", "author": "...", "expires": "2027-11-14"
+}
+```
 
 ## Le occorrenze derogate non spariscono
 
@@ -59,7 +85,8 @@ di configurazione, dove il registro risiede accanto.
   "falsePositives": [
     {
       "id": "icon-font-non-e-testo",              // obbligatorio, stabile: compare nel report
-      "rule": "color-contrast",                   // obbligatorio: id della regola axe
+      "rule": "color-contrast",                   // obbligatorio: id della regola axe (o IBM, con engine)
+      "engine": "axe",                            // opzionale: "axe" (predefinito) o "equalAccess"
       "cause": "nonBmp",                          // opzionale: messageKey axe. Restringe molto, usalo
       "selector": "i.material-icons, i.material-symbols-outlined",   // opzionale: CSS
       "urlPattern": "ResourcesList\\.do",         // opzionale: regexp sulla URL della vista
@@ -103,7 +130,9 @@ scadenza vale per sempre, ed è raramente ciò che si vuole: il codice cambia.
 4. **Tieni il selettore stretto.** Una deroga su una regola intera è pericolosa: il conteggio degli
    `incomplete` è anche un *segnale*. In un caso reale `target-size` è passato da 2 a 80 occorrenze
    e quello era un difetto appena introdotto: con una deroga larga sarebbe passato inosservato.
-5. **Scrivi la verifica**, con data e numeri. Una volta sola: quando la misura si rifà, si
+5. **Scrivi la verifica**, con data e numeri. Per il contrasto il report ha già una misura: la
+   stima sullo sfondo reale (tabella "Contrasti da verificare"), da riportare e, se serve,
+   confermare con un contagocce. Una volta sola: quando la misura si rifà, si
    **riscrive** quella riga, non se ne accoda un'altra. Il campo dice *com'è stato accertato*, non
    la storia di chi l'ha accertato quante volte; annotazioni di lavorazione («da rimuovere dopo il
    deploy», «riverificato il…») appartengono al registro delle attività, non alla deroga.

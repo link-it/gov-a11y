@@ -14,15 +14,16 @@ cd gov-a11y
 npm install            # installa dipendenze e scarica Chromium
 ```
 
-### Dipendenze opzionali (Lighthouse e screen reader)
+### Dipendenze opzionali (Lighthouse, screen reader, secondo motore)
 
-Le funzionalità `--lighthouse` e `--screen-reader` usano pacchetti dichiarati come
+Le funzionalità `--lighthouse`, `--screen-reader` e `--equal-access` usano pacchetti dichiarati come
 **`optionalDependencies`**. Un `npm install` normale prova a installarli, ma se falliscono o si è usato
 `--no-optional` restano fuori. Installali esplicitamente:
 
 ```bash
 npm install lighthouse                              # per --lighthouse
 npm install @guidepup/virtual-screen-reader jsdom   # per --screen-reader
+npm install accessibility-checker-engine            # per --equal-access (IBM Equal Access)
 ```
 
 **Verifica senza installare né scansionare** (stesso `--config` della scansione, così tiene conto di
@@ -71,10 +72,10 @@ cookie di sessione non sono condivisi per costruzione: il tool li rilegge dal co
 **copia nel context di default**, ciascuno con il suo dominio e il suo path (gli `extraHTTPHeaders` del
 target arrivano come header), altrimenti la console risponde con la pagina di login o un errore
 applicativo. Copiarli, invece di spedirli come header `Cookie` fisso, conta quando il cookie di
-sessione ha un path diverso da quello della pagina (GovHub: `JSESSIONID` su `/govhub-reverse-proxy`) o
+sessione ha un path diverso da quello della pagina (es. `JSESSIONID` sul path del proxy delle API) o
 quando la pagina deve leggerli (token XSRF da `document.cookie`). Anche lo **`sessionStorage`**
-dell'origine della vista viene riportato nella tab di Lighthouse, che è nuova e lo avrebbe vuoto (GovHub
-vi tiene l'organizzazione scelta: senza, ogni vista rimanderebbe alla scelta dell'organizzazione).
+dell'origine della vista viene riportato nella tab di Lighthouse, che è nuova e lo avrebbe vuoto (un'app
+che vi tiene l'organizzazione scelta, senza, rimanderebbe ogni vista alla scelta dell'organizzazione).
 
 Se Lighthouse finisce comunque su un'altra pagina — di norma il login — il punteggio misurerebbe
 quella: viene **scartato** e segnalato (`punteggio scartato: misurata … invece di …`).
@@ -142,6 +143,9 @@ La CLI ha sempre la **precedenza** sulla config. Ordine di risoluzione:
 | `--lighthouse` | flag | off | Calcola il punteggio Lighthouse Accessibility (**lento**) |
 | `--min-score <0..1>` | decimale | *(nessuno)* | Gate Lighthouse: fallisce se un punteggio < soglia (es. `0.90`). Implica `--lighthouse` |
 | `--screen-reader` | flag | off | Esegue il virtual screen reader (annunci) su ogni vista |
+| `--equal-access` | flag | off | Secondo motore, indipendente da axe: IBM Equal Access sullo stesso stato di ogni vista, con confronto per criterio WCAG. Senza gate |
+| `--no-contrast-estimate` | flag | — | Niente stima del contrasto sui testi da verificare (attiva di default, al massimo `contrastEstimateMax` per vista) |
+| `--no-screenshots` | flag | — | Niente screenshot delle occorrenze (attivi di default, al massimo `screenshotsMax` per vista) |
 | `--fail-on <sev>` | `critical`\|`serious`\|`moderate`\|`minor`\|`none` | `serious` | Gate axe: fallisce se esistono violazioni ≥ gravità |
 | `--fail-on-nameless` | flag | off | Gate screen-reader: fallisce se ci sono elementi interattivi senza nome accessibile |
 | `--no-flows` | flag | off | Non esegue i `flows` (navigazione scriptata delle viste di dettaglio) |
@@ -149,6 +153,7 @@ La CLI ha sempre la **precedenza** sulla config. Ordine di risoluzione:
 | `--false-positives` | file/dir | — | Registro dei falsi positivi gia' esaminati: le occorrenze corrispondenti escono da "Da verificare" ed entrano in una sezione propria del report, con motivazione e verifica. **Solo `incomplete`, mai violazioni.** Vedi [`GUIDA-falsi-positivi.md`](GUIDA-falsi-positivi.md) |
 | `--no-lighthouse` | flag | — | **Disabilita** Lighthouse anche se attivo in config (precede la config) |
 | `--no-screen-reader` | flag | — | **Disabilita** il virtual screen reader anche se attivo in config |
+| `--no-equal-access` | flag | — | **Disabilita** il secondo motore anche se attivo in config |
 | `--no-crawl` | flag | — | **Disabilita** il crawl anche se attivo in config (equivale a `--crawl 0`) |
 | `--insecure` | flag / `false` | `true` | Ignora errori certificato HTTPS |
 | `--help` | flag | — | Mostra l'aiuto |

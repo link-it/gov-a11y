@@ -1,6 +1,5 @@
 {
   "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi per govwayMonitor. Si applica SOLO agli incomplete, mai alle violazioni. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato): una deroga senza prova è un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, così la misura viene rifatta periodicamente. Riferito da targets.govway_monitor.json -> monitor.falsePositives.",
-
   "falsePositives": [
     {
       "id": "testo-svg-dei-grafici",
@@ -123,6 +122,16 @@
       "verification": "Misurato in pagina (2026-10-02) sulle celle delle tabelle RichFaces (elenco Ricerche Utente, stesso componente e stessa classe): testo #46464e su #ffffff = 9,35:1, su #f6f6fc circa 8,6:1 (14px). Confermato dalla schermata del report 'Distribuzione per Errori - Tempo Medio Risposta'. Soglia 4,5:1.",
       "author": "andrea.poli@link.it",
       "expires": "2027-10-01"
+    },
+    {
+      "id": "testi-sotto-la-maschera-delle-finestre-modali",
+      "rule": "color-contrast",
+      "cause": "bgOverlap",
+      "selector": "body:has(div.rich-modalpanel.rich-modalpanel-display) :not(div.rich-modalpanel, div.rich-modalpanel *)",
+      "reason": "Testi della pagina che restano sotto la maschera semitrasparente di una finestra modale aperta (es. le righe della lista transazioni dietro 'Export Transazioni'). Con la finestra aperta la pagina sottostante e' inerte e non deve essere leggibile: axe rinuncia a determinare lo sfondo perche' vede la maschera sovrapposta ('bgOverlap') e la stima sullo sfondo reale da' un intervallo che scende sotto soglia solo dove il testo e' coperto dalla maschera o dalla finestra. Il contrasto di quegli stessi testi si verifica nella vista senza finestra (es. 'transazioni-list'), dove axe lo decide. La voce vale solo con una finestra RichFaces aperta ('rich-modalpanel-display') e non copre i testi della finestra.",
+      "verification": "Misurato il 2026-11-18 (flow modale-esporta-transazioni, viste colonne-personalizza e documento-csv): 9 testi della lista transazioni (id msgDt_tbl:*), colore #6e6e78; contrasto stimato 5,04:1 sulla riga chiara della lista e 1,17:1 solo sotto la maschera; nella vista transazioni-list senza finestra gli stessi testi non hanno violazioni axe. Soglia 4,5:1.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-18"
     }
   ]
 }

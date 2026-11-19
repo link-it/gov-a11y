@@ -12,7 +12,14 @@
     "failOnNameless": true,
     "minScore": 0.98,
     "failOn": "minor",
-    "failOnScreenReader": true
+    "failOnScreenReader": true,
+    "reflow": true,
+    "textSpacing": true,
+    "keyboardWalk": true,
+    "keyboardWalkMax": 200,
+    "languageParts": { "en": ["free software: you can redistribute"] },
+    "equalAccess": true,
+    "$languagePartsNote": "3.1.2: l'unica frase intera in inglese delle due console e' la licenza GPL nella pagina Informazioni, marcata lang=\"en\". Le etichette dei certificati (Not Before, Self Signed), i nomi di opzioni (Signed JWT with Client Secret) e i messaggi diagnostici di runtime sono termini tecnici o dati dell'ambiente e non si dichiarano qui."
   },
   "monitor": {
     "name": "govwayMonitor",
@@ -418,7 +425,7 @@
       },
       {
         "name": "allarme-dettaglio",
-        "$note": "Dettaglio di un allarme ATTIVO (icona 'alarm' nella colonna Modalita'): solo questi hanno il tab dei parametri, quindi la riga si sceglie per modalita' e non per posizione. I tab sono scoperti a runtime (scanTabs). Dal tab Stato si apre l'Archivio Stati e il dettaglio della sua prima voce.",
+        "$note": "Dettaglio di un allarme ATTIVO (icona 'alarm' nella colonna Modalita'): solo questi hanno il tab dei parametri, quindi la riga si sceglie per modalita' e non per posizione. I tab sono scoperti a runtime (scanTabs). L'Archivio Stati sta nel flow 'allarme-archivio-stati', separato perche' escluso da Lighthouse.",
         "start": "/govwayMonitor/commons/pages/welcome.jsf",
         "skipIfMissing": "table[id$='statoAllarmiLnk']",
         "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
@@ -426,8 +433,22 @@
           { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
           { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
           { "click": "tr.rich-table-row:has(i:text-is('alarm')) a[id$='dettaglio-iconLink']", "wait": "networkidle", "delayMs": 1500, "desc": "dettaglio del primo allarme attivo" },
-          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1200 },
-          { "click": ".rich-tab-header >> nth=0", "wait": "networkidle", "delayMs": 1000, "desc": "torna al tab Stato" },
+          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1200 }
+        ]
+      },
+      {
+        "name": "allarme-archivio-stati",
+        "lighthouse": false,
+        "$lighthouseNote": "Lighthouse ricarica la vista per URL in una scheda separata con la stessa sessione. L'Archivio Stati e' una vista JSF raggiunta con un'azione (allarme.jsf): ricaricata per URL risponde 200 ma senza percorso ne' titolo, cioe' non e' la stessa vista, e l'audit resta senza punteggio (verificato il 2026-11-18).",
+        "$note": "Archivio Stati di un allarme ATTIVO, aperto dal tab Stato del suo dettaglio, e dettaglio della prima voce dell'archivio se presente (con l'archivio vuoto il passo opzionale non trova il link e la seconda vista coincide con la prima).",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
+        "steps": [
+          { "click": "table[id$='statoAllarmiLnk']", "wait": "networkidle", "delayMs": 1000, "desc": "apri Allarmi dal menu" },
+          { "click": "input[value='Cerca']", "wait": "networkidle", "delayMs": 1500, "desc": "Cerca" },
+          { "click": "tr.rich-table-row:has(i:text-is('alarm')) a[id$='dettaglio-iconLink']", "wait": "networkidle", "delayMs": 1500, "desc": "dettaglio del primo allarme attivo" },
+          { "click": ".rich-tab-header >> nth=0", "wait": "networkidle", "delayMs": 1000, "desc": "tab Stato" },
           { "click": "a[id$='history-iconLink']", "wait": "networkidle", "delayMs": 1500, "desc": "Archivio Stati" },
           { "scan": "archivio-stati" },
           { "click": "a[id$='dettaglio-iconLink']", "wait": "networkidle", "delayMs": 1500, "optional": true, "desc": "dettaglio della prima voce dell'archivio (se presente)" },
@@ -496,6 +517,11 @@
             "click": "img[id$='dataInizioCalendarPopupButton']",
             "delayMs": 1200,
             "desc": "apri il calendario di Data Inizio"
+          },
+          {
+            "scan": "",
+            "keyboard": false,
+            "$keyboardNote": "Calendario aperto col mouse: il percorso col Tab partirebbe dall'inizio della pagina, fuori dal calendario, e segnalerebbe come coperti i campi sotto di esso. Da tastiera il calendario prende il fuoco, lo trattiene e si chiude con Esc; il percorso col Tab della stessa vista a calendario chiuso c'e' gia'."
           }
         ]
       },
@@ -522,6 +548,11 @@
             "click": "img[id$='dataInizioCalendarPopupButton']",
             "delayMs": 1200,
             "desc": "apri il calendario di Data Inizio"
+          },
+          {
+            "scan": "",
+            "keyboard": false,
+            "$keyboardNote": "Calendario aperto col mouse: il percorso col Tab partirebbe dall'inizio della pagina, fuori dal calendario, e segnalerebbe come coperti i campi sotto di esso. Da tastiera il calendario prende il fuoco, lo trattiene e si chiude con Esc; il percorso col Tab della stessa vista a calendario chiuso c'e' gia'."
           }
         ]
       },
@@ -554,6 +585,11 @@
             "click": "img[id$='dataInizioCalendarPopupButton']",
             "delayMs": 1200,
             "desc": "apri il calendario di Data Inizio"
+          },
+          {
+            "scan": "",
+            "keyboard": false,
+            "$keyboardNote": "Calendario aperto col mouse: il percorso col Tab partirebbe dall'inizio della pagina, fuori dal calendario, e segnalerebbe come coperti i campi sotto di esso. Da tastiera il calendario prende il fuoco, lo trattiene e si chiude con Esc; il percorso col Tab della stessa vista a calendario chiuso c'e' gia'."
           }
         ]
       }
