@@ -331,4 +331,5 @@ config. Precedenza: **CLI > target > defaults > built-in**.
 | secondo motore | `equalAccess.violazioni[]`, `equalAccess.daVerificare[]`, `equalAccess.confermatiDaTab[]` | `equalAccess` (motore, versione, totali compreso `confermatiDaTab`), `confrontoMotori[]`, `equalAccess` per vista | colonna, sezione per vista e confronto nel `report.html` |
 | screenshot | `screenshot` su ogni nodo fotografato | — | `screenshot/v<vista>-<n>.png`, miniature nel `report.html` |
 | errori sistematici, perimetro | — | `erroriSistematici[]`, `perimetro[]` | tabella e riquadro nel `report.html` |
+| stato HTTP della vista | — | `httpStatus` per vista, `httpErrorViews[]` | riga evidenziata e riquadro nel `report.html`, SARIF; con `failOnHttpError` anche gate e JUnit |
 | tempi | `tempi` per vista (fasi in ms) | — | `tempi.json` (durata, login, navigazione, fasi, viste più lente); blocchi «Tempi» chiusi nel `report.html` |

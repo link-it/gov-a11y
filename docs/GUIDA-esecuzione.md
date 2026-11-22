@@ -149,6 +149,7 @@ La CLI ha sempre la **precedenza** sulla config. Ordine di risoluzione:
 | `--no-screenshots` | flag | — | Niente screenshot delle occorrenze (attivi di default, al massimo `screenshotsMax` per vista) |
 | `--fail-on <sev>` | `critical`\|`serious`\|`moderate`\|`minor`\|`none` | `serious` | Gate axe: fallisce se esistono violazioni ≥ gravità |
 | `--fail-on-equal-access` | flag | off | Gate del secondo motore: fallisce se IBM Equal Access trova violazioni o non riesce a girare su una vista |
+| `--fail-on-http-error` | flag | off | Gate delle viste in errore HTTP: fallisce se una vista è arrivata con stato HTTP ≥ 400 (è stata esaminata la pagina d'errore dell'applicazione). Lo stato di ogni vista è comunque riportato |
 | `--fail-on-nameless` | flag | off | Gate screen-reader: fallisce se ci sono elementi interattivi senza nome accessibile |
 | `--no-flows` | flag | off | Non esegue i `flows` (navigazione scriptata delle viste di dettaglio) |
 | `--no-incomplete` | flag | off | Nasconde la colonna/sezione "Da verificare" (incomplete axe) dal report HTML |

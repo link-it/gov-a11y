@@ -47,8 +47,8 @@ defaults:
   failOnMouseOnly: true       # fallisce se esistono comandi utilizzabili col solo mouse (PREDEFINITO: true)
   failOnEmpty: true           # fallisce se una vista e' analizzata vuota: albero di accessibilita' senza nodi,
                               # pagina non renderizzata (PREDEFINITO: true; attende una volta 5 s prima)
-  failOnHttpError: false      # fallisce se una vista e' arrivata con stato HTTP >= 400: e' stata esaminata la
-                              # pagina d'errore dell'app, non la vista voluta. Lo stato e' sempre riportato
+  failOnHttpError: false      # fallisce se una vista è arrivata con stato HTTP >= 400: è stata esaminata la
+                              # pagina d'errore dell'app, non la vista voluta. Lo stato è sempre riportato
                               # (log, report, summary.json 'httpStatus'/'httpErrorViews', SARIF, JUnit)
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---
