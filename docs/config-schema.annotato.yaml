@@ -20,7 +20,10 @@ defaults:
   screenReader: false         # esegue il virtual screen reader su ogni vista
   lighthouse: false           # calcola il punteggio Lighthouse (lento)
   equalAccess: false          # secondo motore, indipendente da axe: IBM Equal Access (accessibility-checker-engine,
-                              # regole WCAG 2.2 A/AA) sullo stesso stato di ogni vista; senza gate
+                              # regole WCAG 2.2 A/AA) sullo stesso stato di ogni vista; gate con failOnEqualAccess
+  equalAccessKeyboardConfirm: true  # con equalAccess e keyboardWalk attivi: i casi IBM da verificare sul fuoco
+                              # (si vede / non e' coperto / diventa visibile) misurati con esito positivo dal
+                              # percorso col Tab sullo stesso elemento vanno fra i "confermati" (senza gate)
   screenshots: true           # screenshot di ogni occorrenza con l'elemento evidenziato (screenshot/ e report)
   screenshotsMax: 20          # immagini al massimo per vista
   contrastEstimate: true      # stima del contrasto sui pixel dei testi da verificare (senza gate)
@@ -28,13 +31,25 @@ defaults:
   mouseOnly: true            # segnala i comandi con gestore del clic non raggiungibili da tastiera
   mouseOnlyIgnore: null       # selettore CSS con le eccezioni dell'APPLICAZIONE (niente di specifico nel tool)
   mouseOnlyMax: 40            # quanti elencarne per vista nel report (il conteggio resta completo)
+  reflow: false               # 1.4.10: la vista a 320px non deve scorrere in orizzontale
+  textSpacing: false          # 1.4.12: con la spaziatura del testo aumentata nessun testo viene tagliato
+  keyboardWalk: false         # 2.4.7 / 2.4.11 / 2.1.2: percorso col tasto Tab (fuoco visibile, non coperto, nessuna trappola)
+  keyboardWalkMax: 45         # fermate massime del percorso col Tab per vista
+  keyboardWalkWaitMs: 120     # attesa dopo ogni Tab prima di leggere il fuoco (transizioni, script su 'focus');
+                              # e' il costo principale del controllo: abbassarla solo a esito verificato
+  languageParts: null         # 3.1.2: espressioni per lingua, es. { it: ["Accedendo accetti"], en: ["\\b(the|your)\\b"] }
   # --- gate (GLOBALI: qui, non per-target) ---
   failOn: "serious"           # critical | serious | moderate | minor | none
   failOnNameless: true        # fallisce se elementi interattivi senza nome accessibile (PREDEFINITO: true)
   failOnScreenReader: false   # fallisce se il virtual screen reader annuncia elementi col solo ruolo
+  failOnEqualAccess: false    # fallisce se IBM Equal Access trova violazioni (non i casi da verificare) o non
+                              # gira su una vista; vale sulle viste dei target con equalAccess
   failOnMouseOnly: true       # fallisce se esistono comandi utilizzabili col solo mouse (PREDEFINITO: true)
   failOnEmpty: true           # fallisce se una vista e' analizzata vuota: albero di accessibilita' senza nodi,
                               # pagina non renderizzata (PREDEFINITO: true; attende una volta 5 s prima)
+  failOnHttpError: false      # fallisce se una vista e' arrivata con stato HTTP >= 400: e' stata esaminata la
+                              # pagina d'errore dell'app, non la vista voluta. Lo stato e' sempre riportato
+                              # (log, report, summary.json 'httpStatus'/'httpErrorViews', SARIF, JUnit)
   minScore: null              # gate Lighthouse a soglia (0..1), es. 0.90
   # --- altro ---
   noFlows: false              # non eseguire i flows
@@ -89,6 +104,12 @@ console:
   screenReader: true
   lighthouse: true
 
+  nextPage:                   # elenchi paginati: esamina anche le pagine successive
+    selector: "button#ds_next_top"  #   comando di pagina successiva, trovato SOLO quando attivo
+    max: 1                    #   pagine in piu' (default 1) -> viste '<nome>/pagina-2', ...
+    back: "button#ds_prev_top"  #   opz.: torna alla prima pagina dopo (stato di sessione dell'app)
+    wait: networkidle         #   attese dopo il clic, come negli step
+
   # viste da scansionare SEMPRE (copertura deterministica, ideale per il gate CI)
   pages:
     - { name: "landing", path: "/govwayConsole/" }
@@ -121,6 +142,7 @@ console:
         - { wait: "networkidle" }                              # attesa load-state o selettore
         - { waitQuietMs: 1000 }                                # attende che il DOM smetta di cambiare per 1 s
         - { scan: "etichetta" }                                # scansiona lo stato corrente
+        - { scan: "etichetta", lighthouse: false, lighthouseNote: "motivo" }   # ...senza Lighthouse per questa vista (URL che cambia lo stato)
         - { scanTabs: ".rich-tab-header" }                     # scopre i tab e scansiona ognuno
         - { scanMenu: [                                         # naviga le voci di piu' menu (dinamico)
               { item: "#menuct a.voceMenuRC",                   #   menu principale
@@ -129,9 +151,23 @@ console:
                 detailMenu: { open: "#divIconMenu_barraTitolo", item: ".context-menu a" },  # -> 3-puntini
                 detailConfig: "[id^='form-add-tab-link']" },    #   -> CONFIGURA (pagina d'ingresso wizard)
                 # nota: 'recurse' supersede 'detailEdit' (i link/matite li segue la ricorsione)
+                # recurse.fromItem: true -> la voce che non apre un elenco con righe esplora i propri link (default false)
+                # recurse.skip sostituisce la regex predefinita delle azioni da non seguire
+                # recurse.excludeLinks: selettore CSS dei link da non seguire (menu, intestazione); default nessuno
+                # recurse.configMax: limite proprio della ricorsione da CONFIGURA (default: condivide 'max' col dettaglio)
+                # recurse.mutating: regex sull'URL dei link che cambiano lo stato con una GET (es. frecce di riordino
+                #   che ricreano le voci con id nuovi): seguiti dopo gli altri, rileggendo i link dalla pagina prima di
+                #   ognuno (stessa posizione, id aggiornati); vista senza Lighthouse e senza ricorsione (default: nessuno)
               { open: "#menuUtente",   item: "#menuUtente_menu a" },   # dropdown: 'open' apre il menu
               { open: "#menuModalita", item: "#menuModalita_menu a" }  # (logout sempre saltato)
             ] }                                                  # opz. per menu: skip
+        - { scanFormVariants: {                                 # varia i campi della vista corrente e scansiona
+              productAxes: ["Periodo", "Profilo", "Tipo"],       #   ogni combinazione (vista riaperta ogni volta)
+              linearAxes: [],
+              submit: "#genera",                                 # opzionale: comando dopo le scelte
+              maxViews: 150,
+              field: { selector: "input[id$=comboboxField]", idSuffix: "comboboxField", group: "div.prop",
+                       toggle: "##{base}comboboxButton", list: "##{base}list", option: ".rich-combobox-item" } } }
         - { scanCharts: {                                       # enumera icone-report e le genera
               grid: "/path/griglia.jsf",
               icon: "a.tipologia-button",                       # obbligatorio

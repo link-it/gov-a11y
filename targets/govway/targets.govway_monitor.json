@@ -17,8 +17,14 @@
     "textSpacing": true,
     "keyboardWalk": true,
     "keyboardWalkMax": 200,
+    "keyboardWalkWaitMs": 30,
+    "$keyboardWalkWaitNote": "Attesa dopo ogni Tab: 30 ms invece di 120. Provato il 19/11/2026 su 40 tipi di pagina della console e 21 viste del monitor con 120, 80, 50, 30 e 0 ms: stesse fermate e stessi elementi segnalati con ogni attesa, anche 0 (il CSS delle console non ha transizioni sul fuoco). 30 ms tengono un margine; il percorso per vista passa da 5,3 a 1,5 s (console) e da 3,4 a 1,0 s (monitor).",
+    "screenshotsMax": 20,
     "languageParts": { "en": ["free software: you can redistribute"] },
     "equalAccess": true,
+    "failOnEqualAccess": true,
+    "failOnHttpError": true,
+    "$failOnHttpErrorNote": "Nelle console GovWay nessuna vista esaminata deve rispondere con stato HTTP >= 400: la pagina d'errore (\"Il sistema e' momentaneamente indisponibile\", 503) indica un bug o un percorso di scansione sbagliato (URL con identificativi non piu' validi, contesto di navigazione mancante). Analizzata come una vista qualsiasi risultava pulita.",
     "$languagePartsNote": "3.1.2: l'unica frase intera in inglese delle due console e' la licenza GPL nella pagina Informazioni, marcata lang=\"en\". Le etichette dei certificati (Not Before, Self Signed), i nomi di opzioni (Signed JWT with Client Secret) e i messaggi diagnostici di runtime sono termini tecnici o dati dell'ambiente e non si dichiarano qui."
   },
   "monitor": {
@@ -35,6 +41,8 @@
     },
     "sourceHint": "tools/web_interfaces/monitor/deploy/pages/templates/defaultTemplate.xhtml",
     "contextPath": "/govwayMonitor/",
+    "$nextPageNote": "Elenchi del monitor (rich:datascroller della libreria govway-monitor-ui): la pagina successiva e' il collegamento <a id=\"<tabella>_next_top_link\">, presente solo quando esiste; all'ultima pagina il comando e' una cella disabilitata senza collegamento. Si esamina anche la seconda pagina: ad esempio i Fault applicativi possono comparire solo li'.",
+    "nextPage": { "selector": "a[id$='_next_top_link']", "max": 1, "wait": "networkidle", "waitQuietMs": 1500, "timeoutMs": 15000 },
     "$pagesNote": "Il menu di govwayMonitor naviga via postback AJAX (RichFaces): il crawl non scopre URL. Queste sono le pagine d'ingresso GET-navigabili (verificate a runtime). Le pagine di DETTAGLIO (dettaglio*, fault*, dump*, tokenInfo, visualizza*, transazioniLivello2) sono escluse perche' richiedono un record gia' selezionato in sessione.",
     "pages": [
       {
@@ -145,6 +153,196 @@
         ]
       },
       {
+        "name": "transazioni-per-esito",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/includes/transazioniCustom.xhtml",
+        "$note": "Risultati della ricerca per ogni valore del filtro 'Esito' (Fallite, Fault Applicativo, Errori di Consegna, ...), scoperti a runtime: ogni esito ha righe con colore e glifo propri, che nella prima pagina della ricerca senza filtro possono mancare. Il periodo e' portato a 'Ultimo mese' prima di ogni ricerca, perche' quello predefinito puo' essere troppo breve per avere risultati. '[Qualsiasi]' e' gia' coperto da transazioni-risultati.",
+        "steps": [
+          {
+            "scanFormVariants": {
+              "productAxes": [
+                "^Esito\\s"
+              ],
+              "skip": "^\\[Qualsiasi\\]$",
+              "fixed": {
+                "^Periodo\\s": "Ultimo mese"
+              },
+              "submit": "#filtra",
+            "reveal": "#panelTransazioni_header",
+              "maxViews": 20,
+              "field": {
+                "$comment": "Come in stat-tutte: la comboBox RichFaces delle console GovWay.",
+                "selector": "input[id$=comboboxField]",
+                "idSuffix": "comboboxField",
+                "group": "div.prop",
+                "label": "label",
+                "toggle": "##{base}comboboxButton",
+                "list": "##{base}list",
+                "option": ".rich-combobox-item"
+              }
+            },
+            "wait": "networkidle",
+            "waitQuietMs": 1500,
+            "timeoutMs": 15000,
+            "delayMs": 1000
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio-ok",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Dettaglio di una transazione con esito Ok, tab per tab: il glifo accanto all'etichetta 'Esito' e i contenuti del dettaglio dipendono dall'esito. La ricerca filtra per esito 'Completate con successo' sull'ultimo mese e apre la prima riga; senza transazioni con quell'esito il flow si interrompe con un avviso.",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il periodo"
+          },
+          {
+            "click": "#periodoCombolist .rich-combobox-item:text-is('Ultimo mese')",
+            "delayMs": 400,
+            "desc": "periodo: ultimo mese"
+          },
+          {
+            "click": "#esitoGruppoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il filtro esito"
+          },
+          {
+            "click": "#esitoGruppoCombolist .rich-combobox-item:text-is('Completate con successo')",
+            "delayMs": 400,
+            "desc": "esito: Completate con successo"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "div.rowTransazione",
+            "timeoutMs": 10000,
+            "desc": "attendi almeno una riga"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio-fault",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Dettaglio di una transazione con esito Fault applicativo, tab per tab: il glifo accanto all'etichetta 'Esito' e i contenuti del dettaglio dipendono dall'esito. La ricerca filtra per esito 'Fault Applicativo' sull'ultimo mese e apre la prima riga; senza transazioni con quell'esito il flow si interrompe con un avviso.",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il periodo"
+          },
+          {
+            "click": "#periodoCombolist .rich-combobox-item:text-is('Ultimo mese')",
+            "delayMs": 400,
+            "desc": "periodo: ultimo mese"
+          },
+          {
+            "click": "#esitoGruppoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il filtro esito"
+          },
+          {
+            "click": "#esitoGruppoCombolist .rich-combobox-item:text-is('Fault Applicativo')",
+            "delayMs": 400,
+            "desc": "esito: Fault Applicativo"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "div.rowTransazione",
+            "timeoutMs": 10000,
+            "desc": "attendi almeno una riga"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio-fallita",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Dettaglio di una transazione con esito Fallita, tab per tab: il glifo accanto all'etichetta 'Esito' e i contenuti del dettaglio dipendono dall'esito. La ricerca filtra per esito 'Fallite' sull'ultimo mese e apre la prima riga; senza transazioni con quell'esito il flow si interrompe con un avviso.",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il periodo"
+          },
+          {
+            "click": "#periodoCombolist .rich-combobox-item:text-is('Ultimo mese')",
+            "delayMs": 400,
+            "desc": "periodo: ultimo mese"
+          },
+          {
+            "click": "#esitoGruppoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il filtro esito"
+          },
+          {
+            "click": "#esitoGruppoCombolist .rich-combobox-item:text-is('Fallite')",
+            "delayMs": 400,
+            "desc": "esito: Fallite"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "div.rowTransazione",
+            "timeoutMs": 10000,
+            "desc": "attendi almeno una riga"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
         "name": "stat-tutte",
         "start": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf",
         "skipIfMissing": "fieldset legend",
@@ -179,6 +377,39 @@
             },
             "wait": "networkidle",
             "$waitQuietNote": "I report statistici finiscono di costruirsi nel browser dopo che la rete e' a riposo: il grafico chiede i propri dati e viene disegnato, e fino ad allora la pagina mostra la maschera di attesa di RichFaces. Senza attendere che il DOM si fermi, le viste piu' pesanti venivano esaminate a meta' costruzione.",
+            "waitQuietMs": 3000,
+            "timeoutMs": 20000,
+            "delayMs": 500
+          }
+        ]
+      },
+      {
+        "name": "monitoraggio-transazioni",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/commons/pages/welcome.xhtml",
+        "$note": "Monitoraggio Transazioni, la pagina iniziale (vi si arriva anche dal titolo in alto a sinistra): il grafico degli esiti si ridisegna a ogni scelta di Periodo, Profilo Interoperabilita' e Tipo. La pagina da sola veniva esaminata solo nella combinazione predefinita; lo step scanFormVariants incrocia tutte le opzioni dei tre campi, scoperte a runtime come in Analisi Statistica (stessa comboBox RichFaces, stessa descrizione del campo). Ogni combinazione riparte dalla pagina riaperta. I profili disponibili dipendono dall'installazione: con un solo profilo il campo non e' un asse.",
+        "steps": [
+          {
+            "scanFormVariants": {
+              "productAxes": [
+                "Periodo",
+                "Profilo",
+                "Tipo"
+              ],
+              "maxViews": 150,
+              "field": {
+                "$comment": "Come in stat-tutte: la comboBox RichFaces delle console GovWay.",
+                "selector": "input[id$=comboboxField]",
+                "idSuffix": "comboboxField",
+                "group": "div.prop",
+                "label": "label",
+                "toggle": "##{base}comboboxButton",
+                "list": "##{base}list",
+                "option": ".rich-combobox-item"
+              }
+            },
+            "wait": "networkidle",
+            "$waitQuietNote": "Il grafico chiede i propri dati e si disegna dopo che la rete e' a riposo: si attende che il DOM si fermi.",
             "waitQuietMs": 3000,
             "timeoutMs": 20000,
             "delayMs": 500
@@ -520,8 +751,7 @@
           },
           {
             "scan": "",
-            "keyboard": false,
-            "$keyboardNote": "Calendario aperto col mouse: il percorso col Tab partirebbe dall'inizio della pagina, fuori dal calendario, e segnalerebbe come coperti i campi sotto di esso. Da tastiera il calendario prende il fuoco, lo trattiene e si chiude con Esc; il percorso col Tab della stessa vista a calendario chiuso c'e' gia'."
+            "$keyboardNote": "Il calendario aperto e' una finestra di dialogo modale (aria-modal=true, il Tab cicla fra i suoi comandi, Esc lo chiude): il percorso col Tab parte dentro il pannello e ne misura i comandi. I controlli della pagina sotto il calendario non sono raggiungibili finche' e' aperto; il loro percorso e' quello della stessa vista a calendario chiuso."
           }
         ]
       },
@@ -551,8 +781,7 @@
           },
           {
             "scan": "",
-            "keyboard": false,
-            "$keyboardNote": "Calendario aperto col mouse: il percorso col Tab partirebbe dall'inizio della pagina, fuori dal calendario, e segnalerebbe come coperti i campi sotto di esso. Da tastiera il calendario prende il fuoco, lo trattiene e si chiude con Esc; il percorso col Tab della stessa vista a calendario chiuso c'e' gia'."
+            "$keyboardNote": "Il calendario aperto e' una finestra di dialogo modale (aria-modal=true, il Tab cicla fra i suoi comandi, Esc lo chiude): il percorso col Tab parte dentro il pannello e ne misura i comandi. I controlli della pagina sotto il calendario non sono raggiungibili finche' e' aperto; il loro percorso e' quello della stessa vista a calendario chiuso."
           }
         ]
       },
@@ -588,8 +817,7 @@
           },
           {
             "scan": "",
-            "keyboard": false,
-            "$keyboardNote": "Calendario aperto col mouse: il percorso col Tab partirebbe dall'inizio della pagina, fuori dal calendario, e segnalerebbe come coperti i campi sotto di esso. Da tastiera il calendario prende il fuoco, lo trattiene e si chiude con Esc; il percorso col Tab della stessa vista a calendario chiuso c'e' gia'."
+            "$keyboardNote": "Il calendario aperto e' una finestra di dialogo modale (aria-modal=true, il Tab cicla fra i suoi comandi, Esc lo chiude): il percorso col Tab parte dentro il pannello e ne misura i comandi. I controlli della pagina sotto il calendario non sono raggiungibili finche' e' aperto; il loro percorso e' quello della stessa vista a calendario chiuso."
           }
         ]
       }

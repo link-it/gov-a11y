@@ -16,8 +16,14 @@
     "textSpacing": true,
     "keyboardWalk": true,
     "keyboardWalkMax": 200,
+    "keyboardWalkWaitMs": 30,
+    "$keyboardWalkWaitNote": "Attesa dopo ogni Tab: 30 ms invece di 120. Provato il 19/11/2026 su 40 tipi di pagina della console e 21 viste del monitor con 120, 80, 50, 30 e 0 ms: stesse fermate e stessi elementi segnalati con ogni attesa, anche 0 (il CSS delle console non ha transizioni sul fuoco). 30 ms tengono un margine; il percorso per vista passa da 5,3 a 1,5 s (console) e da 3,4 a 1,0 s (monitor).",
+    "screenshotsMax": 20,
     "languageParts": { "en": ["free software: you can redistribute"] },
     "equalAccess": true,
+    "failOnEqualAccess": true,
+    "failOnHttpError": true,
+    "$failOnHttpErrorNote": "Nelle console GovWay nessuna vista esaminata deve rispondere con stato HTTP >= 400: la pagina d'errore (\"Il sistema e' momentaneamente indisponibile\", 503) indica un bug o un percorso di scansione sbagliato (URL con identificativi non piu' validi, contesto di navigazione mancante). Analizzata come una vista qualsiasi risultava pulita.",
     "$languagePartsNote": "3.1.2: l'unica frase intera in inglese delle due console e' la licenza GPL nella pagina Informazioni, marcata lang=\"en\". Le etichette dei certificati (Not Before, Self Signed), i nomi di opzioni (Signed JWT with Client Secret) e i messaggi diagnostici di runtime sono termini tecnici o dati dell'ambiente e non si dichiarano qui."
   },
   "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env A11Y_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env A11Y_MONITOR_USER/PASS, A11Y_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
@@ -35,6 +41,15 @@
     },
     "sourceHint": "tools/web_interfaces/control_station/deploy/public/loginAS.jsp",
     "contextPath": "/govwayConsole/",
+    "$nextPageNote": "Elenchi della console (full-list.jsp, anche le viste personalizzate di erogazioni, fruizioni, API): il comando 'Successiva' e' un <button id=\"ds_next_top\"> presente solo quando esiste una pagina successiva; all'ultima pagina c'e' solo l'immagine disabilitata. Si esamina anche la seconda pagina: righe che cadono piu' avanti (stati, esiti, tipi diversi) altrimenti non verrebbero mai viste. Dopo la seconda pagina si torna alla prima con 'Precedente' (back): ferma su una pagina successiva, la console risponde con una pagina vuota alla propria radice /govwayConsole/, da cui il menu riparte per ogni voce.",
+    "nextPage": {
+      "selector": "button#ds_next_top",
+      "back": "button#ds_prev_top",
+      "max": 1,
+      "wait": "networkidle",
+      "waitQuietMs": 1500,
+      "timeoutMs": 15000
+    },
     "pages": [
       {
         "name": "landing",
@@ -46,7 +61,7 @@
       {
         "name": "menu",
         "start": "/govwayConsole/",
-        "$note": "scanMenu console: 3 menu (sinistro/omino/Profili). Sul menu sinistro: listRow entry_ -> dettaglio, poi RICORSIONE solo-navigazione (recurse {depth,max}: segue matite, count-link Soggetti/Ruoli/Proprieta, ecc., ovunque, con dedup su URL normalizzato e skip di distruttivi/SALVA), + detailMenu 3-puntini + detailConfig CONFIGURA. Tutto dinamico, non cablato, anti-logout. depth/max sono parametri regolabili.",
+        "$note": "scanMenu console: 3 menu (sinistro/omino/Profili). Sul menu sinistro: listRow entry_ -> dettaglio, poi RICORSIONE solo-navigazione (recurse {depth,max}: segue matite, count-link Soggetti/Ruoli/Proprieta, ecc., ovunque, con dedup su URL normalizzato e skip di distruttivi/SALVA), + detailMenu 3-puntini + detailConfig CONFIGURA; le voci che non aprono un elenco (Cache PDND, Tracciamento, Generale, ...) esplorano i loro collegamenti dalla pagina stessa (recurse.fromItem). Tutto dinamico, non cablato, anti-logout. depth/max sono parametri regolabili.",
         "steps": [
           {
             "scanMenu": [
@@ -55,7 +70,16 @@
                 "listRow": "[id^='entry_']",
                 "recurse": {
                   "depth": 2,
-                  "max": 40
+                  "max": 40,
+                  "fromItem": true,
+                  "$skipNote": "Il filtro predefinito (azioni distruttive, logout, salva, esporta) piu' loginAsSu ('Accedi' nella pagina Utenti cambia l'identita' della sessione) e Abilitazione (porteDelegateAbilitazione/porteApplicativeAbilitazione abilitano o disabilitano la porta con una GET).",
+                  "excludeLinks": "#menuct a, a.td2PageHeader, a.voceMenuRC",
+                  "$excludeLinksNote": "Link da non seguire nella ricorsione: menu sinistro (#menuct), voci di menu (voceMenuRC) e comandi dell'intestazione (td2PageHeader, es. il cambio di profilo). Porterebbero la ricorsione fuori dalla sezione che sta esplorando. Fino al 21/11/2026 questa esclusione era cablata nel tool.",
+                  "configMax": 40,
+                  "$configMaxNote": "Limite proprio della ricorsione dalla pagina di configurazione (CONFIGURA) di erogazioni e fruizioni. Prima il limite era quello del dettaglio (max 40), che la ricorsione dal dettaglio esauriva seguendo i collegamenti verso altre API: della pagina di configurazione veniva seguito un solo collegamento, e gli elenchi delle funzionalita' (trasformazioni, rate limiting, controllo accessi, ...) non venivano aperti.",
+                  "mutating": "Pos=(su|giu)\\b",
+                  "$mutatingNote": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati (regole proxy pass ppPos, trasformazioni trPos, handler hPos, archivi dei plugin plPos, policy del controllo del traffico CTPolictyActivePos) riordinano la configurazione con una GET e ricreano le voci con identificativi nuovi. Seguite come link che cambiano lo stato: dopo gli altri link e rileggendo ogni volta gli identificativi; nell'ordine giu' della 1a, su della 2a, giu' della 2a, ... l'elenco torna all'ordine iniziale. Prima (fino al 20/11/2026) erano seguite con gli URL letti all'inizio: dopo il primo spostamento puntavano a voci non piu' esistenti (pagina d'errore, 503 per Lighthouse).",
+                  "skip": "logout|signout|esci|elimina|delete|remove|rimuovi|reset|export|download|salva|annulla|loginAsSu|Abilitazione"
                 },
                 "detailMenu": {
                   "open": "#divIconMenu_barraTitolo",
@@ -129,7 +153,21 @@
         "steps": [
           { "click": "a.voceMenuRC[title='Allarmi']", "wait": "networkidle", "delayMs": 600, "desc": "apri Allarmi dal menu" },
           { "click": "[id^='spanIconMenu_']", "delayMs": 400, "desc": "apri il menu azioni della prima riga che ne ha uno" },
-          { "scan": "menu-aperto", "keyboard": false, "$keyboardNote": "Il percorso col Tab chiuderebbe il menu, che serve al passo successivo; la stessa vista a menu chiuso ha gia' il suo percorso." },
+          {
+            "scan": "menu-aperto",
+            "$keyboardNote": "Il percorso col Tab parte con il menu aperto: misura anche che spostando il fuoco il menu non resti a coprire gli elementi raggiunti. Il percorso puo' chiudere il menu: i passi seguenti ricaricano l'elenco e lo riaprono."
+          },
+          {
+            "reload": true,
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "ricarica l'elenco: il percorso col Tab puo' aver chiuso il menu, e un clic sull'icona lo richiuderebbe se fosse rimasto aperto"
+          },
+          {
+            "click": "[id^='spanIconMenu_']",
+            "delayMs": 400,
+            "desc": "riapri il menu azioni della prima riga che ne ha uno"
+          },
           { "click": ".context-menu a >> visible=true", "wait": "networkidle", "delayMs": 800, "desc": "prima azione del menu (Visualizza runtime)" },
           { "scan": "azione" }
         ]
@@ -145,6 +183,232 @@
             "click": "input[name='datainizio']",
             "delayMs": 900,
             "desc": "apri il calendario dando il fuoco al campo"
+          }
+        ]
+      },
+      {
+        "name": "riordino-trasformazioni-erogazione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=erogazione&resetSearch=yes&search=ApiSoapTestTrasformazioni",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di ApiSoapTestTrasformazioni"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='TrasformazioniList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='trPos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='trPos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          }
+        ]
+      },
+      {
+        "name": "riordino-trasformazioni-fruizione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=fruizione&resetSearch=yes&search=ApiSoapTestTrasformazioni",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di ApiSoapTestTrasformazioni"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='TrasformazioniList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='trPos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='trPos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          }
+        ]
+      },
+      {
+        "name": "riordino-rate-limiting-erogazione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=erogazione&resetSearch=yes&search=CustomPolicyRest",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di CustomPolicyRest"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri la prima policy dell'elenco (filtro con risorse/azioni puntuali: elenco a selezione multipla senza etichetta visibile)"
+          },
+          {
+            "scan": "dettaglio-policy"
+          }
+        ]
+      },
+      {
+        "name": "riordino-rate-limiting-fruizione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=fruizione&resetSearch=yes&search=CustomPolicyRest",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di CustomPolicyRest"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri la prima policy dell'elenco (filtro con risorse/azioni puntuali: elenco a selezione multipla senza etichetta visibile)"
+          },
+          {
+            "scan": "dettaglio-policy"
           }
         ]
       }

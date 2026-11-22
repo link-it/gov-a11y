@@ -145,12 +145,21 @@ id `gova11y-…` e il tag del criterio WCAG, e contano per il gate come quelle d
 **Limiti**: euristiche. Un indicatore del focus disegnato solo con pseudo-elementi (`::before`,
 `::after`) non viene riconosciuto (falso positivo su `keyboardWalk`); un componente aperto col mouse
 da un flow (un calendario, un menu) va escluso dal percorso col Tab con `"keyboard": false` sul passo
-`scan`, perché il percorso parte dall'inizio della pagina e non dal componente; `languageParts` trova solo i testi che il
+`scan`, perché il percorso parte dall'inizio della pagina e non dal componente, a meno che il
+componente non si dichiari modale (`aria-modal="true"`): allora il percorso parte dentro di lui; `languageParts` trova solo i testi che il
 target dichiara. Il riflusso è verificato solo sullo stato analizzato di ogni vista, non a ogni
 livello di zoom.
 
 **Costo**: `reflow` e `textSpacing` meno di un secondo per vista; `keyboardWalk` fino a ~6 s
-per vista con le 45 fermate predefinite (`keyboardWalkMax`). Spenti di default.
+per vista con le 45 fermate predefinite (`keyboardWalkMax`) e i 120 ms di attesa dopo ogni Tab
+(`keyboardWalkWaitMs`, che pesa più di tutto il resto: fermate × attesa). Il percorso finisce prima
+se torna a un elemento già visitato o esce dalla pagina, e su una vista senza nulla da raggiungere
+dopo 10 Tab a vuoto. Se il fuoco cade sulla pagina perché l'elemento appena raggiunto è stato
+sostituito da un aggiornamento AJAX (un'icona di stato ridisegnata periodicamente), il percorso
+attende la rete, rimette il fuoco sul sostituto (stesso id, o stessa descrizione se unica) e
+prosegue, fino a 3 volte per vista: prima si fermava lì, come se la pagina fosse finita. Una copertura del fuoco trovata mentre una richiesta è in corso (l'indicatore
+di caricamento steso sopra la pagina) si rilegge a rete ferma e conta solo se resta. I tempi reali,
+per fase e per vista, sono in `tempi.json` e nel report. Spenti di default.
 
 ---
 
@@ -164,7 +173,7 @@ comparabile**: un trend in CI, un indicatore in un report di direzione ("da 85 a
 contrattuale.
 
 **Come è integrato** (dettaglio utile quando qualcosa non torna): il browser della scansione viene
-lanciato con `--remote-debugging-port=9222`; Lighthouse **non riusa la pagina** della scansione, apre
+lanciato con `--remote-debugging-port` su una porta libera scelta a ogni scansione; Lighthouse **non riusa la pagina** della scansione, apre
 una propria tab via CDP nel context di default del browser. Poiché la scansione naviga in un
 `browser.newContext()` isolato, i cookie di sessione non sarebbero condivisi: il tool li rilegge dal
 context corrente e li copia nel context di default, ognuno col suo path, insieme allo `sessionStorage`
@@ -218,8 +227,26 @@ tabella delle viste, una sezione per vista e il **confronto per criterio WCAG** 
 criterio segnalato da un solo motore è quello da esaminare. Raccomandazioni e verifiche manuali del
 motore non sono riportate.
 
-**Gate**: nessuno. Finché non se ne conosce il rumore su un'applicazione, gli esiti del secondo
-motore sono evidenza da confrontare, non motivo per fermare una pipeline.
+**Gate**: spento di default. Finché non se ne conosce il rumore su un'applicazione, gli esiti del
+secondo motore sono evidenza da confrontare. Con `failOnEqualAccess` (globale) le sue violazioni
+decidono l'esito come quelle di axe, e lo stesso vale per una vista su cui il motore non riesce a
+girare; i casi da verificare restano fuori. Si accende quando i difetti che trova sono stati
+corretti, perché non ne tornino.
+
+**Casi da verificare sul fuoco confermati dal percorso col Tab** (`equalAccessKeyboardConfirm`,
+attiva di default, con effetto solo se sono accesi sia `equalAccess` sia `keyboardWalk`): molti casi
+da verificare del motore sono domande sul fuoco, ripetute per ogni elemento raggiungibile
+(`style_focus_visible`: il fuoco si vede? `element_tabbable_unobscured`: è coperto?
+`element_tabbable_visible`: diventa visibile?). Il percorso col Tab misura proprio questo sulla
+pagina vera. Gli elementi su cui IBM fa la domanda si individuano con il suo XPath prima del
+percorso; se il Tab li raggiunge e la misura è positiva (l'aspetto cambia, nessun elemento visibile
+li copre, il riquadro è nella finestra) il caso passa fra i **confermati dal percorso col Tab**: un
+elenco a parte nella vista, con la misura che lo conferma, e `equalAccess.confermatiDaTab` in
+`summary.json`. Non serve screenshot né verifica manuale. Gli elementi che il Tab non raggiunge
+(oltre `keyboardWalkMax`, dentro un componente chiuso) o con misura negativa restano da verificare;
+con misura negativa c'è anche la violazione del percorso col Tab. Limite: il criterio è quello del
+percorso col Tab, "l'aspetto cambia in modo misurabile", e non giudica se l'indicatore è ben
+visibile.
 
 **Costo**: basso, uno o due secondi per vista. **Dipendenze**: `accessibility-checker-engine` è una
 `optionalDependency`; se la feature è richiesta e il modulo manca la scansione si ferma con exit 2.
@@ -301,6 +328,7 @@ config. Precedenza: **CLI > target > defaults > built-in**.
 | 2. albero | `axTree.nameless[]` | `namelessTotal`, `namelessInteractive` per vista | `aria-tree/<vista>.yaml` + vista grafica nel `report.html` |
 | 3. screen reader | `sr.stops`, `sr.phrases[]`, `sr.roleOnly[]` | `screenReader`, `srRoleOnlyTotal`, `srStops` per vista | — |
 | Lighthouse | `lhScore` | `lighthouseEnabled`, `lighthouse[]` (url + score) | colonna nel `report.html` |
-| secondo motore | `equalAccess.violazioni[]`, `equalAccess.daVerificare[]` | `equalAccess` (motore, versione, totali), `confrontoMotori[]`, `equalAccess` per vista | colonna, sezione per vista e confronto nel `report.html` |
+| secondo motore | `equalAccess.violazioni[]`, `equalAccess.daVerificare[]`, `equalAccess.confermatiDaTab[]` | `equalAccess` (motore, versione, totali compreso `confermatiDaTab`), `confrontoMotori[]`, `equalAccess` per vista | colonna, sezione per vista e confronto nel `report.html` |
 | screenshot | `screenshot` su ogni nodo fotografato | — | `screenshot/v<vista>-<n>.png`, miniature nel `report.html` |
 | errori sistematici, perimetro | — | `erroriSistematici[]`, `perimetro[]` | tabella e riquadro nel `report.html` |
+| tempi | `tempi` per vista (fasi in ms) | — | `tempi.json` (durata, login, navigazione, fasi, viste più lente); blocchi «Tempi» chiusi nel `report.html` |

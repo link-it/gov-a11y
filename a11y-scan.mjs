@@ -36,6 +36,7 @@
  *   sonar-issues.json  Generic Issue Import   -> Sonar (sonar.externalIssuesReportPaths)
  *   a11y-junit.xml     JUnit                  -> Jenkins JUnit plugin (trend)
  *   summary.json       riepilogo sintetico
+ *   tempi.json         tempi della scansione: per fase, per vista, navigazione (anche in report.html)
  *   report.html        report leggibile
  *
  * Exit code != 0 se il gate configurato non e' rispettato (--fail-on / --min-score).
@@ -48,6 +49,7 @@ import { dirname, resolve, isAbsolute, join, basename, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { inflateSync } from 'node:zlib';
+import { createServer } from 'node:net';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -108,6 +110,10 @@ if (args.help || args.h) {
                       e' stata analizzata senza alcun contenuto accessibile (pagina non renderizzata:
                       backend irraggiungibile, sessione persa, errore dell'app). Si spegne con
                       "failOnEmpty": false nel config
+  --fail-on-http-error  Gate delle viste in errore HTTP: fallisci se una vista e' arrivata con stato
+                      HTTP >= 400 (pagina d'errore dell'app, URL non piu' valido, sessione persa). Lo
+                      stato di ogni vista e' comunque riportato nei report. Spento di default; si
+                      accende con "failOnHttpError": true nel config
   --fail-on-screen-reader  Gate del virtual screen reader: fallisci se esistono annunci col solo ruolo
                       (elementi letti senza nome). Richiede --screen-reader
   --fail-on-mouse-only  Gate tastiera, ATTIVO per impostazione predefinita: fallisci se esistono comandi
@@ -117,7 +123,12 @@ if (args.help || args.h) {
   --min-score <0..1>  Gate Lighthouse: fallisci se un punteggio scende sotto la soglia (es. 0.90). Implica --lighthouse
   --screen-reader     Esegui il virtual screen reader (annunci) su ogni vista (richiede optional deps)
   --equal-access      Secondo motore indipendente da axe: IBM Equal Access (regole WCAG 2.2 A/AA) sullo stesso
-                      stato di ogni vista. Esiti in una sezione propria, senza gate (richiede optional deps)
+                      stato di ogni vista. Esiti in una sezione propria (richiede optional deps); decide il
+                      gate solo con --fail-on-equal-access
+  --fail-on-equal-access  Gate del secondo motore, SPENTO per impostazione predefinita: fallisci se IBM
+                      Equal Access trova violazioni (i casi da verificare non contano) o non riesce a
+                      girare su una vista. Vale sulle viste dei target con "equalAccess" attivo.
+                      Si accende con "failOnEqualAccess": true nel config
   --no-screenshots    Niente immagini delle occorrenze. Per difetto ogni violazione e ogni caso da verificare
                       ha uno screenshot con l'elemento evidenziato (al massimo 'screenshotsMax' per vista, 20)
   --no-contrast-estimate  Niente stima del contrasto sui casi da verificare. Per difetto, per ogni testo il cui
@@ -138,7 +149,12 @@ if (args.help || args.h) {
   --keyboard-walk     Controlli 2.4.7 / 2.4.11 / 2.1.2: percorre la vista col tasto Tab (focus visibile,
                       focus non coperto, nessuna trappola) e registra l'ordine di focus
   --keyboard-walk-max <n>  Fermate massime del percorso col Tab per vista (default 45)
+  --keyboard-walk-wait-ms <ms>  Attesa dopo ogni Tab prima di leggere il fuoco e il suo aspetto (default 120)
                       (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
+  --[no-]equal-access-keyboard-confirm  Casi da verificare di IBM sul fuoco (si vede, non e' coperto, diventa
+                      visibile) confermati dalla misura del percorso col Tab sullo stesso elemento: escono dai
+                      da verificare e vanno in un elenco a parte. Default acceso; serve che siano attivi sia
+                      il secondo motore sia il percorso col Tab
   --locale <tag>      Lingua del browser (es. it-IT): navigator.language e Accept-Language. Le app che
                       scelgono la lingua dal browser si mostrano come la vedono i loro utenti
   --login-base <url>  Indirizzo dell'applicazione su cui si fa il login, quando non è quella di --base
@@ -155,12 +171,13 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnEmpty, failOnScreenReader, minScore, noFlows, insecure, locale, loginBase,
-  productVersion, reflow, textSpacing, keyboardWalk, keyboardWalkMax, languageParts, equalAccess, screenshots, screenshotsMax,
+  failOnMouseOnly, failOnEmpty, failOnHttpError, failOnScreenReader, failOnEqualAccess, minScore, noFlows, insecure, locale, loginBase,
+  productVersion, reflow, textSpacing, keyboardWalk, keyboardWalkMax, keyboardWalkWaitMs, languageParts, equalAccess,
+  equalAccessKeyboardConfirm, screenshots, screenshotsMax,
   contrastEstimate, contrastEstimateMax.
   Nei valori di "extraHTTPHeaders" ${'${NOME}'} si sostituisce con la variabile d'ambiente NOME (dati
   personali, come l'identità del principal, restano fuori dal config).
-  Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/minScore è globale.)
+  Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/failOnEqualAccess/minScore è globale.)
 `);
   process.exit(0);
 }
@@ -214,6 +231,18 @@ const FAIL_ON_SCREEN_READER = !!resolveParam(args['fail-on-screen-reader'], null
    persa, errore dell'app, tempi). Su una pagina bianca nessuna regola puo' fallire, quindi il suo
    esito "zero violazioni" e' falso, e senza questo gate farebbe passare la scansione. */
 const FAIL_ON_EMPTY = !!resolveParam(args['fail-on-empty'], null, 'failOnEmpty', true);
+/* Gate delle viste in ERRORE HTTP (stato del documento >= 400), predefinito SPENTO. La pagina
+   d'errore di un'applicazione e' di solito accessibile, quindi la vista risulta pulita mentre la
+   vista che si voleva esaminare non e' mai stata vista: un URL scaduto, un contesto di navigazione
+   mancante, un bug. Lo stato viene sempre rilevato e riportato; acceso, fa fallire il gate. Resta
+   spento di default perche' alcune applicazioni rispondono di proposito con un 4xx a pagine che si
+   vogliono comunque esaminare (es. la pagina "non trovato"). */
+const FAIL_ON_HTTP_ERROR = !!resolveParam(args['fail-on-http-error'], null, 'failOnHttpError', false);
+/* Gate del secondo motore, predefinito SPENTO: IBM Equal Access ha regole proprie, e su
+   un'applicazione nuova va prima conosciuto (quante segnalazioni, quali vere). Chi ha corretto
+   i difetti che trova lo accende, perche' non ne tornino di nuovi. Conta solo le violazioni:
+   i casi da verificare chiedono una conferma manuale, come quelli di axe. */
+const FAIL_ON_EQUAL_ACCESS = !!resolveParam(args['fail-on-equal-access'], null, 'failOnEqualAccess', false);
 const CLI_MOUSE_ONLY = args['no-mouse-only'] ? false : (args['mouse-only'] ? true : undefined);
 let DO_MOUSE_ONLY = resolveParam(CLI_MOUSE_ONLY, null, 'mouseOnly', true) !== false;   // risolti per-target da applyTargetParams
 let MOUSE_ONLY_IGNORE = null;    // selettore CSS dichiarato dall'applicazione nel target
@@ -223,6 +252,28 @@ const MIN_SCORE = (() => { const v = resolveParam(args['min-score'], null, 'minS
 const RETE_A_RIPOSO_MS = 2000;
 // Quanto si attende, una volta, una vista che si presenta senza contenuto accessibile (vedi recordScan).
 const VISTA_VUOTA_ATTESA_MS = 5000;
+/* Tempi della scansione, per capire dove va il tempo: ogni vista registra la durata delle sue fasi,
+   e fra una vista e l'altra si misura il tempo di navigazione (passi dei flow, menu, ricorsione).
+   performance.now() costa meno di un microsecondo: nessun effetto sulla durata della scansione.
+   Finiscono in tempi.json e, in blocchi chiusi, in report.html. */
+const TEMPI = { avvio: performance.now(), login: 0, fineUltimaVista: null };
+const FASI_TEMPI = {
+  attesa: 'Attesa della vista (caricamento, rete a riposo)',
+  axe: 'axe-core',
+  falsiPositivi: 'Registro dei falsi positivi',
+  equalAccess: 'IBM Equal Access',
+  lighthouse: 'Lighthouse',
+  axTree: "Albero di accessibilita'",
+  mouseOnly: 'Comandi solo mouse',
+  screenReader: 'Screen reader virtuale',
+  reflow: 'Riflusso a 320px',
+  textSpacing: 'Spaziatura del testo',
+  languageParts: 'Lingua delle parti',
+  keyboardWalk: 'Percorso col tasto Tab',
+  contrastiFuoriVista: 'Contrasti fuori vista',
+  contrastEstimate: 'Stima del contrasto',
+  screenshot: 'Screenshot delle occorrenze',
+};
 // Report HTML (globale: il report è aggregato su tutti i target -> no override per-target). CLI --no-incomplete > defaults.showIncomplete > built-in.
 const SHOW_INCOMPLETE = resolveParam(CLI_INCOMPLETE, null, 'showIncomplete', true) !== false;
 
@@ -254,11 +305,11 @@ let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
    (il percorso col Tab soprattutto) va scelto per target. */
 const cliOnOff = k => (args[`no-${k}`] ? false : (args[k] ? true : undefined));
 const CLI_REFLOW = cliOnOff('reflow'), CLI_TEXT_SPACING = cliOnOff('text-spacing'), CLI_KEYBOARD = cliOnOff('keyboard-walk');
-let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, KEYBOARD_MAX = 45, LANGUAGE_PARTS = null;
+let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, KEYBOARD_MAX = 45, KEYBOARD_ATTESA_MS = 120, LANGUAGE_PARTS = null;
 /* Secondo motore, indipendente da axe: IBM Equal Access, con regole e algoritmi propri. Due motori
    diversi trovano problemi diversi, ed e' quello che chiedono le linee guida che prescrivono la
-   verifica "con almeno due strumenti". Predefinito SPENTO (modulo opzionale), senza gate: i suoi
-   esiti sono evidenza da confrontare, finche' non se ne conosce il rumore sulle applicazioni.
+   verifica "con almeno due strumenti". Predefinito SPENTO (modulo opzionale); i suoi esiti decidono
+   il gate solo con "failOnEqualAccess" (vedi FAIL_ON_EQUAL_ACCESS).
    Screenshot delle occorrenze: predefiniti ACCESI, perche' chi riceve il report deve poter vedere
    DOVE sta il problema senza ricostruirlo dal selettore. */
 const CLI_EA = cliOnOff('equal-access'), CLI_SCREENSHOT = cliOnOff('screenshots');
@@ -268,6 +319,14 @@ let DO_EA = false, DO_SCREENSHOT = true, SCREENSHOT_MAX = 20;
    numero e non da zero (vedi stimaContrasti). */
 const CLI_CONTRASTO = cliOnOff('contrast-estimate');
 let DO_CONTRASTO = true, CONTRASTO_MAX = 40;
+/* Casi da verificare di IBM sul fuoco, confermati dal percorso col Tab: predefinita ACCESA, ma ha
+   effetto solo dove sono attivi sia il secondo motore sia il percorso col Tab (entrambi spenti di
+   default). IBM chiede di confermare a mano che il fuoco si veda, non sia coperto, renda visibile
+   l'elemento (vedi REGOLE_CONFERMATE_DAL_TAB); il percorso col Tab lo misura sulla pagina vera. Un
+   caso esce dai "da verificare" solo se il Tab ha raggiunto PROPRIO quell'elemento e la misura e'
+   positiva; resta nel report, fra i confermati, e non tocca il gate. */
+const CLI_EA_TAB = cliOnOff('equal-access-keyboard-confirm');
+let DO_EA_TAB = true;
 const CONTROLLI_USATI = new Set();   // per la copertura dichiarata nel report (aggregato su tutti i target)
 let NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, null, 'noFlows', false);
 let INSECURE = asInsecure(resolveParam(args.insecure, null, 'insecure', undefined));
@@ -302,6 +361,7 @@ function applyTargetParams(target) {
   DO_TEXT_SPACING = !!resolveParam(CLI_TEXT_SPACING, target, 'textSpacing', false);
   DO_KEYBOARD = !!resolveParam(CLI_KEYBOARD, target, 'keyboardWalk', false);
   KEYBOARD_MAX = parseInt(resolveParam(args['keyboard-walk-max'], target, 'keyboardWalkMax', 45), 10) || 45;
+  { const a = parseInt(resolveParam(args['keyboard-walk-wait-ms'], target, 'keyboardWalkWaitMs', 120), 10); KEYBOARD_ATTESA_MS = Number.isFinite(a) && a >= 0 ? a : 120; }
   LANGUAGE_PARTS = resolveParam(undefined, target, 'languageParts', null) || null;
   if (DO_REFLOW) CONTROLLI_USATI.add('reflow');
   if (DO_TEXT_SPACING) CONTROLLI_USATI.add('textSpacing');
@@ -312,6 +372,7 @@ function applyTargetParams(target) {
   DO_SCREENSHOT = resolveParam(CLI_SCREENSHOT, target, 'screenshots', true) !== false;
   SCREENSHOT_MAX = parseInt(resolveParam(undefined, target, 'screenshotsMax', 20), 10) || 20;
   DO_CONTRASTO = resolveParam(CLI_CONTRASTO, target, 'contrastEstimate', true) !== false;
+  DO_EA_TAB = resolveParam(CLI_EA_TAB, target, 'equalAccessKeyboardConfirm', true) !== false;
   CONTRASTO_MAX = parseInt(resolveParam(undefined, target, 'contrastEstimateMax', 40), 10) || 40;
   NO_FLOWS = !!resolveParam(CLI_FLOWS_OFF, target, 'noFlows', false);
   INSECURE = asInsecure(resolveParam(args.insecure, target, 'insecure', undefined));
@@ -799,8 +860,21 @@ let _lhOk = 0, _lhFail = 0, _lhFirstErr = null;
 // motivo dell'ultimo audit senza punteggio: finisce nel risultato della vista (evidenza nei report)
 let _lhUltimoMotivo = null;
 
-// Porta CDP su cui il browser della scansione si apre a Lighthouse (vedi scan()).
-const LH_PORT = 9222;
+// Porta CDP su cui il browser della scansione si apre a Lighthouse (vedi scan()). Non e' fissa:
+// scan() ne chiede al sistema una libera prima di lanciare il browser. Con una porta fissa due
+// scansioni contemporanee se la contendevano: la seconda non riusciva ad aprirla e il suo
+// Lighthouse misurava le viste nel browser dell'altra, poi falliva su tutte quando l'altra finiva.
+let LH_PORT = 9222;
+
+// Porta TCP libera su localhost, scelta dal sistema (listen sulla porta 0).
+function portaLibera() {
+  return new Promise((ok, ko) => {
+    const srv = createServer();
+    srv.unref();
+    srv.on('error', ko);
+    srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => ok(port)); });
+  });
+}
 
 /* Sessione per la tab di Lighthouse. La tab aperta via CDP vive nel context DI DEFAULT del
    browser, mentre la scansione naviga in un browser context ISOLATO (browser.newContext()): la
@@ -867,7 +941,7 @@ async function runLighthouse(browser, url, target, extraHeaders) {
   _lhUltimoMotivo = null;
   try {
     const { default: lighthouse } = await import('lighthouse');
-    // Il browser e' lanciato con --remote-debugging-port=LH_PORT (vedi scan()).
+    // Il browser e' lanciato con --remote-debugging-port=LH_PORT, porta libera scelta da scan().
     // Usiamo il modulo lighthouse grezzo: apre una tab sullo stesso browser (CDP),
     // quindi con disableStorageReset condivide localStorage e conserva i cookie di sessione
     // copiati da lhPreparaSessione; extraHeaders porta l'eventuale header di auth del target.
@@ -1464,9 +1538,20 @@ async function analyzeTextSpacing(page) {
    dentro la finestra: il resto della pagina e' inerte per contratto, e partendo dall'inizio del
    documento si visiterebbero i comandi sotto la maschera. Una finestra modale con un solo comando
    trattiene il focus su quello: e' il giro della finestra, non una trappola. */
-async function analyzeKeyboard(page, massimo = 45) {
+/* 'daMisurare': percorsi XPath (nel formato di IBM Equal Access) degli elementi di cui interessa la
+   misura del fuoco. Si risolvono nella pagina PRIMA di iniziare, sullo stesso DOM che ha visto IBM:
+   l'abbinamento usa il percorso del motore, non uno ricostruito qui. Le misure degli elementi
+   raggiunti tornano in 'misure', per percorso. */
+async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = []) {
   await installaDescrivi(page);
-  await page.evaluate(() => {
+  await page.evaluate(daMisurare => {
+    window.__gwEaPercorsi = new Map();
+    for (const xp of daMisurare) {
+      try {
+        const n = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        if (n && n.nodeType === 1 && !window.__gwEaPercorsi.has(n)) window.__gwEaPercorsi.set(n, xp);
+      } catch { /* percorso non valido per questo documento */ }
+    }
     const visibile = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden';
     const modale = [...document.querySelectorAll('[aria-modal="true"], dialog[open]')]
       .filter(e => visibile(e) && (e.getAttribute('aria-modal') === 'true' || e.matches(':modal'))).pop() || null;
@@ -1482,14 +1567,39 @@ async function analyzeKeyboard(page, massimo = 45) {
       for (const x of daConfrontare(e)) if (!base.has(x)) base.set(x, aspetto(x));
     // true/false: cambia o no rispetto alla partenza; null: elemento comparso dopo, senza aspetto di partenza
     window.__gwFocusCambiaAspetto = e => base.has(e) ? daConfrontare(e).some(x => base.has(x) && base.get(x) !== aspetto(x)) : null;
-  });
-  const ordine = [], senzaFocus = [], coperti = [];
-  let trappola = null, prec = null, uguali = 0;
+    /* Identita' degli elementi raggiunti: il giro completo e la trappola si riconoscono dall'elemento
+       stesso, non dalla sua descrizione. Descrizione e testo (troncato) possono coincidere per
+       elementi diversi, come i collegamenti di due righe che cominciano con lo stesso nome lungo, e
+       il percorso si fermava li' credendo di essere tornato all'inizio. */
+    window.__gwIdentita = new WeakMap(); window.__gwIdentitaN = 0;
+    /* L'ultimo elemento che ha ricevuto il fuoco, con la sua descrizione: se un aggiornamento AJAX
+       lo sostituisce mentre ha il fuoco, il fuoco cade sul <body> e il percorso lo riprende dal
+       sostituto (vedi sotto). */
+    window.__gwUltimoFuoco = null;
+    window.__gwSuFocusin = ev => { window.__gwUltimoFuoco = ev.target; window.__gwUltimoFuocoDescr = window.__gwDescrivi(ev.target); };
+    document.addEventListener('focusin', window.__gwSuFocusin, true);
+  }, daMisurare);
+  const ordine = [], senzaFocus = [], coperti = [], misure = {}, visitati = new Set();
+  let trappola = null, prec = null, uguali = 0, recuperi = 0, saltaTab = false;
+  /* Richieste in corso, per sapere quando la rete e' davvero ferma: waitForLoadState('networkidle')
+     non serve, perche' ritorna subito se la pagina quello stato l'ha gia' raggiunto al caricamento,
+     anche con una richiesta AJAX partita dopo. */
+  let inVolo = 0;
+  const parte = () => { inVolo++; }, finisce = () => { inVolo = Math.max(0, inVolo - 1); };
+  page.on('request', parte); page.on('requestfinished', finisce); page.on('requestfailed', finisce);
+  const reteFerma = async (quieteMs = 300, limiteMs = RETE_A_RIPOSO_MS) => {
+    const fine = Date.now() + limiteMs; let ferma = 0;
+    while (Date.now() < fine && ferma < quieteMs) { await page.waitForTimeout(50); ferma = inVolo ? 0 : ferma + 50; }
+  };
   try {
     for (let i = 0; i < massimo; i++) {
-      await page.keyboard.press('Tab');
-      await page.waitForTimeout(120);
-      const f = await page.evaluate(() => {
+      if (!saltaTab) {
+        await page.keyboard.press('Tab');
+        // il tempo per applicare gli stili del fuoco (transizioni, script su 'focus'): vedi keyboardWalkWaitMs
+        await page.waitForTimeout(attesaMs);
+      }
+      saltaTab = false;
+      const leggiFuoco = () => page.evaluate(() => {
         const e = document.activeElement;
         if (!e || e === document.body || e.id === '__gw_partenza') return null;
         const cs = getComputedStyle(e);
@@ -1516,22 +1626,66 @@ async function analyzeKeyboard(page, massimo = 45) {
           || e.querySelector('img[alt]')?.getAttribute('alt') || '').trim().slice(0, 30);
         const nome = e.getAttribute('name');
         const ok = outline || ombra || window.__gwFocusCambiaAspetto(e) === true;
+        // visibile con il fuoco: un riquadro vero (non il pixel dei testi per soli lettori) dentro la finestra
+        const mostrato = b.width > 1 && b.height > 1 && !fuori && b.right > 0 && b.left < innerWidth
+          && cs.visibility !== 'hidden' && !trasparente(e);
+        const percorsoEa = window.__gwEaPercorsi?.get(e) || null;
         const m = window.__gwModale;
         const unicoNellaModale = !!m && m.contains(e) && [...m.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')]
           .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden').length === 1;
-        return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok, copre, unicoNellaModale };
+        if (!window.__gwIdentita) { window.__gwIdentita = new WeakMap(); window.__gwIdentitaN = 0; }
+        let uid = window.__gwIdentita.get(e);
+        if (!uid) { uid = ++window.__gwIdentitaN; window.__gwIdentita.set(e, uid); }
+        return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok, copre, unicoNellaModale, mostrato, percorsoEa, uid };
       });
-      if (!f) { if (ordine.length) break; else continue; }
+      let f = await leggiFuoco();
+      /* Una copertura puo' essere solo del momento: l'indicatore di caricamento che molte applicazioni
+         stendono sopra la pagina durante una richiesta (polling, aggiornamenti AJAX). Si attende che la
+         rete torni a riposo e si rilegge lo stesso elemento: conta solo se e' coperto anche allora.
+         L'attesa scatta solo quando c'e' una copertura, quindi non rallenta il percorso. */
+      if (f?.copre) {
+        await reteFerma();
+        await page.waitForTimeout(attesaMs);
+        const g = await leggiFuoco();
+        if (g && g.uid === f.uid) f = g;
+      }
+      // nessun elemento col fuoco: a percorso iniziato e' l'uscita dalla pagina; all'inizio si concedono
+      // alcuni tentativi, poi una vista senza nulla da raggiungere non consuma tutte le fermate
+      /* Fuoco perso perche' l'elemento appena raggiunto e' stato ridisegnato (un aggiornamento AJAX
+         periodico, come un'icona di stato nell'intestazione, sostituisce il nodo che aveva il fuoco):
+         non e' l'uscita dalla pagina. Si attende la rete, si rimette il fuoco sul sostituto (stesso
+         id, o stessa descrizione se unica) e lo si misura senza premere Tab. Se il nodo c'e' ancora,
+         o non ha un sostituto riconoscibile, il fuoco e' davvero uscito e il percorso finisce. */
+      if (!f && ordine.length && recuperi < 3) {
+        await reteFerma();
+        const ripreso = await page.evaluate(() => {
+          const u = window.__gwUltimoFuoco;
+          if (!u || u.isConnected || (document.activeElement && document.activeElement !== document.body)) return false;
+          let r = u.id ? document.getElementById(u.id) : null;
+          if (!r && window.__gwUltimoFuocoDescr) {
+            try { const l = document.querySelectorAll(window.__gwUltimoFuocoDescr); if (l.length === 1) r = l[0]; } catch { /* descrizione non usabile come selettore */ }
+          }
+          if (!r) return false;
+          r.focus();
+          return document.activeElement === r;
+        }).catch(() => false);
+        if (ripreso) { recuperi++; saltaTab = true; continue; }
+      }
+      if (!f) { if (ordine.length || i >= 9) break; else continue; }
       const chiave = `${f.target} "${f.testo}"`;
-      if (chiave === prec) { if (++uguali > 2) { if (!f.unicoNellaModale) trappola = f; break; } continue; }
+      if (f.uid === prec) { if (++uguali > 2) { if (!f.unicoNellaModale) trappola = f; break; } continue; }
       uguali = 0;
-      if (ordine.includes(chiave)) break;   // giro completo
-      prec = chiave; ordine.push(chiave);
+      if (visitati.has(f.uid)) break;   // giro completo
+      prec = f.uid; visitati.add(f.uid); ordine.push(chiave);
+      if (f.percorsoEa && !misure[f.percorsoEa]) misure[f.percorsoEa] = { ok: f.ok, coperto: !!f.copre, mostrato: f.mostrato };
       if (!f.ok) senzaFocus.push(f);
       if (f.copre) coperti.push(f);
     }
   } finally {
-    await page.evaluate(() => { document.getElementById('__gw_partenza')?.remove(); delete window.__gwFocusCambiaAspetto; delete window.__gwModale; }).catch(() => {});
+    page.off('request', parte); page.off('requestfinished', finisce); page.off('requestfailed', finisce);
+    await page.evaluate(() => { document.getElementById('__gw_partenza')?.remove(); delete window.__gwFocusCambiaAspetto; delete window.__gwModale; delete window.__gwEaPercorsi; delete window.__gwIdentita; delete window.__gwIdentitaN;
+      if (window.__gwSuFocusin) document.removeEventListener('focusin', window.__gwSuFocusin, true);
+      delete window.__gwSuFocusin; delete window.__gwUltimoFuoco; delete window.__gwUltimoFuocoDescr; }).catch(() => {});
   }
   const violazioni = [];
   if (senzaFocus.length) violazioni.push(violazione('gova11y-focus-visible', '2.4.7', 'serious', 'Indicatore del focus non visibile',
@@ -1540,7 +1694,33 @@ async function analyzeKeyboard(page, massimo = 45) {
     coperti.map(f => ({ target: f.target, html: f.html, messaggio: `Coperto da ${f.copre}` }))));
   if (trappola) violazioni.push(violazione('gova11y-keyboard-trap', '2.1.2', 'critical', 'Il focus resta bloccato su un elemento',
     [{ target: trappola.target, html: trappola.html, messaggio: 'Premendo Tab il focus non si sposta' }]));
-  return { violazioni, ordine };
+  return { violazioni, ordine, misure };
+}
+
+/* Le domande di IBM Equal Access sul fuoco a cui risponde il percorso col Tab, con il criterio di
+   conferma sulla misura e la frase che lo dichiara nel report. Le stesse misure decidono le
+   violazioni del Tab (2.4.7, 2.4.11): se la misura e' negativa il caso resta da verificare e il
+   Tab ha gia' la sua violazione. */
+const REGOLE_CONFERMATE_DAL_TAB = {
+  style_focus_visible: { conferma: m => m.ok,
+    frase: "con il fuoco l'aspetto cambia (contorno, ombra, bordo, sfondo o colore suoi o del contenitore)" },
+  element_tabbable_unobscured: { conferma: m => !m.coperto,
+    frase: "con il fuoco l'elemento non e' coperto da altri elementi" },
+  element_tabbable_visible: { conferma: m => m.mostrato && !m.coperto,
+    frase: "con il fuoco l'elemento e' visibile nella finestra" },
+};
+
+/* Separa i casi da verificare di IBM a cui il percorso col Tab ha risposto. Funzione pura:
+   { daVerificare, confermati }, i confermati con la frase della conferma. */
+function confermaDalTab(daVerificare, misure) {
+  const restano = [], confermati = [];
+  for (const x of daVerificare || []) {
+    const regola = REGOLE_CONFERMATE_DAL_TAB[x.regola];
+    const m = regola && x.xpath ? misure?.[x.xpath] : null;
+    if (m && regola.conferma(m)) confermati.push({ ...x, conferma: `Percorso col tasto Tab: ${regola.frase}` });
+    else restano.push(x);
+  }
+  return { daVerificare: restano, confermati };
 }
 
 /* 3.1.2: testo in una lingua diversa da quella dichiarata per la sua parte di pagina. Le espressioni
@@ -1910,6 +2090,13 @@ function contrastiPerComponente(results) {
 }
 
 async function recordScan(browser, page, target, name, pageResults, sourceHint, extra = {}) {
+  const t0 = performance.now();
+  const primaDellaVista = TEMPI.fineUltimaVista == null ? null : t0 - TEMPI.fineUltimaVista;
+  const fasi = {};
+  const misura = async (fase, fn) => {
+    const t = performance.now();
+    try { return await fn(); } finally { fasi[fase] = (fasi[fase] || 0) + performance.now() - t; }
+  };
   const url = page.url();
   /* axe fotografa il DOM com'e' in quel momento: con una richiesta ancora in volo puo'
      trovare in pagina gli elementi transitori dell'attesa (maschere, indicatori di
@@ -1920,22 +2107,33 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
      navigazione, e senza questa attesa axe puo' fotografare la pagina mentre sta ancora
      caricando — senza titolo, senza 'main', senza intestazione, cioe' con la firma di una
      pagina vuota che verrebbe scambiata per un difetto. Se e' gia' caricata torna subito. */
-  await page.waitForLoadState('load').catch(() => {});
-  await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
-  /* Vista senza contenuto accessibile: di solito non e' ancora arrivata (un backend lento, una lista
-     che tarda), a volte non arrivera' mai. Si concede un'attesa, una sola, prima di analizzarla; se
-     resta vuota viene analizzata comunque e segnalata come tale (vedi 'vuota' piu' sotto). */
-  if (await nodiAccessibili(page) === 0) {
-    console.warn(`    [vista vuota] ${name}: nessun contenuto accessibile, attendo ${VISTA_VUOTA_ATTESA_MS / 1000}s e riprovo`);
-    await page.waitForTimeout(VISTA_VUOTA_ATTESA_MS);
+  await misura('attesa', async () => {
+    await page.waitForLoadState('load').catch(() => {});
     await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
-  }
+    /* Vista senza contenuto accessibile: di solito non e' ancora arrivata (un backend lento, una lista
+       che tarda), a volte non arrivera' mai. Si concede un'attesa, una sola, prima di analizzarla; se
+       resta vuota viene analizzata comunque e segnalata come tale (vedi 'vuota' piu' sotto). */
+    if (await nodiAccessibili(page) === 0) {
+      console.warn(`    [vista vuota] ${name}: nessun contenuto accessibile, attendo ${VISTA_VUOTA_ATTESA_MS / 1000}s e riprovo`);
+      await page.waitForTimeout(VISTA_VUOTA_ATTESA_MS);
+      await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
+    }
+  });
+  /* Stato HTTP del documento della vista (Navigation Timing, responseStatus): e' quello della
+     risposta che ha caricato la pagina, anche se poi la vista e' cambiata via AJAX. 0 o assente =
+     non noto (file://, pagine da cache, browser senza il dato): non e' un errore. */
+  const httpStatus = await page.evaluate(() => {
+    const n = performance.getEntriesByType('navigation')[0];
+    return n && typeof n.responseStatus === 'number' && n.responseStatus > 0 ? n.responseStatus : null;
+  }).catch(() => null);
+  const erroreHttp = httpStatus != null && httpStatus >= 400;
   /* Fotografia COERENTE: se il documento viene sostituito mentre axe lo percorre — una
      navigazione tardiva, un ridisegno che ricarica la vista — il risultato e' quello di una
      pagina a meta', e si presenta con la firma inconfondibile della pagina vuota (senza
      titolo, senza 'main', senza intestazione di primo livello). Si marca il documento prima
      dell'analisi e si verifica dopo che sia ancora lo stesso: altrimenti si rifa'. */
   let r = null;
+  const tAxe = performance.now();
   for (let tentativo = 0; tentativo < 3; tentativo++) {
     const marcatore = `gw-${Date.now()}-${tentativo}`;
     await page.evaluate(m => { window.__gwMarcatore = m; }, marcatore).catch(() => {});
@@ -1951,6 +2149,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
     await page.waitForLoadState('load').catch(() => {});
     await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
   }
+  fasi.axe = performance.now() - tAxe;
   // Le occorrenze coperte dal registro dei falsi positivi escono da 'incomplete' e vengono
   // conservate a parte: restano nel report, ma non fra le cose ancora da verificare.
   //
@@ -1960,36 +2159,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   // ridisegno parziale sostituisce interi rami, e gli elementi da confrontare sparivano. Su
   // una vista di govwayMonitor questo bastava a far figurare 38 occorrenze fra quelle da
   // verificare, pur essendo coperte dal registro su tutte le altre viste.
-  let { incomplete, derogati } = await separaFalsiPositivi(page, r.incomplete, url);
-  // Il secondo motore subito dopo axe: deve vedere lo stesso stato della vista.
-  let equalAccess = null;
-  if (DO_EA) {
-    try { equalAccess = await runEqualAccess(page, extra.include); }
-    catch (e) { console.warn(`    [${name}] IBM Equal Access non eseguito: ${e.message.split('\n')[0]}`); }
-    if (equalAccess) {
-      const ea = await separaFalsiPositiviEA(page, equalAccess, url);
-      equalAccess = ea.equalAccess;
-      derogati = [...derogati, ...ea.derogati];
-    }
-  }
-  let lhScore = null, lhMotivo = null;
-  if (DO_LH && !LH_ESCLUSO_NEL_FLOW) {
-    const sessione = await lhPreparaSessione(page, target);
-    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; }
-    finally { await sessione.rilascia(); }
-  }
-  // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
-  // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
-  const { snapshot: ariaSnapshot, ...axTree } = await analyzeAxTree(page);
-  // Albero letto e vuoto: la vista non si e' renderizzata, e il suo esito non vale (vedi FAIL_ON_EMPTY).
-  const vuota = axTree.nodes === 0 && !axTree.illeggibile;
-  const soloMouse = DO_MOUSE_ONLY ? await analyzeMouseOnly(page, { ignora: MOUSE_ONLY_IGNORE, massimo: MOUSE_ONLY_MAX }) : { totale: 0, elementi: [] };
-  let sr = null;
-  if (DO_SR) sr = await runScreenReader(page);
-  /* Controlli fuori da axe, in fondo: cambiano la larghezza della vista, la spaziatura e il focus,
-     e non devono disturbare le analisi precedenti, che fotografano la vista a riposo. */
-  const aggiuntive = violazioniDaProblemi(extra.problemi);
-  let tabOrder = null;
+  let { incomplete, derogati } = await misura('falsiPositivi', () => separaFalsiPositivi(page, r.incomplete, url));
   /* I controlli che falliscono restano nel risultato della vista: un controllo non eseguito e' un'evidenza.
      Quelli che decidono il gate si ripetono una volta, se la pagina e' ancora la stessa: di norma l'errore
      e' dell'ambiente (un refresh automatico o una risposta lenta proprio durante la misura). Se nel
@@ -2013,20 +2183,59 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
       }
     }
   };
-  if (DO_REFLOW) aggiuntive.push(...(await prova('reflow', () => analyzeReflow(page)) || []));
+  // Il secondo motore subito dopo axe: deve vedere lo stesso stato della vista.
+  let equalAccess = null;
+  if (DO_EA) {
+    equalAccess = await misura('equalAccess', () => prova('equalAccess', () => runEqualAccess(page, extra.include)));
+    if (equalAccess) {
+      const ea = await misura('falsiPositivi', () => separaFalsiPositiviEA(page, equalAccess, url));
+      equalAccess = ea.equalAccess;
+      derogati = [...derogati, ...ea.derogati];
+    }
+  }
+  let lhScore = null, lhMotivo = null;
+  /* extra.senzaLighthouse: motivo per cui questa sola vista non passa da Lighthouse (es. il suo URL
+     cambia la configurazione e ricaricarlo ripeterebbe l'azione). */
+  const lhEscluso = DO_LH && (LH_ESCLUSO_NEL_FLOW || !!extra.senzaLighthouse);
+  if (extra.senzaLighthouse && DO_LH) lhMotivo = extra.senzaLighthouse;
+  if (DO_LH && !lhEscluso) await misura('lighthouse', async () => {
+    const sessione = await lhPreparaSessione(page, target);
+    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; }
+    finally { await sessione.rilascia(); }
+  });
+  // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
+  // teniamo fuori dall'oggetto axTree per non gonfiare axe-results.json.
+  const { snapshot: ariaSnapshot, ...axTree } = await misura('axTree', () => analyzeAxTree(page));
+  // Albero letto e vuoto: la vista non si e' renderizzata, e il suo esito non vale (vedi FAIL_ON_EMPTY).
+  const vuota = axTree.nodes === 0 && !axTree.illeggibile;
+  const soloMouse = DO_MOUSE_ONLY ? await misura('mouseOnly', () => analyzeMouseOnly(page, { ignora: MOUSE_ONLY_IGNORE, massimo: MOUSE_ONLY_MAX })) : { totale: 0, elementi: [] };
+  let sr = null;
+  if (DO_SR) sr = await misura('screenReader', () => runScreenReader(page));
+  /* Controlli fuori da axe, in fondo: cambiano la larghezza della vista, la spaziatura e il focus,
+     e non devono disturbare le analisi precedenti, che fotografano la vista a riposo. */
+  const aggiuntive = violazioniDaProblemi(extra.problemi);
+  let tabOrder = null;
+  if (DO_REFLOW) aggiuntive.push(...(await misura('reflow', () => prova('reflow', () => analyzeReflow(page))) || []));
   // spaziatura del testo: le violazioni con le altre; i testi gia' troncati fra i casi da verificare (piu' sotto)
   let troncati = [];
   if (DO_TEXT_SPACING) {
-    const ts = await prova('textSpacing', () => analyzeTextSpacing(page));
+    const ts = await misura('textSpacing', () => prova('textSpacing', () => analyzeTextSpacing(page)));
     if (ts) { aggiuntive.push(...ts.violazioni); troncati = ts.daVerificare; }
   }
-  if (LANGUAGE_PARTS) aggiuntive.push(...(await prova('languageParts', () => analyzeLanguageParts(page, LANGUAGE_PARTS)) || []));
+  if (LANGUAGE_PARTS) aggiuntive.push(...(await misura('languageParts', () => prova('languageParts', () => analyzeLanguageParts(page, LANGUAGE_PARTS))) || []));
   if (DO_KEYBOARD && extra.keyboard !== false) {
-    const k = await prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX));
+    const daMisurare = DO_EA_TAB && equalAccess
+      ? [...new Set(equalAccess.daVerificare.filter(x => REGOLE_CONFERMATE_DAL_TAB[x.regola] && x.xpath).map(x => x.xpath))] : [];
+    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare)));
     if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
+    if (k && daMisurare.length) {
+      const c = confermaDalTab(equalAccess.daVerificare, k.misure);
+      equalAccess = { ...equalAccess, daVerificare: c.daVerificare, confermatiDaTab: c.confermati };
+      if (c.confermati.length) { const n = c.confermati.length; console.log(`    [IBM] ${n} ${n === 1 ? 'caso' : 'casi'} da verificare sul fuoco ${n === 1 ? 'confermato' : 'confermati'} dal percorso col Tab`); }
+    }
   }
   // In fondo, per ultima: scorre la vista (vedi rimisuraContrastiFuoriVista)
-  const rimisura = await prova('contrasti fuori vista', () => rimisuraContrastiFuoriVista(page, incomplete, r.violations));
+  const rimisura = await misura('contrastiFuoriVista', () => prova('contrasti fuori vista', () => rimisuraContrastiFuoriVista(page, incomplete, r.violations)));
   if (rimisura?.rimisurati) {
     incomplete = rimisura.incomplete;
     r.violations = rimisura.violations;
@@ -2035,7 +2244,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   r.violations = [...r.violations, ...aggiuntive];
   // i testi gia' troncati sono casi da verificare: passano anche dal registro dei falsi positivi
   if (troncati.length) {
-    const sep = await separaFalsiPositivi(page, troncati, url);
+    const sep = await misura('falsiPositivi', () => separaFalsiPositivi(page, troncati, url));
     incomplete = [...(incomplete || []), ...sep.incomplete];
     derogati = [...derogati, ...sep.derogati];
   }
@@ -2046,7 +2255,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
       ...(incomplete || []).filter(v => REGOLE_CONTRASTO.has(v.id)).flatMap(v => v.nodes || []),
       ...(equalAccess ? [...equalAccess.violazioni, ...equalAccess.daVerificare].filter(x => REGOLE_CONTRASTO.has(x.regola)) : []),
     ];
-    const stime = nodi.length ? await prova('stima del contrasto', () => stimaContrasti(page, nodi)) : null;
+    const stime = nodi.length ? await misura('contrastEstimate', () => prova('stima del contrasto', () => stimaContrasti(page, nodi))) : null;
     if (stime?.length) {
       CONTROLLI_USATI.add('contrastEstimate');
       const conta = e => stime.filter(s => (s.errore ? 'non stimabile' : s.esito) === e).length;
@@ -2062,13 +2271,15 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
       ...(incomplete || []).flatMap(v => v.nodes || []),
       ...(equalAccess ? equalAccess.daVerificare : []),
     ];
-    if (nodi.length) await prova('screenshot', () => fotografaOccorrenze(page, pageResults.length, nodi));
+    if (nodi.length) await misura('screenshot', () => prova('screenshot', () => fotografaOccorrenze(page, pageResults.length, nodi)));
   }
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso: DO_LH && LH_ESCLUSO_NEL_FLOW, lhMotivo, axTree, soloMouse, ariaSnapshot, sr, vuota, tabOrder, equalAccess,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso, lhMotivo, axTree, soloMouse, ariaSnapshot, sr, vuota, httpStatus, erroreHttp, tabOrder, equalAccess,
     controlliNonEseguiti: nonEseguiti, controlliEseguiti: eseguiti,
+    tempi: { inizio: t0 - TEMPI.avvio, primaDellaVista, totale: performance.now() - t0, fasi },
   });
+  TEMPI.fineUltimaVista = performance.now();
   const counts = summarizeImpacts(r.violations);
   const incN = (incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
   const fpN = derogati.length;
@@ -2076,8 +2287,9 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   const mo = soloMouse.totale ? `  solo-mouse: ${soloMouse.totale} comandi non raggiungibili da tastiera` : '';
   const srN = sr ? `  SR: ${sr.stops} annunci${sr.roleOnly.length ? `, ${sr.roleOnly.length} solo-ruolo` : ''}` : '';
   const eaN = equalAccess ? `  IBM: ${equalAccess.violazioni.length} violazioni, ${equalAccess.daVerificare.length} da verificare` : '';
+  if (erroreHttp) console.warn(`  ! [${name}] ERRORE HTTP ${httpStatus}: la vista e' la risposta d'errore dell'applicazione, non la pagina che si voleva esaminare`);
   if (vuota) console.warn(`  ! [${name}] VISTA VUOTA: nessun contenuto accessibile dopo l'attesa (pagina non renderizzata?). Il suo esito non e' valido`);
-  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${mo}${srN}${eaN}`);
+  console.log(`  [${name}] ${url} -> violazioni: ${fmtCounts(counts)}${incN ? `  da-verificare: ${incN}` : ''}${fpN ? `  falsi-positivi: ${fpN}` : ''}${lhScore != null ? `  LH=${(lhScore * 100).toFixed(0)}%` : ''}${nm}${mo}${srN}${eaN}  (${((TEMPI.fineUltimaVista - t0) / 1000).toFixed(1)} s)`);
 }
 
 function slug(s) { return String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40); }
@@ -2091,6 +2303,18 @@ function normVisit(u) {
     const q = [...x.searchParams.entries()].sort().map(([k, v]) => `${k}=${v}`).join('&');
     return x.origin + x.pathname + (q ? '?' + q : '');
   } catch { return u; }
+}
+
+/* Link <a href> navigazionali della pagina. 'escludi' (recurse.excludeLinks del target) e' un
+   selettore CSS dei link da non seguire: tipicamente menu e intestazione dell'applicazione, che
+   porterebbero la ricorsione fuori dalla sezione che sta esplorando. Senza, si seguono tutti. */
+function linkNavigazionali(page, escludi) {
+  return page.$$eval('a[href]', (els, escludi) => els.filter(a => {
+    const href = a.getAttribute('href') || '';
+    if (!href || href === '#' || /^(javascript:|mailto:|#)/i.test(href)) return false;
+    if (escludi) { try { if (a.matches(escludi)) return false; } catch { /* selettore non valido: nessun link escluso */ } }
+    return true;
+  }).map(a => ({ href: a.getAttribute('href'), text: (a.textContent || a.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 40) })), escludi || null);
 }
 
 // Esplorazione RICORSIVA "solo navigazione": da una pagina segue i link <a href> navigazionali
@@ -2114,21 +2338,14 @@ async function recurseFollow(browser, page, target, pageResults, flowName, opts,
       await recordScan(browser, page, target, `flow:${flowName}/${baseLabel}/tab-${slug(tabTexts[ti]) || ti}`, pageResults, opts.sourceHint);
     }
   }
-  const links = await page.$$eval('a[href]', els => {
-    const menuct = document.getElementById('menuct');
-    return els.filter(a => {
-      const href = a.getAttribute('href') || '';
-      if (!href || href === '#' || /^(javascript:|mailto:|#)/i.test(href)) return false;
-      if (/td2PageHeader|voceMenuRC/.test(a.className)) return false;   // esclude header switcher e voci menu
-      if (menuct && menuct.contains(a)) return false;                    // esclude il menu sinistro
-      return true;
-    }).map(a => ({ href: a.getAttribute('href'), text: (a.textContent || a.getAttribute('title') || '').trim().replace(/\s+/g, ' ').slice(0, 40) }));
-  });
+  const links = await linkNavigazionali(page, opts.excludeLinks);
+  let mutanti = 0;
   for (const l of links) {
     if (opts.state.count >= opts.max) break;
     let abs; try { abs = new URL(l.href, home).href; } catch { continue; }
     if (!abs.includes(opts.ctxPath)) continue;                          // resta dentro la console
     if (opts.skipRe.test(abs) || opts.skipRe.test(l.text)) continue;    // distruttivi/logout/salva
+    if (opts.mutatingRe && opts.mutatingRe.test(abs)) { mutanti++; continue; }   // dopo gli altri: vedi sotto
     const key = normVisit(abs);
     if (opts.visited.has(key)) continue;
     opts.visited.add(key);
@@ -2138,6 +2355,29 @@ async function recurseFollow(browser, page, target, pageResults, flowName, opts,
     catch (e) { console.warn(`      ricorsione: '${l.text}' non aperto: ${e.message}`); continue; }
     await recordScan(browser, page, target, `flow:${flowName}/${clab}`, pageResults, opts.sourceHint);
     await recurseFollow(browser, page, target, pageResults, flowName, opts, clab, depth - 1);
+  }
+  /* Link che cambiano lo stato (opts.mutatingRe, dal 'mutating' del target): es. le frecce che
+     riordinano un elenco con una GET e ricreano le voci con identificativi nuovi. Si seguono dopo
+     tutti gli altri link, i cui URL restano cosi' validi. Per ciascuno si riapre la pagina, se ne
+     rileggono i link e si segue quello nella stessa posizione: l'URL letto prima puo' contenere
+     identificativi non piu' esistenti. La vista risultante non passa da Lighthouse (ricaricarne
+     l'URL ripeterebbe l'azione) e non si ricorre da essa. */
+  const chiaveHome = normVisit(home);
+  for (let i = 0; i < mutanti && opts.state.count < opts.max; i++) {
+    const key = `${chiaveHome}#mutante-${i}`;
+    if (opts.visited.has(key)) continue;
+    opts.visited.add(key);
+    try { await page.goto(home, { waitUntil: 'networkidle' }); } catch { break; }
+    const attuali = (await linkNavigazionali(page, opts.excludeLinks)).map(l => { try { return { ...l, abs: new URL(l.href, home).href }; } catch { return null; } })
+      .filter(l => l && l.abs.includes(opts.ctxPath) && !opts.skipRe.test(l.abs) && !opts.skipRe.test(l.text) && opts.mutatingRe.test(l.abs));
+    const l = attuali[i];
+    if (!l) { console.warn(`      ricorsione: link che cambia lo stato n. ${i + 1} non piu' presente dopo la rilettura`); break; }
+    opts.state.count++;
+    const clab = `${baseLabel}/${slug(l.text) || 'azione'}-${i + 1}`;
+    try { await page.goto(l.abs, { waitUntil: 'networkidle' }); }
+    catch (e) { console.warn(`      ricorsione: '${l.text}' non aperto: ${e.message}`); continue; }
+    await recordScan(browser, page, target, `flow:${flowName}/${clab}`, pageResults, opts.sourceHint,
+      { senzaLighthouse: "il collegamento cambia lo stato dell'applicazione: ricaricarlo ripeterebbe l'azione" });
   }
   await page.goto(home, { waitUntil: 'networkidle' }).catch(() => {});   // torna al livello corrente per i fratelli
 }
@@ -2153,6 +2393,46 @@ async function attendiDomFermo(page, quieteMs, limiteMs) {
     function chiudi() { clearTimeout(attesa); clearTimeout(limite); osservatore.disconnect(); fine(); }
     osservatore.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
   }), { quieteMs, limiteMs }).catch(() => { /* pagina in navigazione: si prosegue */ });
+}
+
+/* Pagine successive di un elenco. Un elenco paginato mostra nella prima pagina solo una parte dei
+   record: le righe che cadono piu' avanti (un esito diverso, uno stato diverso) non verrebbero mai
+   esaminate. Con 'nextPage' nel target, dopo la prima pagina si preme il comando di pagina
+   successiva, finche' c'e' e per al piu' 'max' pagine (default 1), e si esamina ogni pagina come
+   vista a se' ('<nome>/pagina-2', ...). Il selettore dipende dalla libreria di componenti
+   dell'applicazione e si dichiara nel target: deve trovare il comando solo quando e' attivo
+   (all'ultima pagina, di solito, il comando non e' un collegamento o e' disabilitato). Le attese
+   ('wait', 'waitQuietMs', 'delayMs', 'timeoutMs') sono quelle del blocco 'nextPage'. */
+async function scansionaPagineSuccessive(browser, page, target, nome, pageResults, sourceHint) {
+  const cfg = target.nextPage;
+  if (!cfg || !cfg.selector) return 0;
+  const max = Number.isInteger(cfg.max) && cfg.max > 0 ? cfg.max : 1;
+  const attesa = { wait: cfg.wait || 'networkidle', waitQuietMs: cfg.waitQuietMs, delayMs: cfg.delayMs, timeoutMs: cfg.timeoutMs };
+  let pagine = 0;
+  for (let n = 2; n <= max + 1; n++) {
+    const comando = page.locator(cfg.selector).filter({ visible: true }).first();
+    if (!(await comando.count().catch(() => 0))) break;
+    if (await comando.isDisabled().catch(() => false)) break;
+    try {
+      await comando.click({ timeout: cfg.timeoutMs || 8000 });
+      await applyWait(page, attesa);
+    } catch (e) { console.warn(`    ${nome}: pagina ${n} non raggiunta: ${e.message.split('\n')[0]}`); break; }
+    await recordScan(browser, page, target, `${nome}/pagina-${n}`, pageResults, sourceHint);
+    pagine++;
+  }
+  /* 'back': comando per tornare alla pagina precedente, premuto una volta per ogni pagina in piu'.
+     Serve alle applicazioni che ricordano in sessione la pagina dell'elenco e se ne lasciano
+     condizionare anche altrove (una console che, ferma sulla seconda pagina, risponde vuota alla
+     propria radice): riportato l'elenco alla prima pagina, la navigazione successiva riparte pulita. */
+  if (cfg.back) {
+    for (let k = 0; k < pagine; k++) {
+      try {
+        await page.locator(cfg.back).filter({ visible: true }).first().click({ timeout: cfg.timeoutMs || 8000 });
+        await applyWait(page, attesa);
+      } catch (e) { console.warn(`    ${nome}: ritorno alla pagina precedente non riuscito: ${e.message.split('\n')[0]}`); break; }
+    }
+  }
+  return pagine;
 }
 
 async function applyWait(page, step) {
@@ -2321,6 +2601,110 @@ function annotaPerimetro(target, tipo, nome, esito, motivo) {
   PERIMETRO.push({ target: target.name || target.key, tipo, nome, esito, motivo: maskSecrets(String(motivo || '')) });
 }
 
+/* Motore delle varianti di un form, comune a 'scanCharts' e 'scanFormVariants'. I campi si
+   scoprono a runtime (etichetta, valore corrente, obbligatorieta'); nessun selettore
+   dell'applicazione in prova risiede qui: 'campo' (il blocco 'field' del target) dice come si
+   riconosce un campo e come se ne aprono le opzioni, e nei modelli 'toggle' e 'list' il segnaposto
+   '#{base}' e' la radice dell'id del campo.
+   Gli assi si dichiarano in 'productAxes' (incrociati fra loro) e 'linearAxes' (variati uno alla
+   volta, gli altri al valore predefinito). Un asse e' un pattern confrontato con etichetta e valore
+   del campo, oppure il token 'required' che designa ogni campo obbligatorio. L'opzione 'non
+   selezionato' di un campo obbligatorio (tipicamente '--') viene mantenuta, perche' genera la
+   pagina d'errore, che e' a sua volta una vista da verificare, ma non viene incrociata con gli
+   altri assi, che produrrebbero pagine d'errore identiche. */
+const NON_SELEZIONATO = /^\s*-+\s*$/;
+function motoreVarianti(page, campo, { to = 8000, skipRe = null, optSel = null } = {}) {
+  const opzione = optSel || campo.option;
+  /* La radice dell'id va codificata per CSS: gli id generati (es. JSF 'form:campo') contengono
+     caratteri come ':' che in un selettore '#…' hanno un altro significato. */
+  const cssId = (v) => { const e = String(v).replace(/[^A-Za-z0-9_\-\u00A0-\uFFFF]/g, ch => `\\${ch}`); return /^\d/.test(e) ? `\\3${e[0]} ${e.slice(1)}` : e; };
+  const conBase = (modello, base) => String(modello).split('#{base}').join(cssId(base));
+  /* Campi visibili del form, con quanto serve a riconoscerli. */
+  const campiForm = () => page.$$eval(campo.selector, (els, c) => els.map(i => {
+    const gruppo = c.group ? i.closest(c.group) : null;
+    const etichetta = gruppo && c.label && gruppo.querySelector(c.label) ? gruppo.querySelector(c.label).textContent : '';
+    return {
+      base: i.id.replace(new RegExp(c.idSuffix + '$'), ''),
+      label: (etichetta || '').trim().replace(/\s+/g, ' '),
+      value: i.value || '',
+      required: !!(gruppo && c.requiredMarker && gruppo.querySelector(c.requiredMarker)),
+      visible: i.offsetParent !== null
+    };
+  }).filter(f => f.visible), { group: campo.group || null, label: campo.label || 'label', idSuffix: campo.idSuffix, requiredMarker: campo.requiredMarker || null }).catch(() => []);
+  const combaciaAsse = (c, asse) =>
+    asse === 'required' ? c.required : new RegExp(asse, 'i').test(`${c.label} ${c.value}`);
+  const opzioniDi = async (base) => {
+    await page.click(conBase(campo.toggle, base)).catch(() => {});
+    await page.waitForTimeout(300);
+    let opts = await page.$$eval(`${conBase(campo.list, base)} ${opzione}`, els => els.map(e => (e.textContent || '').trim()).filter(Boolean)).catch(() => []);
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(120);
+    if (skipRe) opts = opts.filter(o => !skipRe.test(o));
+    return opts;
+  };
+  const scegli = async (base, valore) => {
+    await page.click(conBase(campo.toggle, base), { timeout: to });
+    await page.waitForTimeout(250);
+    await page.locator(`${conBase(campo.list, base)} ${opzione}`).filter({ hasText: valore }).first().click({ timeout: to });
+    await page.waitForTimeout(400);
+  };
+  /* Riempie con la prima opzione utile i campi obbligatori comparsi dopo una scelta. */
+  const completaObbligatoriNuovi = async (giaVisti) => {
+    const campi = await campiForm();
+    for (const c of campi) {
+      if (!c.required || giaVisti.has(c.base)) continue;
+      const opts = (await opzioniDi(c.base)).filter(o => !NON_SELEZIONATO.test(o));
+      if (!opts.length) continue;
+      await scegli(c.base, opts[0]).catch(() => {});
+      giaVisti.add(c.base);
+    }
+  };
+  /* Assi presenti nel form corrente: un campo con una sola opzione non e' un asse. */
+  const scopriAssi = async (productAxes, linearAxes) => {
+    const campi = await campiForm();
+    const usati = new Set(), assiP = [], assiL = [];
+    for (const [assi, dest] of [[productAxes, assiP], [linearAxes, assiL]]) {
+      for (const asse of assi) {
+        for (const c of campi) {
+          if (usati.has(c.base) || !combaciaAsse(c, asse)) continue;
+          const opts = await opzioniDi(c.base);
+          if (opts.length > 1) { dest.push({ base: c.base, label: c.label, opts }); usati.add(c.base); }
+        }
+      }
+    }
+    return { assiP, assiL };
+  };
+  /* Combinazioni: prodotto degli assi incrociati; una combinazione che sceglie 'non selezionato'
+     su un campo obbligatorio si ferma li'. Gli assi lineari aggiungono le sole opzioni oltre la
+     prima, con gli altri campi al valore predefinito. */
+  const combinazioni = (assiP, assiL) => {
+    let combs = [[]];
+    for (const asse of assiP) {
+      const prossime = [];
+      for (const parziale of combs) {
+        if (parziale.some(sc => NON_SELEZIONATO.test(sc.valore))) { prossime.push(parziale); continue; }
+        for (const o of asse.opts) prossime.push(parziale.concat([{ base: asse.base, valore: o }]));
+      }
+      combs = prossime;
+    }
+    const viste = new Set();
+    combs = combs.filter(c => { const k = c.map(x => x.base + '=' + x.valore).join('|'); if (viste.has(k)) return false; viste.add(k); return true; });
+    for (const asse of assiL) {
+      for (const o of asse.opts.slice(1)) combs.push([{ base: asse.base, valore: o }]);
+    }
+    return combs.length ? combs : [[]];
+  };
+  /* Applica una combinazione al form corrente, riempiendo gli obbligatori che compaiono. */
+  const applica = async (comb) => {
+    const giaVisti = new Set(comb.map(c => c.base));
+    for (const sc of comb) {
+      await scegli(sc.base, sc.valore);
+      await completaObbligatoriNuovi(giaVisti);
+    }
+  };
+  return { campiForm, opzioniDi, scegli, scopriAssi, combinazioni, applica };
+}
+
 async function runFlows(browser, target, pageResults) {
   for (const flow of target.flows) {
     LH_ESCLUSO_NEL_FLOW = flow.lighthouse === false;
@@ -2366,7 +2750,11 @@ async function runFlows(browser, target, pageResults) {
         // Step 'scan': scansiona lo stato CORRENTE (permette piu' scan in un flow, es. i tab di un dettaglio).
         if (step.scan !== undefined) {
           const name = step.scan ? `flow:${flow.name}/${step.scan}` : `flow:${flow.name}`;
-          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint, { keyboard: step.keyboard, include: step.include });
+          /* 'lighthouse': false sul passo esclude da Lighthouse questa sola vista, per esempio quando il
+             suo URL ha cambiato lo stato (Lighthouse lo ricaricherebbe ripetendo l'azione). Il motivo
+             e' 'lighthouseNote', se c'e'. */
+          const senzaLighthouse = step.lighthouse === false ? (step.lighthouseNote || "escluso dal passo ('lighthouse': false)") : undefined;
+          await recordScan(browser, page, target, name, pageResults, step.sourceHint || flow.sourceHint, { keyboard: step.keyboard, include: step.include, senzaLighthouse });
           scanned = true;
           continue;
         }
@@ -2388,7 +2776,6 @@ async function runFlows(browser, target, pageResults) {
           const grid = BASE + (cfg.grid || flow.start);
           const to = step.timeoutMs || 8000;
           const maxViews = cfg.maxViews || 400;
-          const NON_SELEZIONATO = /^\s*-+\s*$/;   // opzione 'non selezionato' dei campi obbligatori
 
           /* Nessun selettore dell'applicazione in prova risiede qui: sono tutti dichiarati nel
              target, perche' dipendono dalla libreria di componenti usata (una comboBox RichFaces,
@@ -2422,52 +2809,12 @@ async function runFlows(browser, target, pageResults) {
             console.warn(`    scanCharts: configurazione incompleta, manca ${mancanti.join(', ')} — passo saltato`);
             continue;
           }
-          const conBase = (modello, base) => String(modello).split('#{base}').join(base);
+          const motore = motoreVarianti(page, campo, { to, skipRe, optSel });
 
           const openChart = async (ci) => {
             await page.goto(grid, { waitUntil: 'networkidle' });
             await page.locator(iconSel).nth(ci).click({ timeout: to });
             await page.waitForSelector(genSel, { timeout: to });
-          };
-          /* Campi visibili del form, con quanto serve a riconoscerli. */
-          const campiForm = () => page.$$eval(campo.selector, (els, c) => els.map(i => {
-            const gruppo = c.group ? i.closest(c.group) : null;
-            const etichetta = gruppo && c.label && gruppo.querySelector(c.label) ? gruppo.querySelector(c.label).textContent : '';
-            return {
-              base: i.id.replace(new RegExp(c.idSuffix + '$'), ''),
-              label: (etichetta || '').trim().replace(/\s+/g, ' '),
-              value: i.value || '',
-              required: !!(gruppo && c.requiredMarker && gruppo.querySelector(c.requiredMarker)),
-              visible: i.offsetParent !== null
-            };
-          }).filter(f => f.visible), { group: campo.group || null, label: campo.label || 'label', idSuffix: campo.idSuffix, requiredMarker: campo.requiredMarker || null }).catch(() => []);
-          const combaciaAsse = (c, asse) =>
-            asse === 'required' ? c.required : new RegExp(asse, 'i').test(`${c.label} ${c.value}`);
-          const opzioniDi = async (base) => {
-            await page.click(conBase(campo.toggle, base)).catch(() => {});
-            await page.waitForTimeout(300);
-            let opts = await page.$$eval(`${conBase(campo.list, base)} ${optSel}`, els => els.map(e => (e.textContent || '').trim()).filter(Boolean)).catch(() => []);
-            await page.keyboard.press('Escape').catch(() => {});
-            await page.waitForTimeout(120);
-            if (skipRe) opts = opts.filter(o => !skipRe.test(o));
-            return opts;
-          };
-          const scegli = async (base, valore) => {
-            await page.click(conBase(campo.toggle, base), { timeout: to });
-            await page.waitForTimeout(250);
-            await page.locator(`${conBase(campo.list, base)} ${optSel}`).filter({ hasText: valore }).first().click({ timeout: to });
-            await page.waitForTimeout(400);
-          };
-          /* Riempie con la prima opzione utile i campi obbligatori comparsi dopo una scelta. */
-          const completaObbligatoriNuovi = async (giaVisti) => {
-            const campi = await campiForm();
-            for (const c of campi) {
-              if (!c.required || giaVisti.has(c.base)) continue;
-              const opts = (await opzioniDi(c.base)).filter(o => !NON_SELEZIONATO.test(o));
-              if (!opts.length) continue;
-              await scegli(c.base, opts[0]).catch(() => {});
-              giaVisti.add(c.base);
-            }
           };
 
           await page.goto(grid, { waitUntil: 'networkidle' });
@@ -2488,56 +2835,17 @@ async function runFlows(browser, target, pageResults) {
             let assiP = [], assiL = [];
             try {
               await openChart(ci);
-              const campi = conAssi ? await campiForm() : [];
-              const usati = new Set();
-              for (const asse of productAxes) {
-                for (const c of campi) {
-                  if (usati.has(c.base) || !combaciaAsse(c, asse)) continue;
-                  const opts = await opzioniDi(c.base);
-                  if (opts.length > 1) { assiP.push({ base: c.base, opts }); usati.add(c.base); }
-                }
-              }
-              for (const asse of linearAxes) {
-                for (const c of campi) {
-                  if (usati.has(c.base) || !combaciaAsse(c, asse)) continue;
-                  const opts = await opzioniDi(c.base);
-                  if (opts.length > 1) { assiL.push({ base: c.base, opts }); usati.add(c.base); }
-                }
-              }
+              if (conAssi) ({ assiP, assiL } = await motore.scopriAssi(productAxes, linearAxes));
             } catch (e) { console.warn(`    report '${baseLabel}' non aperto: ${e.message}`); continue; }
-
-            /* Combinazioni: prodotto degli assi incrociati; una combinazione che sceglie 'non
-               selezionato' su un campo obbligatorio si ferma li', per non ripetere la stessa
-               pagina d'errore per ogni valore degli altri assi. */
-            let combinazioni = [[]];
-            for (const asse of assiP) {
-              const prossime = [];
-              for (const parziale of combinazioni) {
-                if (parziale.some(sc => NON_SELEZIONATO.test(sc.valore))) { prossime.push(parziale); continue; }
-                for (const o of asse.opts) prossime.push(parziale.concat([{ base: asse.base, valore: o }]));
-              }
-              combinazioni = prossime;
-            }
-            // deduplica le combinazioni che si fermano sul 'non selezionato'
-            const viste_ = new Set();
-            combinazioni = combinazioni.filter(c => { const k = c.map(x => x.base + '=' + x.valore).join('|'); if (viste_.has(k)) return false; viste_.add(k); return true; });
-            // assi lineari: solo le opzioni oltre la prima, con gli altri assi al predefinito
-            for (const asse of assiL) {
-              for (const o of asse.opts.slice(1)) combinazioni.push([{ base: asse.base, valore: o }]);
-            }
-            if (!combinazioni.length) combinazioni = [[]];
+            const combinazioni = motore.combinazioni(assiP, assiL);
 
             for (const comb of combinazioni) {
               if (viste >= maxViews) { console.warn(`    scanCharts: raggiunto maxViews=${maxViews}, viste successive non scansionate`); break; }
-              const label = comb.length ? `${baseLabel}/${comb.map(c => slug(c.valore)).join('_')}` : baseLabel;
+              const label = comb.length ? `${baseLabel}/${comb.map(c => slug(c.valore) || 'non-selezionato').join('_')}` : baseLabel;
               try {
                 if (comb.length) {
                   await openChart(ci);   // stato fresco
-                  const giaVisti = new Set(comb.map(c => c.base));
-                  for (const sc of comb) {
-                    await scegli(sc.base, sc.valore);
-                    await completaObbligatoriNuovi(giaVisti);   // es. 'Informazione 3D'
-                  }
+                  await motore.applica(comb);   // riempie anche gli obbligatori nuovi, es. 'Informazione 3D'
                 }
                 await page.click(genSel);
                 await applyWait(page, step);
@@ -2546,6 +2854,82 @@ async function runFlows(browser, target, pageResults) {
               scanned = true;
               viste++;
             }
+          }
+          continue;
+        }
+        /* Step 'scanFormVariants': varia i campi del form della vista CORRENTE e scansiona ogni
+           combinazione. E' il motore delle varianti di 'scanCharts' senza la griglia dei report:
+           serve alle viste che si ridisegnano a ogni scelta (es. un cruscotto con periodo, profilo e
+           tipo) o che si generano con un comando ('submit'). Per ogni combinazione la vista viene
+           riaperta dall'URL in cui il passo e' cominciato, cosi' ogni scelta parte dallo stato
+           predefinito. Come per 'scanCharts', i campi e gli assi si dichiarano nel target. */
+        if (step.scanFormVariants !== undefined) {
+          const cfg = step.scanFormVariants || {};
+          const to = step.timeoutMs || 8000;
+          const maxViews = cfg.maxViews || 400;
+          const campo = cfg.field || {};
+          const productAxes = cfg.productAxes || [];
+          const linearAxes = cfg.linearAxes || [];
+          const mancanti = [];
+          if (!productAxes.length && !linearAxes.length) mancanti.push('productAxes o linearAxes');
+          for (const k of ['selector', 'idSuffix', 'toggle', 'list', 'option']) if (!campo[k]) mancanti.push('field.' + k);
+          if (mancanti.length) {
+            console.warn(`    scanFormVariants: configurazione incompleta, manca ${mancanti.join(', ')} — passo saltato`);
+            continue;
+          }
+          const origine = page.url();
+          const prefisso = cfg.name ? `${slug(cfg.name)}/` : '';
+          const motore = motoreVarianti(page, campo, { to, skipRe: cfg.skip ? new RegExp(cfg.skip, 'i') : null });
+          /* 'fixed': campi da portare a un valore fisso prima di ogni combinazione, ad esempio un
+             periodo abbastanza ampio perche' i risultati non siano vuoti. Chiave = pattern su
+             etichetta e valore del campo (come gli assi), valore = testo dell'opzione. */
+          const fissi = Object.entries(cfg.fixed || {});
+          const applicaFissi = async () => {
+            if (!fissi.length) return;
+            const campi = await motore.campiForm();
+            for (const [pattern, valore] of fissi) {
+              const c = campi.find(x => new RegExp(pattern, 'i').test(`${x.label} ${x.value}`));
+              if (!c) { console.warn(`    scanFormVariants: nessun campo per il valore fisso '${pattern}'`); continue; }
+              if (c.value !== valore) await motore.scegli(c.base, valore);
+            }
+          };
+          /* 'reveal': comando che rende visibili i campi quando, riaperta la vista, sono nascosti (es. un
+             riquadro dei filtri che l'applicazione ricorda chiuso dopo una ricerca). Si preme solo se
+             nessun campo visibile corrisponde agli assi. */
+          const assiDichiarati = productAxes.concat(linearAxes).filter(a => a !== 'required');
+          const mostraCampi = async () => {
+            if (!cfg.reveal) return;
+            const campi = await motore.campiForm();
+            if (campi.some(c => assiDichiarati.some(a => new RegExp(a, 'i').test(`${c.label} ${c.value}`)))) return;
+            await page.click(cfg.reveal, { timeout: to });
+            await page.waitForLoadState('networkidle').catch(() => {});
+            await page.waitForTimeout(400);
+          };
+          const riapri = async () => {
+            await page.goto(origine, { waitUntil: 'networkidle' });
+            if (cfg.ready) await page.waitForSelector(cfg.ready, { timeout: to });
+            await mostraCampi();
+            await applicaFissi();
+          };
+          let assiP = [], assiL = [];
+          try { await mostraCampi(); await applicaFissi(); ({ assiP, assiL } = await motore.scopriAssi(productAxes, linearAxes)); }
+          catch (e) { console.warn(`    scanFormVariants: campi non leggibili: ${e.message}`); continue; }
+          if (!assiP.length && !assiL.length) { console.warn(`    scanFormVariants: nessun campo corrisponde agli assi [${productAxes.concat(linearAxes).join(', ')}]`); continue; }
+          const combinazioni = motore.combinazioni(assiP, assiL);
+          console.log(`    scanFormVariants: ${combinazioni.length} combinazioni, assi incrociati [${assiP.map(a => `${a.label} (${a.opts.length})`).join(', ')}], assi lineari [${assiL.map(a => `${a.label} (${a.opts.length})`).join(', ') || '-'}]`);
+          let viste = 0;
+          for (const comb of combinazioni) {
+            if (viste >= maxViews) { console.warn(`    scanFormVariants: raggiunto maxViews=${maxViews}, viste successive non scansionate`); break; }
+            const label = prefisso + (comb.length ? comb.map(c => slug(c.valore) || 'non-selezionato').join('_') : 'predefinito');
+            try {
+              await riapri();   // stato fresco
+              await motore.applica(comb);
+              if (cfg.submit) await page.click(cfg.submit, { timeout: to });
+              await applyWait(page, step);
+            } catch (e) { console.warn(`    variante '${label}' non applicata: ${e.message}`); continue; }
+            await recordScan(browser, page, target, `flow:${flow.name}/${label}`, pageResults, step.sourceHint || flow.sourceHint);
+            scanned = true;
+            viste++;
           }
           continue;
         }
@@ -2614,17 +2998,30 @@ async function runFlows(browser, target, pageResults) {
           const raw = step.scanMenu;
           const menus = Array.isArray(raw) ? raw
             : (typeof raw === 'string' ? [{ item: raw }]
-              : [{ item: raw.menuItem || raw.item || '#menuct a.voceMenuRC', open: raw.open, listRow: raw.listRow, skip: raw.skip }]);
+              : [raw]);
           const start = flow.start ? BASE + flow.start : loginUrl(target);
           const to = step.timeoutMs || 8000;
           for (const m of menus) {
-            const menuSel = m.item || m.menuItem || '#menuct a.voceMenuRC';
+            const menuSel = m.item || m.menuItem;
+            if (!menuSel) { console.warn(`    scanMenu: manca 'item' (selettore delle voci del menu): voce del flow saltata`); continue; }
             const openSel = m.open || null;              // dropdown: selettore da cliccare per aprire
             const rowSel = m.listRow || null;            // opzionale: primo elemento di lista -> dettaglio
             const editSel = m.detailEdit || null;        // opzionale: dal dettaglio, segue le "matite" (edit-link) di ogni sezione
             const dmenu = m.detailMenu || null;          // opzionale: dropdown sul dettaglio (3-puntini): {open, item} -> segue ogni azione
             const cfgBtn = m.detailConfig || null;       // opzionale: bottone CONFIGURA -> entra nel wizard e scansiona la pagina d'ingresso (NON avanza tra gli step, per non salvare)
-            const rec = m.recurse || null;               // opzionale: dal dettaglio, esplora RICORSIVAMENTE i link navigazionali (matite, count-link...). {depth, max, skip}
+            const rec = m.recurse || null;               // opzionale: dal dettaglio, esplora RICORSIVAMENTE i link navigazionali (matite, count-link...). {depth, max, skip, tabs, fromItem}
+            // opzioni comuni della ricorsione; 'partenza' e' l'URL da cui parte (non viene rivisitato)
+            const opzioniRicorsione = partenza => ({
+              ctxPath: defaultCtxPath(target),
+              skipRe: new RegExp(rec.skip || 'logout|signout|esci|elimina|delete|remove|rimuovi|reset|export|download|salva|annulla', 'i'),
+              mutatingRe: rec.mutating ? new RegExp(rec.mutating, 'i') : null,
+              excludeLinks: rec.excludeLinks || null,
+              tabsSel: rec.tabs === false ? null : (typeof rec.tabs === 'string' ? rec.tabs : '.ui-tabs-nav a'),
+              visited: new Set([normVisit(partenza)]),
+              state: { count: 0 },
+              max: rec.max || 300,
+              sourceHint: step.sourceHint || flow.sourceHint,
+            });
             const skipRe = m.skip ? new RegExp(m.skip, 'i') : null;
             await page.goto(start, { waitUntil: 'networkidle' });
             if (openSel) await page.click(openSel, { timeout: to }).catch(() => {});   // apri per enumerare (le voci possono essere hidden)
@@ -2647,9 +3044,11 @@ async function runFlows(browser, target, pageResults) {
               } catch (e) { console.warn(`    voce '${v.text}' non raggiunta: ${e.message}`); continue; }
               await recordScan(browser, page, target, `flow:${flow.name}/${label}`, pageResults, step.sourceHint || flow.sourceHint);
               scanned = true;
+              let conRighe = false;
               if (rowSel) {   // opzionale: entra nel dettaglio del primo elemento della lista
                 const row = await page.$(rowSel);
                 if (row) {
+                  conRighe = true;
                   let detailUrl = null;
                   try {
                     await row.click({ timeout: to });
@@ -2662,15 +3061,7 @@ async function runFlows(browser, target, pageResults) {
                   // recOpts (visited+conteggio+limiti) è condiviso col wizard CONFIGURA piu' sotto.
                   let recOpts = null;
                   if (detailUrl && rec) {
-                    recOpts = {
-                      ctxPath: defaultCtxPath(target),
-                      skipRe: new RegExp(rec.skip || 'logout|signout|esci|elimina|delete|remove|rimuovi|reset|export|download|salva|annulla', 'i'),
-                      tabsSel: rec.tabs === false ? null : (typeof rec.tabs === 'string' ? rec.tabs : '.ui-tabs-nav a'),
-                      visited: new Set([normVisit(detailUrl)]),
-                      state: { count: 0 },
-                      max: rec.max || 300,
-                      sourceHint: step.sourceHint || flow.sourceHint,
-                    };
+                    recOpts = opzioniRicorsione(detailUrl);
                     await recurseFollow(browser, page, target, pageResults, flow.name, recOpts, `${label}/dettaglio`, rec.depth || 3);
                     console.log(`      ${label}: ricorsione -> ${recOpts.state.count} pagine (depth<=${rec.depth || 3}, max ${recOpts.max})`);
                     scanned = true;
@@ -2741,13 +3132,36 @@ async function runFlows(browser, target, pageResults) {
                         // esplora RICORSIVAMENTE anche il wizard CONFIGURA (matite, sotto-sezioni...), condividendo dedup/limiti
                         if (recOpts) {
                           recOpts.visited.add(normVisit(page.url()));
-                          await recurseFollow(browser, page, target, pageResults, flow.name, recOpts, `${label}/dettaglio/configura`, rec.depth || 3);
-                          console.log(`      ${label}/configura: ricorsione -> ${recOpts.state.count} pagine totali`);
+                          /* recurse.configMax: limite proprio per la ricorsione da CONFIGURA. Senza, il limite e'
+                             quello del dettaglio, e se la ricorsione dal dettaglio lo esaurisce (per esempio
+                             seguendo i collegamenti verso altre voci) la pagina di configurazione resta inesplorata.
+                             Il dedup resta condiviso: le pagine gia' viste dal dettaglio non si rivisitano. */
+                          const opz = rec.configMax ? { ...recOpts, state: { count: 0 }, max: rec.configMax } : recOpts;
+                          await recurseFollow(browser, page, target, pageResults, flow.name, opz, `${label}/dettaglio/configura`, rec.depth || 3);
+                          console.log(`      ${label}/configura: ricorsione -> ${opz.state.count} pagine${rec.configMax ? ` (limite proprio ${rec.configMax})` : ' totali'}`);
                         }
                       }
                     } catch (e) { console.warn(`      configura di '${v.text}' non aperto: ${e.message}`); }
                   }
                 }
+              }
+              // opzionale (recurse.fromItem): la voce non apre un elenco con righe (pagina di soli
+              // collegamenti, form, elenco vuoto) -> la ricorsione parte dalla pagina della voce stessa
+              if (!conRighe && rec && rec.fromItem) {
+                const recOpts = opzioniRicorsione(page.url());
+                await recurseFollow(browser, page, target, pageResults, flow.name, recOpts, label, rec.depth || 3);
+                if (recOpts.state.count) console.log(`      ${label}: ricorsione dalla voce -> ${recOpts.state.count} pagine (depth<=${rec.depth || 3}, max ${recOpts.max})`);
+              }
+              /* pagine successive dell'elenco della voce (target.nextPage): la voce viene riaperta, perche'
+                 dettaglio e ricorsione hanno lasciato la pagina altrove */
+              if (conRighe && target.nextPage) {
+                try {
+                  await page.goto(start, { waitUntil: 'networkidle' });
+                  if (openSel) { await page.click(openSel, { timeout: to }); await page.waitForTimeout(200); }
+                  await page.locator(menuSel).nth(vi).click({ timeout: to });
+                  await applyWait(page, step);
+                  await scansionaPagineSuccessive(browser, page, target, `flow:${flow.name}/${label}`, pageResults, step.sourceHint || flow.sourceHint);
+                } catch (e) { console.warn(`    pagine successive di '${v.text}' non raggiunte: ${e.message}`); }
               }
             }
           }
@@ -2783,7 +3197,11 @@ async function runFlows(browser, target, pageResults) {
         }
       }
       // Se il flow non ha step 'scan' espliciti, scansiona lo stato finale (comportamento di default).
-      if (!scanned && !aborted) await recordScan(browser, page, target, `flow:${flow.name}`, pageResults, flow.sourceHint);
+      if (!scanned && !aborted) {
+        await recordScan(browser, page, target, `flow:${flow.name}`, pageResults, flow.sourceHint);
+        // stato finale di un elenco paginato (es. i risultati di una ricerca): anche le pagine successive
+        await scansionaPagineSuccessive(browser, page, target, `flow:${flow.name}`, pageResults, flow.sourceHint);
+      }
     } catch (e) {
       console.warn(`  flow '${flow.name}' errore: ${maskSecrets(e.message)}`);
       annotaPerimetro(target, 'flow', flow.name, 'errore', e.message.split('\n')[0]);
@@ -2821,6 +3239,7 @@ async function scan() {
   preflightOptionalDeps({ lighthouse: anyLh, screenReader: anySr, equalAccess: anyEa });
 
   mkdirSync(OUT, { recursive: true });   // solo dopo i controlli: niente directory report a vuoto
+  if (anyLh) LH_PORT = await portaLibera();   // una porta per scansione: niente conflitti fra scansioni contemporanee
   const browser = await chromium.launch({
     args: [...(anyLh ? [`--remote-debugging-port=${LH_PORT}`] : []), ...(LOCALE_GLOBALE ? [`--lang=${LOCALE_GLOBALE}`] : [])],
   });
@@ -2836,8 +3255,11 @@ async function scan() {
     ctx.setDefaultNavigationTimeout(90000);   // backend lenti: il default di 30 s fa fallire i flussi
     const page = await ctx.newPage();
 
+    const tLogin = performance.now();
     const logged = await login(page, target);
     await postLogin(page, target);
+    TEMPI.login += performance.now() - tLogin;
+    TEMPI.fineUltimaVista = performance.now();   // la navigazione verso la prima vista parte da qui
     if (!logged) {
       console.warn(`  ! login non confermato per ${target.name} come '${credsFor(target).user}' (url=${page.url()}). Proseguo comunque.`);
       annotaPerimetro(target, 'login', target.loginPath || '/', 'non confermato', `dopo il login l'indirizzo è ${page.url()}: le viste seguenti potrebbero essere quelle di un utente non autenticato`);
@@ -2888,6 +3310,8 @@ async function scan() {
             queue.push({ path: p, name: `crawl-${crawlCount}`, depth: item.depth + 1 });
           }
         }
+        // elenchi paginati: anche le pagine successive (target.nextPage), dopo aver raccolto i link
+        await scansionaPagineSuccessive(browser, page, target, item.name, pageResults);
       } catch (e) {
         console.warn(`  [${item.name}] errore su ${url}: ${e.message}`);
         if (item.depth === 0) annotaPerimetro(target, 'pagina', item.name, 'errore', `${item.path}: ${e.message.split('\n')[0]}`);
@@ -2973,6 +3397,7 @@ const REGOLE_GOVA11Y = {
   'gova11y-lighthouse-score': { titolo: 'Punteggio Lighthouse accessibilità sotto la soglia', criterio: null },
   'gova11y-lighthouse-missing': { titolo: 'Vista senza punteggio Lighthouse: soglia non verificabile', criterio: null },
   'gova11y-empty-view': { titolo: 'Vista vuota: pagina non renderizzata, esito non valido', criterio: null },
+  'gova11y-http-error': { titolo: 'Vista arrivata con errore HTTP (>= 400): esito non valido', criterio: null },
   'gova11y-check-not-run': { titolo: 'Controllo non eseguito sulla vista', criterio: null },
   'gova11y-perimeter': { titolo: 'Vista prevista dal config non analizzata', criterio: null },
   'gova11y-gate': { titolo: "Esito del gate di accessibilita'", criterio: null },
@@ -2992,6 +3417,7 @@ function evidenzeControlli(results, controlli) {
     if (pr.lhScore != null && MIN_SCORE != null && pr.lhScore < MIN_SCORE) push(pr, 'gova11y-lighthouse-score', decide('lighthouse'), `Lighthouse ${(pr.lhScore * 100).toFixed(0)}% < soglia ${(MIN_SCORE * 100).toFixed(0)}%`, null);
     if (pr.lhScore == null && !pr.lhEscluso && (pr.lhMotivo || DO_LH)) push(pr, 'gova11y-lighthouse-missing', decide('lighthouse'), `senza punteggio Lighthouse${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`, null);
     if (pr.vuota) push(pr, 'gova11y-empty-view', decide('emptyViews'), 'vista vuota: nessun contenuto accessibile (pagina non renderizzata?)', null);
+    if (pr.erroreHttp) push(pr, 'gova11y-http-error', decide('httpErrors'), `vista arrivata con errore HTTP ${pr.httpStatus}: e' stata esaminata la risposta d'errore, non la pagina`, null);
     for (const c of (pr.controlliNonEseguiti || [])) push(pr, 'gova11y-check-not-run', CONTROLLI_DA_RIPETERE.has(c.controllo) && decide(c.controllo), `controllo ${c.controllo} non eseguito (esito non verificabile): ${c.errore}`, null);
   }
   return out;
@@ -3071,13 +3497,15 @@ function writeSarif(results, summary) {
       });
     }
   }
-  // secondo motore (non decide l'esito): un run a parte, a livello 'note'
+  /* secondo motore: un run a parte. Se decide il gate (failOnEqualAccess) le violazioni sono 'error',
+     come quelle che decidono negli altri run; altrimenti 'note', che i lettori di SARIF non contano. */
+  const eaBloccante = !!(controlli.find(c => c.id === 'equalAccess') || {}).decide;
   const regoleEa = new Map(), risEa = [];
   for (const pr of results) for (const x of pr.equalAccess ? pr.equalAccess.violazioni : []) {
     if (!regoleEa.has(x.regola)) regoleEa.set(x.regola, { id: x.regola, name: x.regola, shortDescription: { text: x.messaggio }, properties: { tags: (x.wcag || []).map(c => `wcag${String(c).replace(/\./g, '')}`) } });
-    risEa.push({ ruleId: x.regola, level: 'note', message: { text: x.messaggio },
+    risEa.push({ ruleId: x.regola, level: eaBloccante ? 'error' : 'note', message: { text: x.messaggio },
       locations: [{ physicalLocation: { artifactLocation: { uri: pr.url }, region: { startLine: 1 } }, ...(x.xpath ? { logicalLocations: [{ fullyQualifiedName: x.xpath, kind: 'element' }] } : {}) }],
-      properties: { page: pr.name, target: pr.targetName, html: x.snippet } });
+      properties: { page: pr.name, target: pr.targetName, html: x.snippet, bloccante: eaBloccante } });
   }
   const controlliSintesi = controlli.map(({ viste, ...c }) => ({ ...c, viste: viste.length }));
   const sarif = {
@@ -3086,7 +3514,7 @@ function writeSarif(results, summary) {
     runs: [
       { tool: { driver: { name: 'axe-core', informationUri: 'https://github.com/dequelabs/axe-core', rules: [...regoleAxe.values()] } }, results: risAxe },
       { tool: { driver: { name: 'gov-a11y', informationUri: 'https://www.w3.org/WAI/WCAG22/quickref/', rules: [...regoleGov.values()] } },
-        invocations: [{ executionSuccessful: true, properties: { gate, failOn: FAIL_ON, minScore: MIN_SCORE } }],
+        invocations: [{ executionSuccessful: true, properties: { gate, failOn: FAIL_ON, failOnEqualAccess: FAIL_ON_EQUAL_ACCESS, minScore: MIN_SCORE } }],
         properties: { gate, controlli: controlliSintesi }, results: risGov },
       ...(risEa.length ? [{ tool: { driver: { name: 'IBM Equal Access', informationUri: 'https://github.com/IBMa/equal-access', rules: [...regoleEa.values()] } }, results: risEa }] : []),
     ],
@@ -3125,6 +3553,15 @@ function writeSonar(results, summary) {
       primaryLocation: { message: `[${e.pr.targetName}] ${e.messaggio} | pagina=${e.pr.url}${e.selettore ? ` | selettore=${e.selettore}` : ''}`, filePath: e.pr.sourceHint, textRange: { startLine: 1 } },
     });
   }
+  // il secondo motore solo quando decide il gate: altrimenti le sue segnalazioni restano nel report e nel SARIF
+  if ((controlli.find(c => c.id === 'equalAccess') || {}).decide) {
+    for (const pr of results) for (const x of pr.equalAccess ? pr.equalAccess.violazioni : []) {
+      issues.push({
+        engineId: 'equal-access', ruleId: x.regola, severity: 'CRITICAL', type: 'CODE_SMELL',
+        primaryLocation: { message: `[${pr.targetName}] ${x.messaggio} | pagina=${pr.url}${x.xpath ? ` | xpath=${x.xpath}` : ''}`, filePath: pr.sourceHint, textRange: { startLine: 1 } },
+      });
+    }
+  }
   writeReport(resolve(OUT, 'sonar-issues.json'), JSON.stringify({ issues }, null, 2));
 }
 
@@ -3147,6 +3584,7 @@ function writeJUnit(results, summary) {
       motivi.push('vista vuota: nessun contenuto accessibile (pagina non renderizzata?)');
       dettagli.push("L'albero di accessibilita' della vista e' vuoto: l'analisi non ha esaminato nulla.");
     }
+    if (pr.erroreHttp) (FAIL_ON_HTTP_ERROR ? (motivi.push(`errore HTTP ${pr.httpStatus}`), dettagli) : note).push(`La vista e' arrivata con stato HTTP ${pr.httpStatus}: e' stata esaminata la risposta d'errore, non la pagina.`);
     if (blocking.length && FAIL_THRESHOLD > 0) {
       motivi.push(`${blocking.length} regole, ${nodes} occorrenze >= ${FAIL_ON}`);
       dettagli.push(...blocking.map(v => `${v.id} [${v.impact}] x${v.nodes.length}: ${v.help}`));
@@ -3155,11 +3593,17 @@ function writeJUnit(results, summary) {
     if (nameless) (decide('nameless') ? (motivi.push(`${nameless} elementi senza nome accessibile`), dettagli) : note).push(`a11y-tree: ${nameless} elementi interattivi senza nome accessibile`);
     const mo = pr.soloMouse ? pr.soloMouse.totale : 0;
     if (mo) (decide('mouseOnly') ? (motivi.push(`${mo} comandi col solo mouse`), dettagli) : note).push(`solo mouse: ${mo} comandi non raggiungibili da tastiera`);
+    const ea = pr.equalAccess ? pr.equalAccess.violazioni : [];
+    if (ea.length) {
+      const regole = [...new Set(ea.map(x => x.regola))];
+      if (decide('equalAccess')) { motivi.push(`${ea.length} violazioni IBM Equal Access`); dettagli.push(...regole.map(r => `IBM ${r} x${ea.filter(x => x.regola === r).length}: ${ea.find(x => x.regola === r).messaggio}`)); }
+      else note.push(`IBM Equal Access: ${ea.length} violazioni (${regole.join(', ')})`);
+    }
     const sr = pr.sr ? pr.sr.roleOnly.length : 0;
     if (sr) (decide('screenReader') ? (motivi.push(`${sr} annunci col solo ruolo`), dettagli) : note).push(`screen reader: ${sr} annunci col solo ruolo`);
     if (pr.lhScore != null && MIN_SCORE != null && pr.lhScore < MIN_SCORE) (decide('lighthouse') ? (motivi.push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}% < ${(MIN_SCORE * 100).toFixed(0)}%`), dettagli) : note).push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}%`);
     if (pr.lhScore == null && !pr.lhEscluso && (pr.lhMotivo || DO_LH)) (decide('lighthouse') ? (motivi.push('senza punteggio Lighthouse'), dettagli) : note).push(`Lighthouse senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`);
-    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%`); else if (pr.lhEscluso) note.push('Lighthouse: escluso dal flow');
+    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%`); else if (pr.lhEscluso) note.push(pr.lhMotivo ? `Lighthouse escluso: ${pr.lhMotivo}` : 'Lighthouse: escluso dal flow');
     const c = summarizeImpacts(pr.violations);
     note.push(`axe e controlli aggiuntivi: critical ${c.critical}, serious ${c.serious}, moderate ${c.moderate}, minor ${c.minor}`);
     const inc = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -3394,14 +3838,49 @@ function axRoleClass(label) {
   return '';
 }
 
+/* Riepilogo dei tempi della scansione (vedi TEMPI): durata complessiva, login, navigazione fra le
+   viste (passi dei flow, menu, ricorsione), tempo dentro le viste per fase, viste piu' lente. */
+function riepilogoTempi(results) {
+  const r = v => Math.round(v);
+  const viste = results.filter(pr => pr.tempi);
+  const durata = performance.now() - TEMPI.avvio;
+  const nelleViste = viste.reduce((t, pr) => t + pr.tempi.totale, 0);
+  const navigazione = viste.reduce((t, pr) => t + (pr.tempi.primaDellaVista || 0), 0);
+  const fasi = Object.keys(FASI_TEMPI).map(id => {
+    const v = viste.filter(pr => pr.tempi.fasi[id] != null);
+    if (!v.length) return null;
+    const tot = v.reduce((t, pr) => t + pr.tempi.fasi[id], 0);
+    const max = v.reduce((m, pr) => (pr.tempi.fasi[id] > m.ms ? { ms: pr.tempi.fasi[id], nome: pr.name } : m), { ms: -1, nome: '' });
+    return { id, nome: FASI_TEMPI[id], totaleMs: r(tot), viste: v.length, mediaMs: r(tot / v.length), massimoMs: r(max.ms), vistaPiuLenta: max.nome, quota: durata ? tot / durata : 0 };
+  }).filter(Boolean).sort((a, b) => b.totaleMs - a.totaleMs);
+  const perVista = viste.map(pr => ({
+    nome: pr.name, url: pr.url, indice: results.indexOf(pr), inizioMs: r(pr.tempi.inizio), primaDellaVistaMs: pr.tempi.primaDellaVista == null ? null : r(pr.tempi.primaDellaVista),
+    totaleMs: r(pr.tempi.totale), fasi: Object.fromEntries(Object.entries(pr.tempi.fasi).map(([k, v]) => [k, r(v)])),
+  }));
+  return {
+    durataMs: r(durata), loginMs: r(TEMPI.login), navigazioneMs: r(navigazione), visteMs: r(nelleViste),
+    altroMs: r(Math.max(0, durata - TEMPI.login - navigazione - nelleViste)),
+    numeroViste: viste.length, mediaVistaMs: viste.length ? r(nelleViste / viste.length) : 0,
+    fasi, visteLente: [...perVista].sort((a, b) => b.totaleMs - a.totaleMs).slice(0, 20), perVista,
+  };
+}
+
+function fmtDurata(ms) {
+  if (ms == null) return '-';
+  if (ms < 60000) return `${(ms / 1000).toFixed(1).replace('.', ',')} s`;
+  const s = Math.round(ms / 1000);
+  if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+}
+
 function writeSummaryAndHtml(results, ariaFiles = {}) {
   // La copertura dichiarata si costruisce ORA, quando si sa quali livelli hanno girato davvero.
   const COVERAGE = buildCoverage();
   const WCAG = wcagVerificato(TAG_USATI);
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnScreenReader: FAIL_ON_SCREEN_READER, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], lighthouse: [],
-    equalAccess: DO_EA ? { motore: 'IBM Equal Access (accessibility-checker-engine)', versione: moduleVersion('accessibility-checker-engine'), regole: EA_RULESET, violazioni: 0, daVerificare: 0 } : null,
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnHttpError: FAIL_ON_HTTP_ERROR, failOnScreenReader: FAIL_ON_SCREEN_READER, failOnEqualAccess: FAIL_ON_EQUAL_ACCESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], httpErrorViews: [], lighthouse: [],
+    equalAccess: DO_EA ? { motore: 'IBM Equal Access (accessibility-checker-engine)', versione: moduleVersion('accessibility-checker-engine'), regole: EA_RULESET, violazioni: 0, daVerificare: 0, confermatiDaTab: 0 } : null,
     perimetro: [...PERIMETRO], erroriSistematici: [], confrontoMotori: null, stimaContrasti: null };
   for (const pr of results) {
     const c = summarizeImpacts(pr.violations);
@@ -3415,10 +3894,11 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.falsePositivesTotal += (pr.falsePositives || []).length;
     const srRoleOnly = pr.sr ? pr.sr.roleOnly.length : 0;
     summary.srRoleOnlyTotal += srRoleOnly;
-    const ea = pr.equalAccess ? { violazioni: pr.equalAccess.violazioni.length, daVerificare: pr.equalAccess.daVerificare.length } : null;
-    if (ea && summary.equalAccess) { summary.equalAccess.violazioni += ea.violazioni; summary.equalAccess.daVerificare += ea.daVerificare; }
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    const ea = pr.equalAccess ? { violazioni: pr.equalAccess.violazioni.length, daVerificare: pr.equalAccess.daVerificare.length, confermatiDaTab: (pr.equalAccess.confermatiDaTab || []).length } : null;
+    if (ea && summary.equalAccess) { summary.equalAccess.violazioni += ea.violazioni; summary.equalAccess.daVerificare += ea.daVerificare; summary.equalAccess.confermatiDaTab += ea.confermatiDaTab; }
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, httpStatus: pr.httpStatus ?? null, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
     if (pr.vuota) summary.emptyViews.push({ target: pr.targetName, name: pr.name, url: pr.url });
+    if (pr.erroreHttp) summary.httpErrorViews.push({ target: pr.targetName, name: pr.name, url: pr.url, status: pr.httpStatus });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
     perTarget[pr.targetName] = perTarget[pr.targetName] || [];
     perTarget[pr.targetName].push(pr);
@@ -3451,6 +3931,8 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   summary.gate = gate;
   summary.controlli = controlli;
   writeReport(resolve(OUT, 'summary.json'), JSON.stringify(summary, null, 2));
+  const tempi = riepilogoTempi(results);
+  writeReport(resolve(OUT, 'tempi.json'), JSON.stringify(tempi, null, 2));
 
   const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
   const impClass = imp => imp === 'critical' ? 'crit' : imp === 'serious' ? 'ser' : imp === 'moderate' ? 'mod' : 'min';
@@ -3476,19 +3958,41 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   const perimetro = summary.perimetro;
 
   // Tabella riepilogo per pagina
-  const rows = results.map((pr, i) => {
+  const righe = results.map((pr, i) => {
     const c = summarizeImpacts(pr.violations);
     const nameless = pr.axTree ? pr.axTree.nameless.length : 0;
     const soloMouse = pr.soloMouse ? pr.soloMouse.totale : 0;
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
-    return `<tr${pr.vuota ? ' style="background:#fde8e8"' : ''}><td>${esc(pr.targetName)}</td><td><a href="#pg${i}">${esc(pr.name)}</a>${pr.vuota ? ' <span class="crit">VISTA VUOTA</span>' : ''}</td><td><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
+    return `<tr${pr.vuota || pr.erroreHttp ? ' style="background:#fde8e8"' : ''}><td class="lungo"><a href="#pg${i}">${esc(pr.name)}</a>${pr.vuota ? ' <span class="crit">VISTA VUOTA</span>' : ''}${pr.erroreHttp ? ` <span class="crit">HTTP ${pr.httpStatus}</span>` : ''}</td><td class="lungo"><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
-      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}">${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? 'escluso' : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
+      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}">${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? (pr.lhMotivo ? `<span title="${esc(pr.lhMotivo)}">escluso</span>` : 'escluso') : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
       <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td>
       <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td>
       ${DO_EA ? `<td>${pr.equalAccess ? `<span class="${pr.equalAccess.violazioni.length ? 'ser' : ''}">${pr.equalAccess.violazioni.length}</span> / ${pr.equalAccess.daVerificare.length}` : 'non eseguito'}</td>` : ''}</tr>`;
-  }).join('\n');
+  });
+  // Riepilogo per pagina: una tabella per console scansionata, in un blocco richiudibile (chiuso:
+  // con centinaia di viste la tabella aperta copre il resto del report). Nella riga di sintesi
+  // restano i numeri che contano, cosi' una vista con problemi si nota anche a blocco chiuso.
+  const gruppiPagine = [];
+  results.forEach((pr, i) => {
+    let g = gruppiPagine.find(x => x.nome === pr.targetName);
+    if (!g) gruppiPagine.push(g = { nome: pr.targetName, righe: [], viste: 0, conViolazioni: 0, vuote: 0, eaDaVerificare: 0 });
+    g.righe.push(righe[i]);
+    g.viste++;
+    if (pr.violations.length || (pr.equalAccess && pr.equalAccess.violazioni.length)) g.conViolazioni++;
+    if (pr.vuota) g.vuote++;
+    if (pr.equalAccess) g.eaDaVerificare += pr.equalAccess.daVerificare.length;
+  });
+  const colonnePagine = `<colgroup><col><col><col style="width:4.2rem"><col style="width:5.2rem"><col style="width:6.4rem"><col style="width:4.8rem"><col style="width:4.8rem">${SHOW_INCOMPLETE ? '<col style="width:7rem">' : ''}<col style="width:6.4rem"><col style="width:6rem">${DO_EA ? '<col style="width:8rem">' : ''}</colgroup>`;
+  const intestazionePagine = `<tr><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th><th>Solo mouse<br><small>(tastiera)</small></th>${DO_EA ? '<th>IBM Equal Access<br><small>violazioni / da verificare</small></th>' : ''}</tr>`;
+  const riepilogoPagine = gruppiPagine.map(g => `<details class="pagine">
+<summary><h2>Riepilogo per pagina — ${esc(g.nome)}</h2> · ${g.viste} ${g.viste === 1 ? 'vista' : 'viste'}: <span class="${g.conViolazioni ? 'ser' : 'ok'}">${g.conViolazioni ? `${g.conViolazioni} con violazioni` : 'nessuna con violazioni'}</span>${g.vuote ? `, <span class="crit">${g.vuote} ${g.vuote === 1 ? 'vuota' : 'vuote'}</span>` : ''}${DO_EA ? `, IBM da verificare: ${g.eaDaVerificare}` : ''} <small>(clic per espandere; clic sulla pagina per il dettaglio)</small></summary>
+<div class="scorri"><table class="pagine">${colonnePagine}
+${intestazionePagine}
+${g.righe.join('\n')}
+</table></div>
+</details>`).join('\n');
 
   // Riepilogo aggregato per REGOLA WCAG (cosa correggere, per priorita')
   const byRule = new Map();
@@ -3512,6 +4016,8 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   }).join('') + '</ul>';
 
   // Drill-down per pagina: ogni violazione con elementi, selettore e snippet + elementi senza nome (a11y-tree)
+  // viste con qualcosa da riportare, per il sommario della sezione di dettaglio (chiusa all'apertura)
+  const conSegnalazioni = results.filter(pr => pr.violations.length || (pr.equalAccess && pr.equalAccess.violazioni.length)).length;
   const details = results.map((pr, i) => {
     const nameless = pr.axTree ? pr.axTree.nameless : [];
     const ariaLink = ariaFiles[i] ? ` — <a href="${esc(ariaFiles[i])}" download>scarica YAML ↗</a>` : '';
@@ -3550,16 +4056,21 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       incBlock = `<details><summary><span class="mod">da verificare</span> ${incomplete.reduce((n, v) => n + v.nodes.length, 0)} elementi che axe non ha deciso (sfondi calcolati/gradienti): NON sono un pass, verifica manuale</summary><ul class="nodes">${irows}</ul></details>`;
     }
     let eaBlock = '';
-    if (pr.equalAccess && (pr.equalAccess.violazioni.length || pr.equalAccess.daVerificare.length)) {
+    const confermatiDaTab = pr.equalAccess?.confermatiDaTab || [];
+    if (pr.equalAccess && (pr.equalAccess.violazioni.length || pr.equalAccess.daVerificare.length || confermatiDaTab.length)) {
       const voci = (lista, classe, etichetta) => lista.map(x => `<li><span class="${classe}">${etichetta}</span> <code>${esc(x.regola)}</code> — ${esc(x.messaggio)}${x.wcag.length ? ` <small>WCAG ${x.wcag.map(fmtCriterio).map(esc).join(', ')}</small>` : ''}
           <pre>${esc(x.snippet)}</pre>${x.xpath ? `<div class="fs">${esc(x.xpath)}</div>` : ''}${stimaHtml(x.contrasto)}${immagine(x)}</li>`).join('\n');
       /* I casi da verificare del secondo motore sono molti (molte sue regole chiedono una conferma
          manuale per ogni elemento focalizzabile): stanno in un blocco a parte, per non coprire le
          violazioni. */
       eaBlock = (pr.equalAccess.violazioni.length ? `<details><summary><span class="ser">IBM Equal Access</span> ${pr.equalAccess.violazioni.length} violazioni
-        <small>— secondo motore, indipendente da axe; senza gate</small></summary><ul class="nodes">${voci(pr.equalAccess.violazioni, 'ser', 'violazione')}</ul></details>` : '')
+        <small>— secondo motore, indipendente da axe; ${FAIL_ON_EQUAL_ACCESS ? 'decide il gate' : 'senza gate'}</small></summary><ul class="nodes">${voci(pr.equalAccess.violazioni, 'ser', 'violazione')}</ul></details>` : '')
         + (pr.equalAccess.daVerificare.length ? `<details><summary><span class="mod">IBM Equal Access</span> ${pr.equalAccess.daVerificare.length} da verificare
-        <small>— conferme manuali chieste dal secondo motore</small></summary><ul class="nodes">${voci(pr.equalAccess.daVerificare, 'mod', 'da verificare')}</ul></details>` : '');
+        <small>— conferme manuali chieste dal secondo motore</small></summary><ul class="nodes">${voci(pr.equalAccess.daVerificare, 'mod', 'da verificare')}</ul></details>` : '')
+        /* Le conferme date dal percorso col Tab restano consultabili: chi verifica puo' rifarle. */
+        + (confermatiDaTab.length ? `<details><summary><span class="ok">IBM Equal Access</span> ${confermatiDaTab.length} confermati dal percorso col Tab
+        <small>— domande sul fuoco a cui ha risposto la misura sulla pagina: non servono screenshot né verifica manuale</small></summary><ul class="nodes">${confermatiDaTab.map(x => `<li><span class="ok">confermato</span> <code>${esc(x.regola)}</code> — ${esc(x.conferma)}
+          <pre>${esc(x.snippet)}</pre>${x.xpath ? `<div class="fs">${esc(x.xpath)}</div>` : ''}</li>`).join('\n')}</ul></details>` : '');
     }
     let srBlock = '';
     if (pr.sr) {
@@ -3569,9 +4080,16 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
       srBlock = `<details><summary><span class="mod">screen reader</span> ${roMark}${pr.sr.stops} annunci del virtual screen reader (trascrizione)</summary><ol class="nodes">${lines}</ol></details>`;
     }
     // controlli che su questa vista non hanno dato esito: Lighthouse senza punteggio, analisi fallite
-    const mancati = [...(pr.lhMotivo ? [{ controllo: 'Lighthouse', errore: `senza punteggio — ${pr.lhMotivo}` }] : []), ...(pr.controlliNonEseguiti || [])];
+    const mancati = [...(pr.lhMotivo && !pr.lhEscluso ? [{ controllo: 'Lighthouse', errore: `senza punteggio — ${pr.lhMotivo}` }] : []), ...(pr.controlliNonEseguiti || [])];
     const neBlock = mancati.length ? `<details open><summary><span class="ser">controlli senza esito</span> ${mancati.length} <small>— su questa vista non hanno potuto decidere</small></summary><ul class="nodes">${mancati.map(c => `<li><b>${esc(c.controllo)}</b>: ${esc(c.errore)}</li>`).join('')}</ul></details>` : '';
-    if (!pr.violations.length && !axBlock && !moBlock && !incBlock && !srBlock && !eaBlock && !neBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${axTreeBlock}`;
+    const tempiBlock = !pr.tempi ? '' : `<details class="tempi"><summary>Tempi: <b>${fmtDurata(pr.tempi.totale)}</b> nella vista${pr.tempi.primaDellaVista != null ? `, ${fmtDurata(pr.tempi.primaDellaVista)} per arrivarci` : ''} <small>(clic per il dettaglio delle fasi)</small></summary>
+<table class="tempi"><tr><th>Fase</th><th>Durata</th><th>Quota della vista</th></tr>${Object.entries(pr.tempi.fasi).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${esc(FASI_TEMPI[k] || k)}</td><td>${fmtDurata(v)}</td><td>${pr.tempi.totale ? Math.round(v / pr.tempi.totale * 100) : 0}%</td></tr>`).join('')}</table></details>`;
+    /* Ogni vista si puo' richiudere: il titolo resta fuori dal blocco, perche' un titolo dentro un
+       <summary> perde il ruolo di titolo con alcuni lettori di schermo e la navigazione per titoli
+       del report si interromperebbe. Aperto se la vista ha qualcosa da riportare, chiuso se e' pulita. */
+    const corpo = (aperto, contenuto, quanti) => `<details class="vista"${aperto ? ' open' : ''}><summary>${aperto ? 'Dettagli della vista' : 'Albero ARIA e tempi della vista'} <small>(${quanti} ${quanti === 1 ? 'blocco' : 'blocchi'})</small></summary>${contenuto}</details>`;
+    const contaBlocchi = (...b) => b.filter(Boolean).length;
+    if (!pr.violations.length && !axBlock && !moBlock && !incBlock && !srBlock && !eaBlock && !neBlock) return `<h3 id="pg${i}">${esc(pr.name)} <small>— nessuna violazione${ariaLink}</small></h3>${(axTreeBlock || tempiBlock) ? corpo(false, axTreeBlock + tempiBlock, contaBlocchi(axTreeBlock, tempiBlock)) : ''}`;
     const vs = pr.violations
       .sort((a, b) => SEVERITY_ORDER[b.impact] - SEVERITY_ORDER[a.impact])
       .map(v => {
@@ -3582,16 +4100,25 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
           <a href="${esc(v.helpUrl)}" target="_blank">↗</a></summary>
           <ul class="nodes">${nodes}</ul></details>`;
       }).join('\n');
-    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${neBlock}${axTreeBlock}${axBlock}${moBlock}${incBlock}${srBlock}${vs}${eaBlock}`;
+    return `<h3 id="pg${i}">${esc(pr.name)} <small>— <a href="${esc(pr.url)}">${esc(pr.url)}</a>${ariaLink}</small></h3>${corpo(true, `${neBlock}${axTreeBlock}${axBlock}${moBlock}${incBlock}${srBlock}${vs}${eaBlock}${tempiBlock}`, contaBlocchi(neBlock, axTreeBlock, axBlock, moBlock, incBlock, srBlock, eaBlock, tempiBlock) + pr.violations.length)}`;
   }).join('\n');
 
   const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(app)} — Accessibility Report</title>
 <style>body{font-family:system-ui,sans-serif;margin:2rem;color:#222;max-width:1200px}
 table{border-collapse:collapse;width:100%;margin-bottom:1.5rem}
-th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;font-size:14px;vertical-align:top}th{background:#f4f4f4}
-.crit{color:#b00;font-weight:700}.ser{color:#d60;font-weight:700}.mod{color:#a80;font-weight:600}.min{color:#666}
+th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;font-size:14px;vertical-align:top;overflow-wrap:break-word}th{background:#f4f4f4}
+/* tabella dei falsi positivi: colonne a larghezza fissa, cosi' selettori ed email lunghi vanno a capo
+   dentro la loro colonna senza allargare la tabella ne' schiacciare le colonne corte; sotto i 900px scorre */
+.scorri{overflow-x:auto}table.fp{table-layout:fixed;min-width:900px}table.fp td{overflow-wrap:anywhere}table.fp td.nw{white-space:nowrap}
+/* riepilogo per pagina: le colonne dei numeri hanno larghezza fissa, pagina e URL si dividono il resto
+   e vanno a capo dentro la loro colonna */
+table.pagine{table-layout:fixed;min-width:1000px;margin:.5rem 0}table.pagine td.lungo{overflow-wrap:anywhere}
+details.pagine{margin:1rem 0;padding:.5rem .8rem}details.pagine>summary h2{display:inline;margin:0;font-size:1.05rem}
+
+.crit{color:#b00;font-weight:700}.ser{color:#d60;font-weight:700}.mod{color:#a80;font-weight:600}.min{color:#666}.ok{color:#1a7f37;font-weight:600}
 caption{text-align:left;font-weight:700;margin-bottom:.5rem}
 details{margin:.3rem 0;border-left:3px solid #ddd;padding:.2rem .6rem;background:#fafafa}
+details.vista{margin:.2rem 0 1.2rem;border-left:0;padding:0;background:none}details.vista>summary{font-size:.9rem;color:#444;cursor:pointer;margin-bottom:.3rem}
 summary{cursor:pointer}ul.nodes{margin:.4rem 0}li{margin:.5rem 0}
 code.sel{background:#eef;padding:1px 4px}pre{background:#f6f6f6;padding:.4rem;overflow-x:auto;font-size:12px;margin:.2rem 0;white-space:pre-wrap}
 .fs{font-size:12px;color:#555;white-space:pre-wrap}h3{margin-top:1.5rem;border-bottom:1px solid #eee}
@@ -3615,7 +4142,7 @@ tr.e-ko td{background:#fff6f6}details.non-eseguiti{margin:-1rem 0 1.5rem;backgro
 <tr><th>Applicazione</th><td>${esc(app)}</td><th>Data</th><td>${esc(new Date(summary.generatedAt).toLocaleString('it-IT'))}</td></tr>
 <tr><th>Indirizzo</th><td><code>${esc(BASE)}</code></td><th>Versione in prova</th><td>${PRODUCT_VERSION ? `<code>${esc(PRODUCT_VERSION)}</code>` : '<small>non dichiarata</small>'}</td></tr>
 <tr><th>Standard</th><td>${esc(WCAG.breve)}<br><small>tag: ${esc([...TAG_USATI].join(', '))}</small></td><th>Viste analizzate</th><td>${results.length}${Object.keys(perTarget).length > 1 ? `<br><small>${Object.entries(perTarget).map(([t, l]) => `${esc(t)}: ${l.length}`).join(', ')}</small>` : ''}</td></tr>
-<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'}</td></tr>
+<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'} · errori HTTP: ${FAIL_ON_HTTP_ERROR ? 'blocca' : 'non blocca'}</td></tr>
 </table>
 
 <div class="gate ${gate.superato ? 'gate-ok' : 'gate-ko'}">
@@ -3650,18 +4177,44 @@ fallire, quindi i loro zeri <b>non</b> indicano viste accessibili. Rifare la sca
 <ul>${summary.emptyViews.map(v => `<li>${esc(v.target)} — <b>${esc(v.name)}</b> — <code>${esc(v.url)}</code></li>`).join('')}</ul>
 </div>` : ''}
 
+${summary.httpErrorViews.length ? `<div class="disclaimer" style="border-left-color:#b00">
+<h2>Viste in errore HTTP — ${summary.httpErrorViews.length}: esito non valido</h2>
+<p>Queste viste sono arrivate con uno stato HTTP ≥ 400: è stata esaminata la <b>risposta d'errore</b>
+dell'applicazione, non la pagina che si voleva vedere (URL non più valido, contesto di navigazione mancante,
+sessione persa, bug). I loro risultati non dicono nulla di quella pagina. ${FAIL_ON_HTTP_ERROR ? 'Il gate le considera bloccanti (failOnHttpError).' : 'Il gate non le considera bloccanti (failOnHttpError spento).'}</p>
+<ul>${summary.httpErrorViews.map(v => `<li>${esc(v.target)} — <b>${esc(v.name)}</b> — HTTP ${v.status} — <code>${esc(v.url)}</code></li>`).join('')}</ul>
+</div>` : ''}
+
+${tempi.numeroViste ? `<details class="disclaimer">
+<summary><h2>Tempi della scansione — ${fmtDurata(tempi.durataMs)}, ${tempi.numeroViste} viste</h2> <small>(clic per espandere; dati anche in tempi.json)</small></summary>
+<p>Dove va il tempo: dentro le viste, fase per fase, e fra una vista e l'altra (passi dei flow, menu,
+ricorsione sui collegamenti). La scrittura dei report non e' compresa.</p>
+<table class="tempi"><tr><th>Parte</th><th>Durata</th><th>Quota</th></tr>
+<tr><td>Analisi delle viste (${tempi.numeroViste}, in media ${fmtDurata(tempi.mediaVistaMs)} l'una)</td><td>${fmtDurata(tempi.visteMs)}</td><td>${Math.round(tempi.visteMs / tempi.durataMs * 100)}%</td></tr>
+<tr><td>Navigazione fra le viste</td><td>${fmtDurata(tempi.navigazioneMs)}</td><td>${Math.round(tempi.navigazioneMs / tempi.durataMs * 100)}%</td></tr>
+<tr><td>Login</td><td>${fmtDurata(tempi.loginMs)}</td><td>${Math.round(tempi.loginMs / tempi.durataMs * 100)}%</td></tr>
+<tr><td>Altro (avvio del browser, preparazione)</td><td>${fmtDurata(tempi.altroMs)}</td><td>${Math.round(tempi.altroMs / tempi.durataMs * 100)}%</td></tr></table>
+<table class="tempi"><caption>Fasi dell'analisi, sommate su tutte le viste</caption>
+<tr><th>Fase</th><th>Totale</th><th>Quota della scansione</th><th>Viste</th><th>Media per vista</th><th>Massimo</th></tr>
+${tempi.fasi.map(f => `<tr><td>${esc(f.nome)}</td><td>${fmtDurata(f.totaleMs)}</td><td>${Math.round(f.quota * 100)}%</td><td>${f.viste}</td><td>${fmtDurata(f.mediaMs)}</td><td>${fmtDurata(f.massimoMs)} <small>${esc(f.vistaPiuLenta)}</small></td></tr>`).join('\n')}</table>
+<table class="tempi"><caption>Le ${tempi.visteLente.length} viste piu' lente</caption>
+<tr><th>Vista</th><th>Nella vista</th><th>Per arrivarci</th><th>Fasi principali</th></tr>
+${tempi.visteLente.map(v => `<tr><td><a href="#pg${v.indice}">${esc(v.nome)}</a></td><td>${fmtDurata(v.totaleMs)}</td><td>${fmtDurata(v.primaDellaVistaMs)}</td><td>${Object.entries(v.fasi).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, ms]) => `${esc(FASI_TEMPI[k] || k)} ${fmtDurata(ms)}`).join('; ')}</td></tr>`).join('\n')}</table>
+</details>` : ''}
+
 ${FALSE_POSITIVES_USATI.length ? `<details class="disclaimer">
 <summary><h2>Falsi positivi dichiarati — ${summary.falsePositivesTotal} occorrenze escluse dalle segnalazioni</h2> <small>(non decidono l'esito: clic per espandere)</small></summary>
 <p>Occorrenze già esaminate e riconosciute come falsi positivi. Non sono nascoste: sono
 elencate qui con la motivazione e la verifica che le giustificano, così da poter essere contestate.
 Per axe-core valgono solo per i casi <b>da verificare</b>: le sue violazioni, che decidono l'esito
-della scansione, non sono mai derogabili. Per il secondo motore (IBM Equal Access), che non decide
-l'esito, valgono anche per le violazioni.</p>
-<table><tr><th>Voce</th><th>Motore</th><th>Regola / causa</th><th>Occorrenze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
+della scansione, non sono mai derogabili. Per il secondo motore (IBM Equal Access) valgono anche per le
+violazioni${FAIL_ON_EQUAL_ACCESS ? ', che con <code>failOnEqualAccess</code> decidono l\'esito: le deroghe registrate le tolgono dal gate e vanno quindi dimostrate sulle specifiche' : ', che in questa scansione non decidono l\'esito'}.</p>
+<div class="scorri"><table class="fp"><colgroup><col style="width:12%"><col style="width:7%"><col style="width:11%"><col style="width:8%"><col style="width:25%"><col style="width:21%"><col style="width:7%"><col style="width:9%"></colgroup>
+<tr><th>Voce</th><th>Motore</th><th>Regola / causa</th><th>Occor&shy;renze</th><th>Motivo</th><th>Verifica</th><th>Autore</th><th>Scadenza</th></tr>
 ${FALSE_POSITIVES_USATI.filter(v => v.matches > 0 || v.expired).map(v => `<tr${v.expired ? ' style="opacity:.55"' : ''}><td><code>${esc(v.id)}</code></td>
 <td>${v.engine === 'equalAccess' ? 'IBM Equal Access' : 'axe-core'}</td><td><code>${esc(v.rule)}</code>${v.cause ? ` / <code>${esc(v.cause)}</code>` : ''}</td>
 <td>${v.expired ? '<b>scaduta</b>' : v.matches}</td><td>${esc(v.reason)}</td><td>${esc(v.verification)}</td>
-<td>${esc(v.author || '-')}</td><td>${esc(v.expires || 'nessuna')}</td></tr>`).join('\n')}</table>
+<td>${esc(v.author || '-')}</td><td class="nw">${esc(v.expires || 'nessuna')}</td></tr>`).join('\n')}</table></div>
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).length ? `<p><b>Senza riscontro:</b> le voci
 ${FALSE_POSITIVES_USATI.filter(v => !v.expired && v.matches === 0).map(v => `<code>${esc(v.id)}</code>`).join(', ')}
 non hanno corrisposto ad alcuna occorrenza e non compaiono quindi in tabella. Se la scansione è completa
@@ -3713,13 +4266,12 @@ ${summary.equalAccess.perRegola.length ? `<table><caption>IBM Equal Access — v
 ${summary.equalAccess.perRegola.map(g => `<tr><td><code>${esc(g.regola)}</code></td><td>${esc(g.messaggio)}</td><td>${g.occorrenze}</td><td>${g.viste}</td><td>${g.wcag.map(fmtCriterio).map(esc).join(', ')}</td></tr>`).join('\n')}
 </table>` : ''}` : ''}
 
-<table><caption>Riepilogo per pagina (clicca la pagina per il dettaglio)</caption>
-<tr><th>Console</th><th>Pagina</th><th>URL</th><th>Crit</th><th>Serious</th><th>Moderate</th><th>Minor</th><th>LH a11y</th>${SHOW_INCOMPLETE ? '<th>Da verificare<br><small>(incomplete)</small></th>' : ''}<th>Senza nome<br><small>(a11y-tree)</small></th><th>Solo mouse<br><small>(tastiera)</small></th>${DO_EA ? '<th>IBM Equal Access<br><small>violazioni / da verificare</small></th>' : ''}</tr>
-${rows}
-</table>
+${riepilogoPagine}
 
-<h2>Dettaglio violazioni per pagina</h2>
+<details class="pagine dettaglio">
+<summary><h2>Dettaglio violazioni per pagina</h2> · ${results.length} ${results.length === 1 ? 'vista' : 'viste'}: <span class="${conSegnalazioni ? 'ser' : 'ok'}">${conSegnalazioni ? `${conSegnalazioni} con violazioni` : 'nessuna con violazioni'}</span> <small>(clic per aprire o chiudere; dentro, ogni vista si apre e si chiude da sola)</small></summary>
 ${details}
+</details>
 </body></html>`;
   writeReport(resolve(OUT, 'report.html'), html);
   return summary;
@@ -3742,6 +4294,7 @@ const GRUPPI_GOVA11Y = [
 const ESITI_KO = new Set(['non superato']);
 // controlli che decidono il gate: se falliscono su una vista si ripetono una volta (vedi prova() in recordScan)
 const CONTROLLI_DA_RIPETERE = new Set(GRUPPI_GOVA11Y.map(g => g.usato).filter(Boolean));
+if (FAIL_ON_EQUAL_ACCESS) CONTROLLI_DA_RIPETERE.add('equalAccess');
 
 function valutaControlli(results) {
   const controlli = [];
@@ -3843,9 +4396,9 @@ function valutaControlli(results) {
     }
     add({ id: 'lighthouse', nome: 'Lighthouse (categoria accessibilità)', criteri: 'punteggio 0–100%', decide, eseguito,
       soglia: MIN_SCORE != null ? `punteggio ≥ ${pct(MIN_SCORE)} su ogni vista` : 'nessuna (minScore non impostato)',
-      risultato: eseguito ? `${conPunteggio.length} ${conPunteggio.length === 1 ? 'vista' : 'viste'} con punteggio su ${nViste} ${nViste === 1 ? 'analizzata' : 'analizzate'}${minimo != null ? ` (minimo ${pct(minimo)})` : ''}: ${sotto.length} sotto soglia, ${senza.length} senza punteggio, ${escluse.length} escluse dal flow` : 'non attivo in questa esecuzione',
+      risultato: eseguito ? `${conPunteggio.length} ${conPunteggio.length === 1 ? 'vista' : 'viste'} con punteggio su ${nViste} ${nViste === 1 ? 'analizzata' : 'analizzate'}${minimo != null ? ` (minimo ${pct(minimo)})` : ''}: ${sotto.length} sotto soglia, ${senza.length} senza punteggio, ${escluse.length} escluse (dal flow o perché il loro URL ripeterebbe un'azione)` : 'non attivo in questa esecuzione',
       esito: !eseguito ? 'non eseguito' : decide ? (motivi.length ? 'non superato' : 'superato') : (sotto.length || senza.length ? 'segnalazioni' : 'nessuna segnalazione'),
-      motivi, viste: [...sotto.map(pr => vista(pr, pct(pr.lhScore), 'sotto soglia')), ...(eseguito ? senza.map(pr => vista(pr, null, `senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`)) : []), ...escluse.map(pr => vista(pr, 'escluso', "escluso dal flow ('lighthouse': false)"))] });
+      motivi, viste: [...sotto.map(pr => vista(pr, pct(pr.lhScore), 'sotto soglia')), ...(eseguito ? senza.map(pr => vista(pr, null, `senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`)) : []), ...escluse.map(pr => vista(pr, 'escluso', pr.lhMotivo ? `escluso: ${pr.lhMotivo}` : "escluso dal flow ('lighthouse': false)"))] });
   }
   // 7. viste vuote (pagina non renderizzata: i loro zeri non valgono)
   {
@@ -3855,6 +4408,15 @@ function valutaControlli(results) {
       esito: FAIL_ON_EMPTY ? (vuote.length ? 'non superato' : 'superato') : (vuote.length ? 'segnalazioni' : 'nessuna segnalazione'),
       motivi: FAIL_ON_EMPTY && vuote.length ? [`${vuote.length} viste vuote, esito non valido (pagina non renderizzata?): ${vuote.map(v => v.name).join(', ')}`] : [],
       viste: vuote.map(pr => vista(pr, 'vuota', 'nessun contenuto accessibile')) });
+  }
+  // 7b. viste in errore HTTP (risposta d'errore dell'applicazione: i loro zeri non valgono)
+  {
+    const errate = results.filter(pr => pr.erroreHttp);
+    add({ id: 'httpErrors', nome: 'Viste senza errore HTTP', criteri: 'validità dell\'esito', decide: FAIL_ON_HTTP_ERROR,
+      soglia: FAIL_ON_HTTP_ERROR ? 'nessuna vista con stato HTTP ≥ 400' : 'nessuna (failOnHttpError=false)', risultato: conteggio(errate.length, ['nessuna vista in errore HTTP', 'viste in errore HTTP', 'vista in errore HTTP'], errate.length, nViste).replace(/ in \d+ viste? su/, ' su'),
+      esito: FAIL_ON_HTTP_ERROR ? (errate.length ? 'non superato' : 'superato') : (errate.length ? 'segnalazioni' : 'nessuna segnalazione'),
+      motivi: FAIL_ON_HTTP_ERROR && errate.length ? [`${errate.length} viste in errore HTTP, esito non valido: ${errate.map(v => `${v.name} (${v.httpStatus})`).join(', ')}`] : [],
+      viste: errate.map(pr => vista(pr, `HTTP ${pr.httpStatus}`, "risposta d'errore dell'applicazione")) });
   }
   // 8. controlli che non decidono l'esito, riportati come evidenza
   {
@@ -3872,15 +4434,25 @@ function valutaControlli(results) {
       soglia: 'non decide l\'esito', risultato: eseguito ? `${conta('non conforme')} testi sotto soglia, ${conta('parziale')} in parte, ${conta('conforme')} conformi, ${conta('non stimabile')} non stimabili` : 'nessun caso da stimare o stima disattivata',
       esito: !eseguito ? 'non eseguito' : (conta('non conforme') || conta('parziale')) ? 'segnalazioni' : 'nessuna segnalazione' });
   }
+  /* IBM Equal Access: decide il gate solo con failOnEqualAccess. Come per i controlli fuori da axe,
+     una vista su cui il motore non ha potuto girare non ha un esito ("esito non verificabile"). */
   {
-    const eseguito = results.some(pr => pr.equalAccess);
+    const mancati = nonEseguitoSu('equalAccess');
+    const eseguito = results.some(pr => pr.equalAccess) || mancati.length > 0;
     const viste = results.filter(pr => pr.equalAccess).map(pr => vista(pr, pr.equalAccess.violazioni.length)).filter(x => x.valore);
-    add({ id: 'equalAccess', nome: 'IBM Equal Access (secondo motore)', criteri: 'WCAG A e AA', eseguito,
-      soglia: 'non decide l\'esito', risultato: eseguito ? `${conteggio(somma(viste), ['nessuna violazione', 'violazioni', 'violazione'], viste.length, results.filter(pr => pr.equalAccess).length)}, ${results.reduce((n, pr) => n + (pr.equalAccess ? pr.equalAccess.daVerificare.length : 0), 0)} da verificare` : 'non attivo in questa esecuzione',
-      esito: !eseguito ? 'non eseguito' : somma(viste) ? 'segnalazioni' : 'nessuna segnalazione', viste });
+    const n = somma(viste);
+    const decide = FAIL_ON_EQUAL_ACCESS && eseguito;
+    const motivi = [];
+    if (decide && n) motivi.push(`${n} ${n === 1 ? 'violazione' : 'violazioni'} di IBM Equal Access in ${viste.length} ${viste.length === 1 ? 'vista' : 'viste'}`);
+    if (decide && mancati.length) motivi.push(`IBM Equal Access non eseguito su ${mancati.length} ${mancati.length === 1 ? 'vista' : 'viste'}: esito non verificabile (${mancati.map(v => v.nome).join(', ')})`);
+    add({ id: 'equalAccess', nome: 'IBM Equal Access (secondo motore)', criteri: 'WCAG A e AA', decide, eseguito,
+      soglia: FAIL_ON_EQUAL_ACCESS ? 'nessuna violazione, eseguito su ogni vista' : 'non decide l\'esito (failOnEqualAccess=false)',
+      risultato: eseguito ? `${conteggio(n, ['nessuna violazione', 'violazioni', 'violazione'], viste.length, results.filter(pr => pr.equalAccess).length)}, ${results.reduce((k, pr) => k + (pr.equalAccess ? pr.equalAccess.daVerificare.length : 0), 0)} da verificare${(t => t ? ` (${t} sul fuoco confermati dal percorso col Tab)` : '')(results.reduce((k, pr) => k + (pr.equalAccess?.confermatiDaTab?.length || 0), 0))}${mancati.length ? `; non eseguito su ${mancati.length} ${mancati.length === 1 ? 'vista' : 'viste'}` : ''}` : 'non attivo in questa esecuzione',
+      esito: !eseguito ? 'non eseguito' : motivi.length ? 'non superato' : decide ? (mancati.length ? 'incompleto' : 'superato') : (n || mancati.length) ? 'segnalazioni' : 'nessuna segnalazione',
+      motivi, viste: [...viste, ...mancati] });
   }
   {
-    const nonEseguiti = results.flatMap(pr => (pr.controlliNonEseguiti || []).filter(c => !GRUPPI_GOVA11Y.some(g => g.usato === c.controllo)).map(c => vista(pr, 0, `${c.controllo}: ${c.errore}`)));
+    const nonEseguiti = results.flatMap(pr => (pr.controlliNonEseguiti || []).filter(c => c.controllo !== 'equalAccess' && !GRUPPI_GOVA11Y.some(g => g.usato === c.controllo)).map(c => vista(pr, 0, `${c.controllo}: ${c.errore}`)));
     if (nonEseguiti.length) add({ id: 'altriNonEseguiti', nome: 'Analisi accessorie non eseguite', criteri: 'stima del contrasto, screenshot, rimisura', soglia: 'non decide l\'esito',
       risultato: `${nonEseguiti.length} analisi non eseguite`, esito: 'incompleto', viste: nonEseguiti });
   }
@@ -3906,6 +4478,9 @@ function evaluateGate(results, summary) {
   if (FAIL_ON_SCREEN_READER && !DO_SR && CLI_SR !== false) {
     console.warn("⚠ 'failOnScreenReader' richiesto ma il virtual screen reader e' disattivato: il gate non ha nulla da valutare.");
   }
+  if (FAIL_ON_EQUAL_ACCESS && !results.some(pr => pr.equalAccess || (pr.controlliNonEseguiti || []).some(c => c.controllo === 'equalAccess'))) {
+    console.warn("⚠ 'failOnEqualAccess' richiesto ma IBM Equal Access non e' attivo su nessuna vista (\"equalAccess\" nel target): il gate non ha nulla da valutare.");
+  }
   // summary e' accettato per compatibilita': l'esito si ricava dai risultati, come per tutti i report
   return (summary && summary.gate ? summary.gate : valutaControlli(results).gate).motivi;
 }
@@ -3921,9 +4496,9 @@ export {
   runEqualAccess, fotografaOccorrenze,
   decodificaPng, rapportoContrasto, valutaContrasto, contrastiPerComponente, stimaContrasti, chiaveOccorrenza,
   // browser
-  harvestLinks, recordScan, runStep, caricaScript, selectOption, analyzeReflow, analyzeTextSpacing, analyzeKeyboard, analyzeLanguageParts, violazioniDaProblemi, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
+  harvestLinks, recordScan, confermaDalTab, REGOLE_CONFERMATE_DAL_TAB, runStep, caricaScript, selectOption, analyzeReflow, analyzeTextSpacing, analyzeKeyboard, analyzeLanguageParts, violazioniDaProblemi, applyWait, runFlows, recurseFollow, login, postLogin, scan, runLighthouse, lhPreparaSessione, lhStessaVista,
   // reporters + gate
-  writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate,
+  writeAxeJson, writeAriaTrees, writeSarif, writeSonar, writeJUnit, writeSummaryAndHtml, evaluateGate, riepilogoTempi, fmtDurata,
 };
 
 /* ----------------------------- main ------------------------------------- */
@@ -3941,7 +4516,8 @@ if (IS_MAIN) (async () => {
   writeJUnit(results, summary);
 
   console.log(`\nReport scritti in: ${OUT}`);
-  console.log(`  axe-results.json | a11y.sarif | sonar-issues.json | a11y-junit.xml | summary.json | report.html${Object.keys(ariaFiles).length ? ` | aria-tree/ (${Object.keys(ariaFiles).length} file)` : ''}`);
+  console.log(`  durata della scansione: ${fmtDurata(performance.now() - TEMPI.avvio)} (dettaglio in tempi.json e nel report)`);
+  console.log(`  axe-results.json | a11y.sarif | sonar-issues.json | a11y-junit.xml | summary.json | tempi.json | report.html${Object.keys(ariaFiles).length ? ` | aria-tree/ (${Object.keys(ariaFiles).length} file)` : ''}`);
 
   const reasons = evaluateGate(results, summary);
   if (reasons.length) {

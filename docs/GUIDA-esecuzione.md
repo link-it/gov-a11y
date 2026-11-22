@@ -66,7 +66,8 @@ exit code **2**:
 
 ### Lighthouse: sessione e audit senza punteggio
 
-Lighthouse non usa la pagina della scansione: apre una **propria tab** via CDP (porta 9222) nel
+Lighthouse non usa la pagina della scansione: apre una **propria tab** via CDP (su una porta libera scelta a ogni scansione, così due scansioni
+contemporanee non si intralciano) nel
 context di default del browser, mentre la scansione naviga in un `browser.newContext()` isolato. I
 cookie di sessione non sono condivisi per costruzione: il tool li rilegge dal context corrente e li
 **copia nel context di default**, ciascuno con il suo dominio e il suo path (gli `extraHTTPHeaders` del
@@ -122,7 +123,7 @@ Tutto il resto (tag WCAG, crawl, screen-reader, Lighthouse, gate…) può stare 
 (blocco `defaults` e/o per-target) — vedi `GUIDA-config.md`. In tal caso il comando resta minimale.
 
 I report finiscono in `--out` (default `./report`): `report.html`, `axe-results.json`, `a11y.sarif`,
-`sonar-issues.json`, `a11y-junit.xml`, `summary.json`, `aria-tree/` (alberi ARIA per vista).
+`sonar-issues.json`, `a11y-junit.xml`, `summary.json`, `tempi.json` (dove va il tempo della scansione: per fase, per vista, navigazione; anche in `report.html`, in blocchi chiusi), `aria-tree/` (alberi ARIA per vista).
 
 ## Parametri da riga di comando (tutti opzionali)
 
@@ -143,10 +144,11 @@ La CLI ha sempre la **precedenza** sulla config. Ordine di risoluzione:
 | `--lighthouse` | flag | off | Calcola il punteggio Lighthouse Accessibility (**lento**) |
 | `--min-score <0..1>` | decimale | *(nessuno)* | Gate Lighthouse: fallisce se un punteggio < soglia (es. `0.90`). Implica `--lighthouse` |
 | `--screen-reader` | flag | off | Esegue il virtual screen reader (annunci) su ogni vista |
-| `--equal-access` | flag | off | Secondo motore, indipendente da axe: IBM Equal Access sullo stesso stato di ogni vista, con confronto per criterio WCAG. Senza gate |
+| `--equal-access` | flag | off | Secondo motore, indipendente da axe: IBM Equal Access sullo stesso stato di ogni vista, con confronto per criterio WCAG. Senza gate, salvo `--fail-on-equal-access` |
 | `--no-contrast-estimate` | flag | — | Niente stima del contrasto sui testi da verificare (attiva di default, al massimo `contrastEstimateMax` per vista) |
 | `--no-screenshots` | flag | — | Niente screenshot delle occorrenze (attivi di default, al massimo `screenshotsMax` per vista) |
 | `--fail-on <sev>` | `critical`\|`serious`\|`moderate`\|`minor`\|`none` | `serious` | Gate axe: fallisce se esistono violazioni ≥ gravità |
+| `--fail-on-equal-access` | flag | off | Gate del secondo motore: fallisce se IBM Equal Access trova violazioni o non riesce a girare su una vista |
 | `--fail-on-nameless` | flag | off | Gate screen-reader: fallisce se ci sono elementi interattivi senza nome accessibile |
 | `--no-flows` | flag | off | Non esegue i `flows` (navigazione scriptata delle viste di dettaglio) |
 | `--no-incomplete` | flag | off | Nasconde la colonna/sezione "Da verificare" (incomplete axe) dal report HTML |

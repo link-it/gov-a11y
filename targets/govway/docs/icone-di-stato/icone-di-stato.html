@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="it" lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="generator" content="Docutils 0.21.2: https://docutils.sourceforge.io/" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="dcterms.date" content="20 novembre 2026" />
+<title>Icone di stato di GovWay: convenzione e sua logica</title>
+<link rel="schema.dcterms" href="http://purl.org/dc/terms/"/>
+<style type="text/css">
+
+/* Minimal style sheet for the HTML output of Docutils.                    */
+/*                                                                         */
+/* :Author: Günter Milde, based on html4css1.css by David Goodger          */
+/* :Id: $Id: minimal.css 9545 2024-02-17 10:37:56Z milde $                                                               */
+/* :Copyright: © 2015, 2021 Günter Milde.                                  */
+/* :License: Released under the terms of the `2-Clause BSD license`_,      */
+/*    in short:                                                            */
+/*                                                                         */
+/*    Copying and distribution of this file, with or without modification, */
+/*    are permitted in any medium without royalty provided the copyright   */
+/*    notice and this notice are preserved.                                */
+/*                                                                         */
+/*    This file is offered as-is, without any warranty.                    */
+/*                                                                         */
+/* .. _2-Clause BSD license: http://www.spdx.org/licenses/BSD-2-Clause     */
+
+/* This CSS3 stylesheet defines rules for Docutils elements without        */
+/* HTML equivalent. It is required to make the document semantics visible. */
+/*                                                                         */
+/* .. _validates: http://jigsaw.w3.org/css-validator/validator$link        */
+
+/* titles */
+p.topic-title,
+p.admonition-title,
+p.system-message-title {
+  font-weight: bold;
+}
+p.sidebar-title,
+p.rubric {
+  font-weight: bold;
+  font-size: larger;
+}
+p.rubric {
+  color: maroon;
+}
+p.subtitle,
+p.section-subtitle,
+p.sidebar-subtitle {
+  font-weight: bold;
+  margin-top: -0.5em;
+}
+h1 + p.subtitle {
+  font-size: 1.6em;
+}
+a.toc-backref {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Warnings, Errors */
+.system-messages h2,
+.system-message-title,
+pre.problematic,
+span.problematic {
+  color: red;
+}
+
+/* Inline Literals */
+.docutils.literal {
+  font-family: monospace;
+  white-space: pre-wrap;
+}
+/* do not wrap at hyphens and similar: */
+.literal > span.pre { white-space: nowrap; }
+
+/* keep line-breaks (\n) visible */
+.pre-wrap { white-space: pre-wrap; }
+
+/* Lists */
+
+/* compact and simple lists: no margin between items */
+.simple  li, .simple  ul, .simple  ol,
+.compact li, .compact ul, .compact ol,
+.simple  > li p, dl.simple  > dd,
+.compact > li p, dl.compact > dd {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+/* Nested Paragraphs */
+p:first-child { margin-top: 0; }
+p:last-child { margin-bottom: 0; }
+details > p:last-child { margin-bottom: 1em; }
+
+/* Table of Contents */
+.contents ul.auto-toc { /* section numbers present */
+  list-style-type: none;
+}
+
+/* Enumerated Lists */
+ol.arabic     { list-style: decimal }
+ol.loweralpha { list-style: lower-alpha }
+ol.upperalpha { list-style: upper-alpha }
+ol.lowerroman { list-style: lower-roman }
+ol.upperroman { list-style: upper-roman }
+
+/* Definition Lists and Derivatives */
+dt .classifier { font-style: italic }
+dt .classifier:before {
+  font-style: normal;
+  margin: 0.5em;
+  content: ":";
+}
+/* Field Lists and similar */
+/* bold field name, content starts on the same line */
+dl.field-list,
+dl.option-list,
+dl.docinfo {
+  display: flow-root;
+}
+dl.field-list > dt,
+dl.option-list > dt,
+dl.docinfo > dt {
+  font-weight: bold;
+  clear: left;
+  float: left;
+  margin: 0;
+  padding: 0;
+  padding-right: 0.25em;
+}
+/* Offset for field content (corresponds to the --field-name-limit option) */
+dl.field-list > dd,
+dl.option-list > dd,
+dl.docinfo > dd {
+  margin-left:  9em; /* ca. 14 chars in the test examples, fit all Docinfo fields */
+}
+/* start nested lists on new line */
+dd > dl:first-child,
+dd > ul:first-child,
+dd > ol:first-child {
+  clear: left;
+}
+/* start field-body on a new line after long field names */
+dl.field-list > dd > *:first-child,
+dl.option-list > dd > *:first-child
+{
+  display: inline-block;
+  width: 100%;
+  margin: 0;
+}
+
+/* Bibliographic Fields (docinfo) */
+dl.docinfo pre.address {
+  font: inherit;
+  margin: 0.5em 0;
+}
+dl.docinfo > dd.authors > p { margin: 0; }
+
+/* Option Lists */
+dl.option-list > dt { font-weight: normal; }
+span.option { white-space: nowrap; }
+
+/* Footnotes and Citations  */
+
+.footnote, .citation { margin: 1em 0; } /* default paragraph skip (Firefox) */
+/* hanging indent */
+.citation { padding-left: 2em; }
+.footnote { padding-left: 1.7em; }
+.footnote.superscript { padding-left: 1.0em; }
+.citation > .label { margin-left: -2em; }
+.footnote > .label { margin-left: -1.7em; }
+.footnote.superscript > .label { margin-left: -1.0em; }
+
+.footnote > .label + *,
+.citation > .label + * {
+  display: inline-block;
+  margin-top: 0;
+  vertical-align: top;
+}
+.footnote > .backrefs + *,
+.citation > .backrefs + * {
+  margin-top: 0;
+}
+.footnote > .label + p, .footnote > .backrefs + p,
+.citation > .label + p, .citation > .backrefs + p {
+  display: inline;
+  vertical-align: inherit;
+}
+
+.backrefs { user-select: none; }
+.backrefs > a { font-style: italic; }
+
+/* superscript footnotes */
+a[role="doc-noteref"].superscript,
+.footnote.superscript > .label,
+.footnote.superscript > .backrefs {
+  vertical-align: super;
+  font-size: smaller;
+  line-height: 1;
+}
+a[role="doc-noteref"].superscript > .fn-bracket,
+.footnote.superscript > .label > .fn-bracket {
+  /* hide brackets in display but leave for copy/paste */
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+}
+[role="doc-noteref"].superscript + [role="doc-noteref"].superscript {
+  padding-left: 0.15em; /* separate consecutive footnote references */
+  /* TODO: unfortunately, "+" also selects with text between the references. */
+}
+
+/* Alignment */
+.align-left   {
+  text-align: left;
+  margin-right: auto;
+}
+.align-center {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+.align-right  {
+  text-align: right;
+  margin-left: auto;
+}
+.align-top    { vertical-align: top; }
+.align-middle { vertical-align: middle; }
+.align-bottom { vertical-align: bottom; }
+
+/* reset inner alignment in figures and tables */
+figure.align-left, figure.align-right,
+table.align-left, table.align-center, table.align-right {
+  text-align: inherit;
+}
+
+/* Text Blocks */
+.topic { margin: 1em 2em; }
+.sidebar,
+.admonition,
+.system-message {
+  margin: 1em 2em;
+  border: thin solid;
+  padding: 0.5em 1em;
+}
+div.line-block { display: block; }
+div.line-block div.line-block, pre { margin-left: 2em; }
+
+/* Code line numbers: dropped when copying text from the page */
+pre.code .ln { display: none; }
+pre.code code:before {
+  content: attr(data-lineno); /* …, none) fallback not supported by any browser */
+  color: gray;
+}
+
+/* Tables */
+table {
+  border-collapse: collapse;
+}
+td, th {
+  border: thin solid silver;
+  padding: 0 1ex;
+}
+.borderless td, .borderless th {
+  border: 0;
+  padding: 0;
+  padding-right: 0.5em /* separate table cells */
+}
+
+table > caption, figcaption {
+  text-align: left;
+  margin-top: 0.2em;
+  margin-bottom: 0.2em;
+}
+table.captionbelow {
+  caption-side: bottom;
+}
+
+/* MathML (see "math.css" for --math-output=HTML) */
+math .boldsymbol { font-weight: bold; }
+math.boxed, math .boxed {padding: 0.25em; border: thin solid; }
+/* style table similar to AMS "align" or "aligned" environment: */
+mtable.cases > mtr > mtd { text-align: left; }
+mtable.ams-align > mtr > mtd { padding-left: 0; padding-right: 0; }
+mtable.ams-align > mtr > mtd:nth-child(2n) { text-align: left; }
+mtable.ams-align > mtr > mtd:nth-child(2n+1) { text-align: right; }
+mtable.ams-align > mtr > mtd:nth-child(2n+3) { padding-left: 2em; }
+.mathscr mi, mi.mathscr {
+  font-family: STIX, XITSMathJax_Script, rsfs10,
+               "Asana Math", Garamond, cursive;
+}
+
+/* Document Header and Footer */
+header { border-bottom: 1px solid black; }
+footer { border-top: 1px solid black; }
+
+/* Images are block-level by default in Docutils */
+/* New HTML5 block elements: set display for older browsers */
+img, svg, header, footer, main, aside, nav, section, figure, video, details {
+  display: block;
+}
+svg { width: auto; height: auto; }  /* enable scaling of SVG images */
+/* inline images */
+p img, p svg, p video { display: inline; }
+
+</style>
+<style type="text/css">
+
+/* CSS31_ style sheet for the output of Docutils HTML writers.             */
+/* Rules for easy reading and pre-defined style variants.                  */
+/*                                                                         */
+/* :Author: Günter Milde, based on html4css1.css by David Goodger          */
+/* :Id: $Id: plain.css 9615 2024-04-06 13:28:15Z milde $                                                               */
+/* :Copyright: © 2015 Günter Milde.                                        */
+/* :License: Released under the terms of the `2-Clause BSD license`_,      */
+/*    in short:                                                            */
+/*                                                                         */
+/*    Copying and distribution of this file, with or without modification, */
+/*    are permitted in any medium without royalty provided the copyright   */
+/*    notice and this notice are preserved.                                */
+/*                                                                         */
+/*    This file is offered as-is, without any warranty.                    */
+/*                                                                         */
+/* .. _2-Clause BSD license: http://www.spdx.org/licenses/BSD-2-Clause     */
+/* .. _CSS3: https://www.w3.org/Style/CSS/                                 */
+
+
+/* Document Structure */
+/* ****************** */
+
+/* "page layout" */
+body {
+  margin: 0;
+  background-color: #dbdbdb;
+  --field-indent: 9em; /* default indent of fields in field lists */
+}
+main, footer, header {
+  line-height:1.6;
+  /* avoid long lines --> better reading */
+  /* optimum is 45…75 characters/line <http://webtypography.net/2.1.2> */
+  /* OTOH: lines should not be too short because of missing hyphenation, */
+  max-width: 50rem;
+  padding: 1px 2%; /* 1px on top avoids grey bar above title (mozilla) */
+  margin: auto;
+}
+main {
+  counter-reset: table figure;
+  background-color: white;
+}
+footer, header {
+  font-size: smaller;
+  padding: 0.5em 2%;
+  border: none;
+}
+
+/* Table of Contents */
+ul.auto-toc > li > p {
+  padding-left: 1em;
+  text-indent: -1em;
+}
+nav.contents ul {
+  padding-left: 1em;
+}
+main > nav.contents ul ul ul ul:not(.auto-toc) {
+  list-style-type: '\2B29\ ';
+}
+main > nav.contents ul ul ul ul ul:not(.auto-toc) {
+  list-style-type: '\2B1D\ ';
+}
+
+/* Transitions */
+hr.docutils {
+  width: 80%;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  clear: both;
+}
+
+/* Paragraphs */
+
+/* vertical space (parskip) */
+p, ol, ul, dl, li,
+.footnote, .citation,
+div > math,
+table {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+h1, h2, h3, h4, h5, h6,
+dd, details > p:last-child {
+  margin-bottom: 0.5em;
+}
+
+/* Lists */
+/* ===== */
+
+/* Definition Lists */
+/* Indent lists nested in definition lists */
+dd > ul:only-child, dd > ol:only-child { padding-left: 1em; }
+
+/* Description Lists */
+/* styled like in most dictionaries, encyclopedias etc. */
+dl.description {
+  display: flow-root;
+}
+dl.description > dt {
+  font-weight: bold;
+  clear: left;
+  float: left;
+  margin: 0;
+  padding: 0;
+  padding-right: 0.3em;
+}
+dl.description > dd:after {
+  display: table;
+  content: "";
+  clear: left; /* clearfix for empty descriptions */
+}
+
+/* Field Lists */
+
+dl.field-list > dd,
+dl.docinfo > dd {
+  margin-left: var(--field-indent); /* adapted in media queries or HTML */
+}
+
+/* example for custom field-name width */
+dl.field-list.narrow > dd {
+  --field-indent: 5em;
+}
+/* run-in: start field-body on same line after long field names */
+dl.field-list.run-in > dd p {
+  display: block;
+}
+
+/* Bibliographic Fields */
+
+/* generally, bibliographic fields use dl.docinfo */
+/* but dedication and abstract are placed into divs */
+div.abstract p.topic-title {
+  text-align: center;
+}
+div.dedication {
+  margin: 2em 5em;
+  text-align: center;
+  font-style: italic;
+}
+div.dedication p.topic-title {
+  font-style: normal;
+}
+
+/* disclosures */
+details { padding-left: 1em; }
+summary { margin-left: -1em; }
+
+/* Text Blocks */
+/* =========== */
+
+/* Literal Blocks */
+pre.literal-block, pre.doctest-block,
+pre.math, pre.code {
+  font-family: monospace;
+}
+
+/* Block Quotes and Topics */
+bockquote { margin: 1em 2em; }
+blockquote p.attribution,
+.topic p.attribution {
+  text-align: right;
+  margin-left: 20%;
+}
+
+/* Tables */
+/* ====== */
+
+/* th { vertical-align: bottom; } */
+
+table tr { text-align: left; }
+
+/* "booktabs" style (no vertical lines) */
+table.booktabs {
+  border: 0;
+  border-top: 2px solid;
+  border-bottom: 2px solid;
+  border-collapse: collapse;
+}
+table.booktabs * {
+  border: 0;
+}
+table.booktabs th {
+  border-bottom: thin solid;
+}
+
+/* numbered tables (counter defined in div.document) */
+table.numbered > caption:before {
+  counter-increment: table;
+  content: "Table " counter(table) ": ";
+  font-weight: bold;
+}
+
+/* Explicit Markup Blocks */
+/* ====================== */
+
+/* Footnotes and Citations */
+/* ----------------------- */
+
+/* line on the left */
+.footnote-list {
+  border-left: solid thin;
+  padding-left: 0.25em;
+}
+
+/* Directives */
+/* ---------- */
+
+/* Body Elements */
+/* ~~~~~~~~~~~~~ */
+
+/* Images and Figures */
+
+/* let content flow to the side of aligned images and figures */
+figure.align-left,
+img.align-left,
+svg.align-left,
+video.align-left,
+div.align-left,
+object.align-left {
+  clear: left;
+  float: left;
+  margin-right: 1em;
+}
+figure.align-right,
+img.align-right,
+svg.align-right,
+video.align-right,
+div.align-right,
+object.align-right {
+  clear: right;
+  float: right;
+  margin-left: 1em;
+}
+/* Stop floating sidebars, images and figures */
+h1, h2, h3, h4, footer, header { clear: both; }
+
+/* Numbered figures */
+figure.numbered > figcaption > p:before {
+  counter-increment: figure;
+  content: "Figure " counter(figure) ": ";
+  font-weight: bold;
+}
+
+/* Admonitions and System Messages */
+.caution p.admonition-title,
+.attention p.admonition-title,
+.danger p.admonition-title,
+.error p.admonition-title,
+.warning p.admonition-title,
+div.error {
+  color: red;
+}
+
+/* Sidebar */
+/* Move right. In a layout with fixed margins, */
+/* it can be moved into the margin.            */
+aside.sidebar {
+  width: 30%;
+  max-width: 26em;
+  float: right;
+  clear: right;
+  margin-left: 1em;
+  margin-right: -1%;
+  background-color: #fffffa;
+}
+
+
+/* Code */
+pre.code { padding: 0.7ex }
+pre.code, code { background-color: #eeeeee }
+/* basic highlighting: for a complete scheme, see */
+/* https://docutils.sourceforge.io/sandbox/stylesheets/ */
+pre.code .comment, code .comment { color: #5C6576 }
+pre.code .keyword, code .keyword { color: #3B0D06; font-weight: bold }
+pre.code .literal.string, code .literal.string { color: #0C5404 }
+pre.code .name.builtin, code .name.builtin { color: #352B84 }
+pre.code .deleted, code .deleted { background-color: #DEB0A1}
+pre.code .inserted, code .inserted { background-color: #A3D289}
+
+
+/* Epigraph           */
+/* Highlights         */
+/* Pull-Quote         */
+/* Compound Paragraph */
+/* Container          */
+
+/* Inline Markup */
+/* ============= */
+
+sup, sub { line-height: 0.8; } /* do not add leading for lines with sup/sub */
+
+/* Inline Literals                                          */
+/* possible values: normal, nowrap, pre, pre-wrap, pre-line */
+/*   span.docutils.literal { white-space: pre-wrap; }       */
+
+/* Hyperlink References */
+a { text-decoration: none; }
+
+/* External Targets       */
+/*   span.target.external */
+/* Internal Targets       */
+/*   span.target.internal */
+/* Footnote References    */
+/*   a[role="doc-noteref"] */
+/* Citation References    */
+/*   a.citation-reference */
+
+</style>
+<style type="text/css">
+
+/* Stile della pagina generata da icone-di-stato.rst (vedi l'intestazione del sorgente). */
+:root { color-scheme: light; }
+body { max-width: 62rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #22232b; background: #ffffff; }
+h1 { font-size: 1.8rem; line-height: 1.25; }
+h2 { font-size: 1.35rem; margin-top: 2.2rem; border-bottom: 1px solid #d9dbe4; padding-bottom: .25rem; }
+h3 { font-size: 1.1rem; margin-top: 1.6rem; }
+/* collegamenti sottolineati: nel testo non si distinguono dal solo colore (WCAG 1.4.1) */
+a, a:visited { color: #1f4a8a; text-decoration: underline; }
+a.toc-backref { color: inherit; }
+code, tt, .literal { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: .9em; background: #f2f3f7; padding: 0 .2em; border-radius: 3px; }
+table { border-collapse: collapse; width: 100%; margin: .8rem 0 1.2rem; }
+th, td { border: 1px solid #d9dbe4; padding: .45rem .6rem; text-align: left; vertical-align: middle; }
+thead th { background: #eef0f5; }
+caption { text-align: left; font-weight: 600; padding-bottom: .3rem; }
+td img { vertical-align: middle; margin-right: .3rem; }
+dl.docinfo, table.docinfo { width: auto; }
+.contents ul { line-height: 1.8; }
+@media (max-width: 600px) { body { font-size: 15px; } th, td { padding: .35rem .4rem; } }
+
+</style>
+</head>
+<body class="with-toc">
+<main id="icone-di-stato-di-govway-convenzione-e-sua-logica">
+<h1 class="title">Icone di stato di GovWay: convenzione e sua logica</h1>
+<dl class="docinfo simple">
+<dt class="prodotto">Prodotto<span class="colon">:</span></dt>
+<dd class="prodotto"><p>GovWay 3.4.4 — console di gestione (govwayConsole) e console di monitoraggio (govwayMonitor)</p>
+</dd>
+<dt class="criteri">Criteri<span class="colon">:</span></dt>
+<dd class="criteri"><p>WCAG 2.1 — 1.4.1 Uso del colore, 1.4.11 Contrasto non testuale, 1.1.1 Contenuti non testuali</p>
+</dd>
+<dt class="date">Data<span class="colon">:</span></dt>
+<dd class="date">20 novembre 2026</dd>
+<dt class="revisione-prevista">Revisione prevista<span class="colon">:</span></dt>
+<dd class="revisione-prevista"><p>entro il 20 novembre 2027</p>
+</dd>
+</dl>
+<!-- Sorgente della pagina. La versione HTML (icone-di-stato.html) si rigenera con:
+rst2html5 - -language=it - -embed-stylesheet - -stylesheet-path=minimal.css,plain.css,stile.css \
+          icone-di-stato.rst icone-di-stato.html -->
+<nav class="contents local" id="indice" role="doc-toc">
+<p class="topic-title"><a class="reference internal" href="#top">Indice</a></p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#perche-questa-pagina" id="toc-entry-1">Perché questa pagina</a></p></li>
+<li><p><a class="reference internal" href="#la-convenzione" id="toc-entry-2">La convenzione</a></p></li>
+<li><p><a class="reference internal" href="#contrasti" id="toc-entry-3">Contrasti</a></p></li>
+<li><p><a class="reference internal" href="#realizzazione" id="toc-entry-4">Realizzazione</a></p></li>
+<li><p><a class="reference internal" href="#casi-censiti-e-corretti" id="toc-entry-5">Casi censiti e corretti</a></p></li>
+<li><p><a class="reference internal" href="#la-regola-ibm-style-color-misuse" id="toc-entry-6">La regola IBM style_color_misuse</a></p></li>
+<li><p><a class="reference internal" href="#origine-delle-immagini" id="toc-entry-7">Origine delle immagini</a></p></li>
+</ul>
+</nav>
+<section id="perche-questa-pagina">
+<h2><a class="toc-backref" href="#toc-entry-1" role="doc-backlink">Perché questa pagina</a></h2>
+<p>Nelle due console di GovWay molti stati si distinguevano <strong>solo dal colore</strong>: pallini verdi, gialli e
+rossi tutti uguali, glifi diversi solo per tinta, barre e fette dei grafici collegate alla legenda dal
+solo colore. Chi non distingue i colori, o li vede in modo diverso, non riceveva l'informazione
+(WCAG 1.4.1).</p>
+<p>Ogni caso è stato censito a mano, pagina per pagina, e corretto con un'unica convenzione: <strong>la forma
+porta il significato, il colore si aggiunge</strong>. Questa pagina riporta la convenzione, le icone scelte,
+la logica di ogni scelta e i rapporti di contrasto misurati.</p>
+<p>È anche la prova che giustifica la voce <span class="docutils literal">style_color_misuse</span> nei registri dei falsi positivi di
+questo target (<span class="docutils literal">falsePositives.govway_console.json</span> e <span class="docutils literal">falsePositives.govway_monitor.json</span>): vedi
+<a class="reference internal" href="#la-regola-ibm-style-color-misuse">La regola IBM style_color_misuse</a>.</p>
+</section>
+<section id="la-convenzione">
+<h2><a class="toc-backref" href="#toc-entry-2" role="doc-backlink">La convenzione</a></h2>
+<p>Le stesse forme valgono in tutte e due le console. Il significato, però, non è lo stesso ovunque:
+per questo le icone sono divise in <strong>famiglie</strong>, e dove il significato cambia cambia anche il simbolo.</p>
+<table>
+<caption>Simboli comuni</caption>
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 30.0%" />
+<col style="width: 48.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Simbolo</p></th>
+<th class="head"><p>Significato</p></th>
+<th class="head"><p>Logica</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>cerchio con spunta</p></td>
+<td><p>ok, abilitato</p></td>
+<td><p>la spunta è il segno universale di «a posto»; la lista transazioni la usava già per l'esito Ok</p></td>
+</tr>
+<tr><td><p>triangolo con «!»</p></td>
+<td><p>avviso</p></td>
+<td><p>la forma dell'avviso nella segnaletica di sicurezza (ISO 3864) e nelle principali librerie di
+interfaccia (Microsoft Fluent, Apple SF Symbols, Material, Bootstrap)</p></td>
+</tr>
+<tr><td><p>cerchio con X</p></td>
+<td><p>errore</p></td>
+<td><p>la X aggiunge un secondo indizio oltre al contorno; evita anche che il cerchio con «!» abbia
+significati diversi in punti diversi</p></td>
+</tr>
+<tr><td><p>cerchio con trattino</p></td>
+<td><p>disabilitato</p></td>
+<td><p>«spento», distinto dall'errore: un'API disabilitata non è un'API sbagliata</p></td>
+</tr>
+<tr><td><p>cerchio pieno a metà</p></td>
+<td><p>parzialmente abilitato</p></td>
+<td><p>lo stato fra i due estremi; resta giallo, fra il verde e il rosso</p></td>
+</tr>
+</tbody>
+</table>
+<section id="stato-di-un-entita-console-e-monitor">
+<h3>Stato di un'entità (console e monitor)</h3>
+<p>API, erogazioni, fruizioni, gruppi, connettori multipli, utenti; nel monitor lo stato del gateway
+nell'intestazione e nella pagina di stato, la gravità degli eventi, lo stato delle API in
+Configurazione API. Immagini SVG di 16×16 px con un <strong>alone bianco</strong>, che le stacca anche dal blu
+dell'intestazione.</p>
+<table>
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 25.0%" />
+<col style="width: 65.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Icona</p></th>
+<th class="head"><p>Significato</p></th>
+<th class="head"><p>Dove e con quale testo</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><img alt="cerchio verde con spunta" src="img/stato_ok.svg" style="width: 16px;" /></p></td>
+<td><p>ok / abilitato</p></td>
+<td><p>«API attiva», «API correttamente configurata», «Configurazione abilitata», «Utente con
+abilitazioni valide»; stato del gateway Ok; eventi INFO e DEBUG; API abilitata</p></td>
+</tr>
+<tr><td><p><img alt="triangolo giallo con punto esclamativo" src="img/stato_avviso.svg" style="width: 16px;" /></p></td>
+<td><p>avviso</p></td>
+<td><p>API con azioni mancanti su alcuni servizi o con avvisi di profilo; connettore con scheduling
+della consegna disabilitato; stato del gateway Warning; eventi WARN</p></td>
+</tr>
+<tr><td><p><img alt="cerchio rosso con X" src="img/stato_errore.svg" style="width: 16px;" /></p></td>
+<td><p>errore</p></td>
+<td><p>API senza risorse, servizi o azioni; controllo degli accessi con autorizzazione senza
+fruitori, ruoli o scope; utente non valido o con password scaduta; stato del gateway Error;
+eventi ERROR e FATAL</p></td>
+</tr>
+<tr><td><p><img alt="cerchio pieno a metà, giallo" src="img/stato_parziale.svg" style="width: 16px;" /></p></td>
+<td><p>parzialmente abilitato</p></td>
+<td><p>«Alcuni gruppi dell'API sono disabilitati» (elenco erogazioni e fruizioni, Configurazione API)</p></td>
+</tr>
+<tr><td><p><img alt="cerchio rosso con trattino" src="img/stato_disabilitato.svg" style="width: 16px;" /></p></td>
+<td><p>disabilitato</p></td>
+<td><p>API, gruppo o connettore disabilitato; colonna «Abilitato» delle porte (modalità avanzata)</p></td>
+</tr>
+<tr><td><p><img alt="cerchio grigio con trattino" src="img/stato_non_attivo.svg" style="width: 16px;" /></p></td>
+<td><p>non attivo</p></td>
+<td><p>gruppo predefinito con tutte le risorse riassegnate ad altri gruppi; API senza stato</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="singola-funzionalita-configurata-console">
+<h3>Singola funzionalità configurata (console)</h3>
+<p>Righe della pagina Configurazione di erogazioni e fruizioni (Controllo accessi, Rate limiting,
+Validazione, CORS, Caching, Sicurezza messaggio, MTOM, Trasformazioni, Tracciamento, Registrazione
+messaggi, Proprietà, Opzioni avanzate) ed elenchi di policy, plugin, handler e regole.</p>
+<p>Qui il significato è diverso dallo stato di un'entità: dice se <strong>una funzionalità</strong> è abilitata e
+configurata bene. Resta il <strong>sigillo</strong> che la console usava già, così la funzionalità si riconosce a
+colpo d'occhio dall'entità (cerchio); cambia il simbolo interno, che segue la convenzione. Prima le
+quattro icone avevano tutte la spunta, anche quella di «Disabilitato». Disegno di 12 px dentro un
+riquadro di 16 px, come le icone precedenti.</p>
+<table>
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 30.0%" />
+<col style="width: 60.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Icona</p></th>
+<th class="head"><p>Significato</p></th>
+<th class="head"><p>Esempi</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><img alt="sigillo verde con spunta" src="img/funzionalita_abilitata.svg" style="width: 16px;" /></p></td>
+<td><p>abilitata e configurata</p></td>
+<td><p>«Abilitato», autenticazione e autorizzazione attive</p></td>
+</tr>
+<tr><td><p><img alt="sigillo arancio con punto esclamativo" src="img/funzionalita_avviso.svg" style="width: 16px;" /></p></td>
+<td><p>abilitata, non bloccante</p></td>
+<td><p>«WarningOnly» di Rate limiting, Validazione e policy; autenticazione «Opzionale»</p></td>
+</tr>
+<tr><td><p><img alt="sigillo rosso con X" src="img/funzionalita_errore.svg" style="width: 16px;" /></p></td>
+<td><p>abilitata ma configurata in modo errato</p></td>
+<td><p>sicurezza o MTOM incompleti, autorizzazione senza fruitori, trasformazione che non trasforma
+nulla: il testo visibile può restare «Abilitato», la X dice l'errore e il motivo è nel testo
+alternativo</p></td>
+</tr>
+<tr><td><p><img alt="sigillo grigio con trattino" src="img/funzionalita_disabilitata.svg" style="width: 16px;" /></p></td>
+<td><p>disabilitata</p></td>
+<td><p>«Disabilitato»</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="stato-di-salute-degli-allarmi-console">
+<h3>Stato di salute degli allarmi (console)</h3>
+<p>La riga «Allarmi» della Configurazione e l'elenco degli allarmi quando mostra gli stati. È uno stato
+di salute, non una configurazione: usa le forme degli allarmi del monitor, a 12 px.</p>
+<table>
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 90.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Icona</p></th>
+<th class="head"><p>Significato</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><img alt="cerchio verde con spunta, piccolo" src="img/allarme_ok.svg" style="width: 16px;" /></p></td>
+<td><p>Ok</p></td>
+</tr>
+<tr><td><p><img alt="triangolo giallo con punto esclamativo, piccolo" src="img/allarme_warning.svg" style="width: 16px;" /></p></td>
+<td><p>Warning</p></td>
+</tr>
+<tr><td><p><img alt="cerchio rosso con X, piccolo" src="img/allarme_error.svg" style="width: 16px;" /></p></td>
+<td><p>Error</p></td>
+</tr>
+<tr><td><p><img alt="cerchio grigio con trattino, piccolo" src="img/allarme_disabilitato.svg" style="width: 16px;" /></p></td>
+<td><p>allarme disabilitato, oppure abilitato ma senza stato («Stato non disponibile»)</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="allarmi-del-monitor">
+<h3>Allarmi del monitor</h3>
+<p>Elenco e riepilogo in alto. Glifi del font Material Icons già caricato dal monitor. Le stesse forme
+valgono con e senza la presa in carico; prima, senza presa in carico, tutti gli stati erano lo stesso
+pallino.</p>
+<table>
+<colgroup>
+<col style="width: 14.0%" />
+<col style="width: 86.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Icona</p></th>
+<th class="head"><p>Significato</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><img alt="glifo verde: cerchio con spunta" src="img/monitor-allarme-ok.png" style="width: 34px;" /></p></td>
+<td><p>Ok (<span class="docutils literal">check_circle</span>)</p></td>
+</tr>
+<tr><td><p><img alt="glifo arancio: triangolo con punto esclamativo" src="img/monitor-allarme-warning.png" style="width: 34px;" /></p></td>
+<td><p>Warn (<span class="docutils literal">warning</span>)</p></td>
+</tr>
+<tr><td><p><img alt="glifo rosso: cerchio con X" src="img/monitor-allarme-error.png" style="width: 34px;" /></p></td>
+<td><p>Error (<span class="docutils literal">cancel</span>)</p></td>
+</tr>
+<tr><td><p><img alt="glifo grigio: cerchio con trattino" src="img/monitor-allarme-disabilitato.png" style="width: 34px;" /></p></td>
+<td><p>Disabilitato (<span class="docutils literal">do_not_disturb_on</span>)</p></td>
+</tr>
+<tr><td><p><img alt="triangolo arancio con una piccola spunta nell'angolo" src="img/monitor-allarme-warning-presa-in-carico.png" style="width: 34px;" /> <img alt="cerchio rosso con X e una piccola spunta nell'angolo" src="img/monitor-allarme-error-presa-in-carico.png" style="width: 34px;" /></p></td>
+<td><p>preso in carico (acknowledge): la stessa icona con una piccola spunta nell'angolo. Prima era un
+glifo diverso, uguale per Warn ed Error e distinto solo dal colore</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="esiti-delle-transazioni-e-grafici-monitor">
+<h3>Esiti delle transazioni e grafici (monitor)</h3>
+<table>
+<colgroup>
+<col style="width: 14.0%" />
+<col style="width: 14.0%" />
+<col style="width: 72.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Lista</p></th>
+<th class="head"><p>Grafico</p></th>
+<th class="head"><p>Esito</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><img alt="spunta su fondo grigio" src="img/monitor-transazione-ok.png" style="width: 40px;" /></p></td>
+<td><p><img alt="cerchio verde con spunta" src="img/monitor-grafico-ok.png" style="width: 34px;" /></p></td>
+<td><p>Ok</p></td>
+</tr>
+<tr><td><p><img alt="triangolo con punto esclamativo su fondo giallo" src="img/monitor-transazione-fault.png" style="width: 40px;" /></p></td>
+<td><p><img alt="triangolo arancio con punto esclamativo" src="img/monitor-grafico-fault.png" style="width: 34px;" /></p></td>
+<td><p>Fault applicativo (prima nella lista era il cerchio con «!»)</p></td>
+</tr>
+<tr><td><p><img alt="cerchio con X su fondo rosso chiaro" src="img/monitor-transazione-fallita.png" style="width: 40px;" /></p></td>
+<td><p><img alt="cerchio rosso con X" src="img/monitor-grafico-fallite.png" style="width: 34px;" /></p></td>
+<td><p>Fallita (prima nella lista era il triangolo: i due glifi erano invertiti rispetto alla
+convenzione)</p></td>
+</tr>
+</tbody>
+</table>
+<p>Gli stessi glifi sono usati nella lista delle transazioni (vista personalizzata e Live), accanto
+all'etichetta «Esito» del dettaglio della transazione e nelle consegne ai connettori multipli; nella
+vista classica le immagini sono le SVG delle entità (<img alt="cerchio verde con spunta" src="img/stato_ok.svg" style="width: 16px;" /> <img alt="triangolo giallo con punto esclamativo" src="img/stato_avviso.svg" style="width: 16px;" /> <img alt="cerchio rosso con X" src="img/stato_errore.svg" style="width: 16px;" />).</p>
+<p>Nei grafici a barre per esito l'icona compare <strong>sopra ogni colonna non vuota</strong> e nella legenda; le
+colonne a zero non hanno icona. Le icone sono disegnate in SVG, non con il font, così restano
+corrette anche nell'esportazione del grafico come immagine.</p>
+<p>Nelle <strong>torte</strong> la percentuale stampata sulla fetta è seguita dal numero della voce di legenda, per
+esempio «35.4% (1)»: senza, la fetta si collegava alla sua voce solo dal colore. Le fette troppo
+piccole per avere un'etichetta restano collegate dal colore e dal suggerimento; per loro
+l'alternativa testuale è il report «Tabella» della stessa distribuzione, a cui rimanda anche il nome
+accessibile del grafico.</p>
+</section>
+<section id="tracciamento-pdnd-monitor">
+<h3>Tracciamento PDND (monitor)</h3>
+<table>
+<colgroup>
+<col style="width: 14.0%" />
+<col style="width: 86.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Icona</p></th>
+<th class="head"><p>Stato dell'invio</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p><img alt="glifo verde: cerchio con spunta" src="img/monitor-allarme-ok.png" style="width: 34px;" /></p></td>
+<td><p>inviato</p></td>
+</tr>
+<tr><td><p><img alt="glifo arancio: orologio pieno" src="img/monitor-pdnd-in-elaborazione.png" style="width: 34px;" /></p></td>
+<td><p>in elaborazione (orologio pieno)</p></td>
+</tr>
+<tr><td><p><img alt="glifo rosso: cerchio con X" src="img/monitor-allarme-error.png" style="width: 34px;" /></p></td>
+<td><p>errore, pubblicazione fallita</p></td>
+</tr>
+<tr><td><p><img alt="glifo grigio: cerchio con tre puntini" src="img/monitor-pdnd-in-attesa.png" style="width: 34px;" /></p></td>
+<td><p>in attesa (cerchio con puntini)</p></td>
+</tr>
+</tbody>
+</table>
+<p>Lo stato è anche annunciato ai lettori di schermo; prima era solo nel suggerimento al passaggio del
+mouse.</p>
+</section>
+</section>
+<section id="contrasti">
+<h2><a class="toc-backref" href="#toc-entry-3" role="doc-backlink">Contrasti</a></h2>
+<p>Per WCAG 1.4.11 ogni parte grafica necessaria a capire lo stato deve avere almeno <strong>3:1</strong>: il
+contorno contro lo sfondo della pagina e il simbolo interno contro il riempimento. I rapporti sono
+calcolati con la formula WCAG della luminanza relativa sugli sfondi reali: bianco, <span class="docutils literal">#f6f6fc</span> (righe
+alterne), <span class="docutils literal">#daffda</span> (riga sotto il puntatore), <span class="docutils literal">#214171</span> (intestazione del monitor), <span class="docutils literal">#46464e</span>
+(riepilogo degli allarmi).</p>
+<table>
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 25.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr><th class="head"><p>Elemento</p></th>
+<th class="head"><p>Colore</p></th>
+<th class="head"><p>Rapporto minimo</p></th>
+</tr>
+</thead>
+<tbody>
+<tr><td><p>verde (entità, funzionalità)</p></td>
+<td><p><span class="docutils literal">#2e9e44</span></p></td>
+<td><p>3,45:1 la spunta bianca sul verde; 3,20:1 sulle righe alterne, con bordo <span class="docutils literal">#1e7a2c</span></p></td>
+</tr>
+<tr><td><p>rosso (entità)</p></td>
+<td><p><span class="docutils literal">#e53935</span></p></td>
+<td><p>4,23:1 la X bianca sul rosso</p></td>
+</tr>
+<tr><td><p>giallo (avviso, parziale)</p></td>
+<td><p><span class="docutils literal">#f9ce1d</span>, bordo <span class="docutils literal">#7a5f00</span></p></td>
+<td><p>il giallo sul bianco ha 1,5:1, quindi la forma la danno bordo e divisorio scuri: 6,06:1 sul
+bianco, 4,00:1 sul giallo; «!» scuro sul giallo 10,5:1</p></td>
+</tr>
+<tr><td><p>grigio (non attivo)</p></td>
+<td><p><span class="docutils literal">#86868b</span></p></td>
+<td><p>3,37:1 sulle righe alterne; il trattino bianco 3,62:1</p></td>
+</tr>
+<tr><td><p>sigillo arancio</p></td>
+<td><p><span class="docutils literal">#fbb03b</span>, bordo <span class="docutils literal">#7a4e00</span></p></td>
+<td><p>bordo 7,20:1 sul bianco; «!» 8,62:1</p></td>
+</tr>
+<tr><td><p>sigillo rosso</p></td>
+<td><p><span class="docutils literal">#ff0000</span></p></td>
+<td><p>4,00:1 la X bianca</p></td>
+</tr>
+<tr><td><p>sigillo grigio</p></td>
+<td><p><span class="docutils literal">#46464e</span></p></td>
+<td><p>9,35:1</p></td>
+</tr>
+<tr><td><p>alone delle icone di entità</p></td>
+<td><p>bianco</p></td>
+<td><p>10,2:1 sul blu dell'intestazione</p></td>
+</tr>
+<tr><td><p>allarmi e PDND su fondo chiaro</p></td>
+<td><p><span class="docutils literal">#ff2d39</span>, <span class="docutils literal">#b87b36</span>, <span class="docutils literal">#009c4b</span>, <span class="docutils literal">#86868b</span></p></td>
+<td><p>3,26:1 nel caso peggiore (arancio sulla riga sotto il puntatore). Prima i colori del Tracciamento
+PDND erano quelli pensati per il fondo scuro: arancio 1,9:1, grigio 1,8:1, verde 2,7:1</p></td>
+</tr>
+<tr><td><p>allarmi sul riepilogo scuro</p></td>
+<td><p><span class="docutils literal">#ff5660</span>, <span class="docutils literal">#ffab4d</span>, <span class="docutils literal">#00b658</span>, <span class="docutils literal">#c2c2c9</span></p></td>
+<td><p>3,01:1 nel caso peggiore (rosso)</p></td>
+</tr>
+<tr><td><p>glifi delle transazioni</p></td>
+<td><p><span class="docutils literal">#3f3f47</span></p></td>
+<td><p>4,85:1 sul rosso chiaro della cella Fallita</p></td>
+</tr>
+<tr><td><p>icone dei grafici</p></td>
+<td><p>colore della serie scurito</p></td>
+<td><p>il colore si scurisce finché arriva ad almeno 3:1 sul bianco; il simbolo interno è bianco</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="realizzazione">
+<h2><a class="toc-backref" href="#toc-entry-4" role="doc-backlink">Realizzazione</a></h2>
+<ul class="simple">
+<li><p><strong>Una sola scelta dell'icona</strong> per le due console: la classe <span class="docutils literal">IconaStato</span> del package condiviso
+<span class="docutils literal">org.openspcoop2.web.lib.mvc</span> (<span class="docutils literal">tools/web_interfaces/lib/mvc</span>). La usano i JSP della console al
+posto delle 16 copie della scelta che c'erano, e nel monitor l'intestazione e Configurazione API.</p></li>
+<li><p><strong>Valori di stato con un significato proprio</strong>: <span class="docutils literal">CheckboxStatusType</span> ha ora <span class="docutils literal">PARZIALE</span> ed
+<span class="docutils literal">ERRORE</span>, oltre ad <span class="docutils literal">ABILITATO</span>, <span class="docutils literal">DISABILITATO</span> e <span class="docutils literal">WARNING_ONLY</span>. Prima il rosso valeva sia
+«disabilitato» sia «errore», e il giallo sia «parziale» sia «avviso»: sostituire le immagini non
+bastava.</p></li>
+<li><p><strong>Immagini</strong>: le SVG di questa pagina sono quelle di GovWay, in
+<span class="docutils literal"><span class="pre">tools/web_interfaces/lib/web-content/images/tema_link</span></span>.</p></li>
+<li><p><strong>Testo alternativo</strong>: è lo stato stesso, non più la parola fissa «Stato».</p></li>
+</ul>
+</section>
+<section id="casi-censiti-e-corretti">
+<h2><a class="toc-backref" href="#toc-entry-5" role="doc-backlink">Casi censiti e corretti</a></h2>
+<p>Console di gestione:</p>
+<ul class="simple">
+<li><p>elenchi di erogazioni, fruizioni, API, utenti, allarmi, policy, plugin, handler, regole;</p></li>
+<li><p>dettaglio di erogazioni, fruizioni e API (stato accanto al nome);</p></li>
+<li><p>pagina Configurazione dei gruppi (stato del gruppo e righe delle funzionalità);</p></li>
+<li><p>connettori multipli;</p></li>
+<li><p>date di scadenza dei certificati, rosse e ora seguite da «(scaduto)».</p></li>
+</ul>
+<p>Console di monitoraggio:</p>
+<ul class="simple">
+<li><p>intestazione, pagina di stato, Eventi;</p></li>
+<li><p>allarmi (elenco e riepilogo, con e senza presa in carico);</p></li>
+<li><p>lista delle transazioni (vista personalizzata, vista classica e Live), dettaglio della transazione e
+consegne ai connettori multipli;</p></li>
+<li><p>Configurazione API;</p></li>
+<li><p>Tracciamento PDND;</p></li>
+<li><p>grafici a barre per esito e torte di Analisi Statistica e del cruscotto Monitoraggio Transazioni.</p></li>
+</ul>
+<p>Casi esaminati e lasciati come sono, perché il colore non è l'unico mezzo: colonne esito e latenza
+delle transazioni (colore ridondante con glifo e codice HTTP), collegamenti nel testo (coperti dalla
+regola automatica di axe, senza violazioni).</p>
+</section>
+<section id="la-regola-ibm-style-color-misuse">
+<h2><a class="toc-backref" href="#toc-entry-6" role="doc-backlink">La regola IBM style_color_misuse</a></h2>
+<p>IBM Equal Access segnala con <span class="docutils literal">style_color_misuse</span> <strong>ogni foglio di stile</strong> che usa colori, e chiede
+di verificare a mano che il colore non sia l'unico modo di trasmettere un'informazione. Non indica un
+difetto preciso, e nessuna correzione la fa sparire: compare su ogni pagina con un CSS che usa colori.</p>
+<p>La verifica che chiede è stata fatta caso per caso, come descritto in questa pagina, e i casi trovati
+sono stati corretti. Per questo i registri dei falsi positivi di console e monitor hanno una voce per
+la regola, che rimanda qui e ha una <strong>scadenza</strong>: alla scadenza la verifica va rifatta, controllando
+le pagine nuove o cambiate.</p>
+</section>
+<section id="origine-delle-immagini">
+<h2><a class="toc-backref" href="#toc-entry-7" role="doc-backlink">Origine delle immagini</a></h2>
+<p>Le SVG sono parte di GovWay (GPLv3, Link.it). Le immagini PNG dei glifi del monitor sono rese del
+font Material Icons (Apache 2.0) con i colori del monitor, e sono state catturate dalle pagine
+installate.</p>
+</section>
+</main>
+</body>
+</html>

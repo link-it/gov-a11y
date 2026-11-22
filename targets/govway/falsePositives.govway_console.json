@@ -1,6 +1,5 @@
 {
-  "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi. Si applica SOLO agli incomplete, mai alle violazioni. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato): una deroga senza prova è un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, così la misura viene rifatta periodicamente. Riferito da targets.govway_console.json -> console.falsePositives.",
-
+  "$comment": "Occorrenze esaminate e riconosciute come falsi positivi per govwayConsole. Per axe-core si applica SOLO agli incomplete, mai alle violazioni; le voci con \"engine\": \"equalAccess\" valgono per il secondo motore, violazioni comprese, e con failOnEqualAccess tolgono la violazione dal gate: vi entrano solo casi dimostrati sulla specifica e sui browser. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato): una deroga senza prova è un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, così la misura viene rifatta periodicamente. Riferito da targets.govway_console.json -> console.falsePositives.",
   "falsePositives": [
     {
       "id": "icon-font-non-e-testo",
@@ -33,15 +32,6 @@
       "expires": "2027-09-01"
     },
     {
-      "id": "campo-suggerimento-completamento-automatico-ruolo-presentation",
-      "rule": "aria-allowed-role",
-      "selector": "input.tt-hint",
-      "reason": "axe avverte che 'role=presentation' andrebbe rimosso «se l'elemento viene reso visibile». Non accade: è il campo suggerimento del completamento automatico, un clone del campo vero che la libreria typeahead crea in sola lettura, fuori dall'ordine di tabulazione e nascosto alle tecnologie assistive, e che resta tale per tutta la vita della pagina.",
-      "verification": "Verificato nel sorgente della libreria (tools/web_interfaces/lib/js/typeahead.bundle.js, creazione del campo suggerimento): il clone riceve 'readonly', tabindex '-1', aria-hidden 'true' e role 'presentation', e perde id, name, placeholder ed etichette; nessun ramo del codice rimuove quegli attributi. In pagina l'elemento non è raggiungibile da tastiera né compare nell'albero di accessibilità.",
-      "author": "andrea.poli@link.it",
-      "expires": "2027-09-01"
-    },
-    {
       "id": "campo-data-aria-controls-pannello-creato-dalla-libreria",
       "rule": "aria-valid-attr-value",
       "selector": "input.hasDatepicker[aria-controls='ui-datepicker-div']",
@@ -59,6 +49,188 @@
       "verification": "Misurati in pagina (2026-09-28) sulla vista Auditing, con il pannello aperto, i colori effettivamente resi: nota #616161 su #ffffff = 6,19:1; campi del filtro #3c3c44 su #ffffff = 10,93:1. Oltre la soglia di 4,5:1.",
       "author": "andrea.poli@link.it",
       "expires": "2027-09-01"
+    },
+    {
+      "id": "etichetta-della-casella-nella-colonna-delle-etichette",
+      "engine": "equalAccess",
+      "rule": "input_label_after",
+      "selector": "div.prop input[type=\"checkbox\"], div.prop input[type=\"radio\"]",
+      "reason": "Nei form della console ogni campo, caselle comprese, ha l'etichetta nella colonna di sinistra del suo blocco 'prop', allineata a destra, e il campo nella colonna di destra: un'impaginazione uniforme in tutta l'applicazione. IBM Equal Access chiede che l'etichetta di caselle e radio stia dopo il campo e la collega al criterio 3.3.2 citando la tecnica G162. G162 e' una tecnica sufficiente, quindi informativa: il 3.3.2 chiede che il campo abbia un'etichetta, non in che posizione, e nessuna tecnica di fallimento WCAG considera un errore l'etichetta posta prima della casella. Lo scopo di G162, etichetta vicina al campo e relazione prevedibile, e' rispettato: l'etichetta e' sulla stessa riga, a 32px, ed e' associata alla casella con 'for' (nome accessibile corretto). La voce copre solo le caselle e i radio dei blocchi 'prop'.",
+      "verification": "Verificato il 19/11/2026 su cinque pagine (gestione CORS, controllo del traffico, soggetto, opzioni avanzate e interfaccia di un'API) su tutte le occorrenze segnalate: etichetta nello stesso blocco 'prop' della casella, sulla stessa riga, fine del testo a 32px dalla casella in tutti i casi, nome accessibile della casella uguale al testo dell'etichetta ('Validazione Specifica', 'Allow Credentials', 'Includi Descrizione Errore', ...). Regola IBM (accessibility-checker-engine 4.0.34): input_label_after, rulesets WCAG_2_x num 3.3.2, help con il solo riferimento a G162.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "testo-di-un-comando-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": ":is([role=\"button\"], [role=\"link\"], a[href], button) :is(div, p), :is(div, p):is([role=\"button\"], [role=\"link\"])",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. Il testo sta dentro un comando, di cui e' il nome: l'etichetta 'Profilo: Tutti' del pulsante che apre il menu dei profili (div#menuModalita, role=button). Per WAI-ARIA 1.2 i figli di un 'button' sono presentazionali, quindi un titolo li' non esisterebbe per le tecnologie assistive. IBM valuta solo grassetto e dimensione del testo, senza guardare il ruolo degli antenati.",
+      "verification": "Verificato il 19/11/2026 sulla scansione completa della console: tutti i casi coperti sono il div.text-decor dentro div#menuModalita[role=button][aria-haspopup=menu]; nessun testo coperto e' fuori da un comando.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "etichetta-di-campo-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "div.prop:has(> label, > span.gw-etichetta-vuota), div.divNoEdit",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. E' l'etichetta di un campo del form o di un valore in sola lettura ('Tipo', 'Descrizione', 'Stato', 'Nome'...), in grassetto e piu' grande del corpo, nella colonna delle etichette. IBM la propone come titolo quando il campo sta in un blocco annidato e il suo percorso si ferma prima di incontrarlo. Le sezioni dei form hanno gia' i loro titoli (sottotitoli con role=heading). Stessa risposta per i valori in sola lettura (div.divNoEdit, es. 'GovWay 3.4.4' nella pagina Informazioni): sono il valore di un campo, non un titolo.",
+      "verification": "Verificato il 19/11/2026 su configurazioneGenerale.do e sulle pagine di elenco della console: i 11 casi div.prop della pagina di configurazione hanno come primo figlio un <label> (edit-page.jsp), seguito dal campo o dal valore; il testo proposto da IBM coincide con quello dell'etichetta. Esteso il 20/11/2026 alla pagina Informazioni: i casi sono div.divNoEdit con lo span.spanNoEdit del valore, accanto all'etichetta del campo.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "form-senza-campi-da-inviare",
+      "engine": "equalAccess",
+      "rule": "form_submit_button_exists",
+      "selector": "form:not(:has(input:not([type=\"hidden\"], [type=\"button\"], [type=\"submit\"], [type=\"image\"], [type=\"reset\"]), select, textarea))",
+      "reason": "Caso da verificare ('il form ha un pulsante di invio?'): il form non ha alcun campo compilabile, solo campi nascosti e comandi. Non c'e' nulla che l'utente inserisca e debba inviare, quindi un pulsante di invio non ha oggetto, e non c'e' input che possa provocare un cambio di contesto (WCAG 3.2.2, il criterio a cui IBM lega la regola).",
+      "verification": "Verificato il 19/11/2026: il selettore copre solo form senza input diversi da hidden/button/submit/image/reset, senza select e senza textarea; i form con campi restano esclusi e da verificare.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "fuoco-coperto-dietro-la-finestra-modale",
+      "engine": "equalAccess",
+      "rule": "element_tabbable_unobscured",
+      "selector": "body:has(> .ui-widget-overlay) :not(.ui-dialog, .ui-dialog *)",
+      "reason": "Caso da verificare ('l'elemento col fuoco e' coperto?') su un elemento della pagina sottostante mentre e' aperta una finestra modale (jQuery UI dialog con modal: true, es. 'Informazioni d'uso', 'Visualizza riferimenti', 'Proprieta''). Con la finestra aperta il Tab resta nella finestra e l'elemento non riceve il fuoco da tastiera, quindi la domanda non si pone in questo stato; a finestra chiusa lo stesso elemento (voci del menu, pulsanti dell'intestazione) e' misurato dal percorso col Tab nelle altre viste, dove questi casi risultano confermati.",
+      "verification": "Verificato il 19/11/2026 sulla scansione completa della console: nelle 20 viste con una finestra aperta il percorso col Tab parte dalla finestra e vi resta, con 2 fermate (pulsante 'CHIUDI' e area di testo); il selettore richiede l'overlay di jQuery UI, presente solo a finestra aperta, e i casi coperti sono tutti fuori dalla finestra (.ui-dialog) (voci del menu laterale, 'Profilo', 'Menu utente', 'Azioni disponibili'). Nelle viste senza finestra gli stessi elementi sono confermati dal percorso col Tab (fuoco visibile, non coperto).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "fuoco-visibile-dietro-la-finestra-modale",
+      "engine": "equalAccess",
+      "rule": "style_focus_visible",
+      "selector": "body:has(> .ui-widget-overlay) :not(.ui-dialog, .ui-dialog *)",
+      "reason": "Caso da verificare ('l'indicatore del fuoco e' visibile?') su un elemento della pagina sottostante mentre e' aperta una finestra modale (jQuery UI dialog con modal: true, es. 'Informazioni d'uso', 'Visualizza riferimenti', 'Proprieta''). Con la finestra aperta il Tab resta nella finestra e l'elemento non riceve il fuoco da tastiera, quindi la domanda non si pone in questo stato; a finestra chiusa lo stesso elemento (voci del menu, pulsanti dell'intestazione) e' misurato dal percorso col Tab nelle altre viste, dove questi casi risultano confermati.",
+      "verification": "Verificato il 19/11/2026 sulla scansione completa della console: nelle 20 viste con una finestra aperta il percorso col Tab parte dalla finestra e vi resta, con 2 fermate (pulsante 'CHIUDI' e area di testo); il selettore richiede l'overlay di jQuery UI, presente solo a finestra aperta, e i casi coperti sono tutti fuori dalla finestra (.ui-dialog) (voci del menu laterale, 'Profilo', 'Menu utente', 'Azioni disponibili'). Nelle viste senza finestra gli stessi elementi sono confermati dal percorso col Tab (fuoco visibile, non coperto).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "icona-della-finestra-info-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "div.finestraDialogInfoUsoModalHeaderSx",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no, e il testo proposto e' vuoto. Il blocco contiene solo l'icona della finestra informativa (glifo material-icons con aria-hidden=true, info-uso-modal.jsp); il titolo della finestra e' nel blocco accanto, dichiarato come titolo (role=heading).",
+      "verification": "Verificato il 20/11/2026 sulle finestre 'Visualizza riferimenti' e 'Proprieta'': il blocco contiene solo span.icon-box > i.material-icons[aria-hidden=true].",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "indicatore-del-soggetto-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "div.text-decor",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. 'Soggetto: ENTE' nell'intestazione e' l'indicatore del soggetto operativo corrente (stato dell'applicazione), mostrato come testo quando non c'e' altro soggetto da scegliere.",
+      "verification": "Verificato il 20/11/2026 sulle viste di cambio profilo: il blocco div.text-decor dell'intestazione contiene solo l'etichetta 'Soggetto:' e il nome del soggetto.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "schede-jquery-ui-gestiscono-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "ul.ui-tabs-nav[role=\"tablist\"]",
+      "reason": "Caso da verificare ('la lista di schede ha un accesso da tastiera?'): si'. Le schede sono il widget tabs di jQuery UI, che gestisce frecce, Inizio e Fine con tabindex mobile (_tabKeydown, registrato sulle singole schede role=tab); IBM esamina il contenitore ul, che non ha gestori propri. jquery-ui-tabs-a11y.js toglie solo l'ancora annidata e non tocca la tastiera.",
+      "verification": "Verificato il 20/11/2026 sul codice: jQuery UI 1.13, widget tabs, _tabKeydown sui tab (LEFT/UP, RIGHT/DOWN, HOME, END, SPACE, ENTER) e tabindex 0 solo sulla scheda attiva; jquery-ui-tabs-a11y.js ridefinisce solo _isLocal e _processTabs. Le viste coperte sono le configurazioni di erogazioni e fruizioni.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "menu-di-riga-gestisce-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "ul[role=\"menu\"]",
+      "reason": "Caso da verificare ('il menu ha un accesso da tastiera?'): si'. Il menu delle azioni di riga si apre con Invio dal suo pulsante, si percorre con le frecce (voci role=menuitem con tabindex mobile) e si chiude con Esc riportando il fuoco al pulsante; i gestori sono sulle voci.",
+      "verification": "Verificato il 20/11/2026 sull'elenco degli allarmi: Invio sul pulsante 'Azioni disponibili' (role=button) apre il menu con il fuoco sulla voce 'Visualizza runtime' (role=menuitem), Esc lo chiude e riporta il fuoco al pulsante.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "calendario-gestisce-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "input.hasDatepicker[role=\"combobox\"], table.ui-datepicker-calendar[role=\"grid\"]",
+      "reason": "Caso da verificare ('il componente ha un accesso da tastiera?'): si'. Il campo data e la griglia del calendario (jquery-ui-datepicker-a11y.js) gestiscono frecce, Pagina su/giu', Inizio/Fine, Invio ed Esc; Tab entra nel calendario e dall'ultimo comando prosegue nella pagina chiudendolo.",
+      "verification": "Verificato il 20/11/2026 sul filtro date dell'auditing: le frecce spostano il giorno (annunciato nella regione live), Tab percorre i comandi del calendario e dall'ultimo passa al campo successivo (corretto nella stessa data il giro senza uscita).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "fuoco-visibile-nella-finestra-dietro-la-finestra-modale",
+      "engine": "equalAccess",
+      "rule": "element_tabbable_visible",
+      "selector": "body:has(> .ui-widget-overlay) :not(.ui-dialog, .ui-dialog *)",
+      "reason": "Caso da verificare ('con il fuoco l'elemento e' visibile?'): l'elemento ('Salta al contenuto' e gli altri comandi della pagina) sta dietro una finestra di dialogo modale di jQuery UI aperta, che trattiene il fuoco: finche' e' aperta non riceve il fuoco da tastiera. Nella stessa vista a finestra chiusa il percorso col Tab lo misura.",
+      "verification": "Verificato il 20/11/2026 sulle finestre 'Visualizza riferimenti' e 'Proprieta'': con la finestra aperta il Tab cicla fra i suoi comandi; 'Salta al contenuto' diventa visibile col fuoco nelle viste senza finestra.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "campo-suggerimento-sovrapposto-non-e-un-bersaglio",
+      "engine": "equalAccess",
+      "rule": "target_spacing_sufficient",
+      "selector": "input.tt-input",
+      "reason": "Caso da verificare ('il bersaglio e' abbastanza distante da quello che lo sovrappone?'): il bersaglio sovrapposto e' il campo del suggerimento di typeahead (input.tt-hint), che la libreria mette sotto il campo vero per mostrare il completamento in grigio: readonly, tabindex=-1, aria-hidden=true, coperto dal campo vero. Non e' un bersaglio: il clic arriva al campo vero.",
+      "verification": "Verificato il 20/11/2026 sul codice di typeahead.bundle.js (creazione del campo suggerimento: readonly, tabindex -1, aria-hidden true) e sulle viste dei gruppi dell'API: elementFromPoint sul riquadro restituisce input.tt-input.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "pulsante-chiudi-solo-icona-non-ha-testo",
+      "engine": "equalAccess",
+      "rule": "text_contrast_sufficient",
+      "cause": "potential_same_color",
+      "selector": "button.ui-dialog-titlebar-close",
+      "reason": "Caso da verificare ('testo e sfondo dello stesso colore'): il pulsante di chiusura di jQuery UI e' a sola icona; il suo testo e' uno spazio nascosto fuori schermo (text-indent), e il nome viene da title='Chiudi'. Non c'e' testo visibile di cui misurare il contrasto. L'icona (la X) e' bianca su #46464e: contrasto 9,8:1, sopra il 3:1 richiesto agli oggetti grafici (WCAG 1.4.11).",
+      "verification": "Misurato il 20/11/2026 sulla finestra 'Visualizza riferimenti': pulsante 20x20, span.ui-button-icon con sprite ui-icons_ffffff (X bianca), span.ui-button-icon-space con testo ' ' e text-indent -9999px, barra del titolo rgb(70,70,78).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "salta-al-contenuto-con-frammento-nella-url",
+      "engine": "equalAccess",
+      "rule": "html_skipnav_exists",
+      "selector": "html:has(a.gw-salta-al-contenuto[href^=\"#\"])",
+      "urlPattern": "#",
+      "reason": "Il collegamento 'Salta al contenuto' c'e' ed e' il primo elemento della pagina. IBM lo riconosce confrontando l'indirizzo assoluto del collegamento con location.href seguito dal frammento: quando l'indirizzo della pagina ha gia' un frammento (configurazioneAllarmiAdd.do?#allPlugin, lasciato dall'ancora del selettore dei plugin) il confronto non riesce mai. E' un limite del motore, non un'assenza del meccanismo di salto (WCAG 2.4.1).",
+      "verification": "Verificato il 20/11/2026 sulle viste di creazione dell'allarme: l'URL termina con '#allPlugin', la pagina ha a.gw-salta-al-contenuto con href='#gw-contenuto' come primo elemento; le stesse pagine senza frammento nell'URL non producono il caso.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "nomi-di-campo-fra-virgolette-non-sono-citazioni",
+      "engine": "equalAccess",
+      "rule": "text_quoted_correctly",
+      "selector": "p.note, textarea",
+      "reason": "Caso da verificare ('il testo fra virgolette e' una citazione?'): no. Nelle note dei form le virgolette racchiudono il nome di un altro campo ('Periodo di Osservazione'); nelle aree di testo sono il contenuto inserito dall'utente (es. un JSON con i suoi apici). Nessuno dei due e' una citazione da marcare con q o blockquote.",
+      "verification": "Verificato il 20/11/2026 sui plugin degli allarmi (note p.note che rimandano a campi per nome) e sulla configurazione dell'attribute authority (textarea con un JSON di prova).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "nomi-e-valori-non-sono-istruzioni-sensoriali",
+      "engine": "equalAccess",
+      "rule": "text_sensory_misuse",
+      "selector": "span[data-copy], span.history",
+      "reason": "Caso da verificare ('l'istruzione si capisce senza la parola sensoriale?'): non e' un'istruzione. Il testo segnalato e' un dato: il valore di un campo con il comando di copia (span[data-copy], es. 'Round Robin') o il nome dell'oggetto nell'ultimo elemento del percorso (span.history, es. 'govway-testsuite-extra'). Le parole che IBM riconosce come sensoriali fanno parte del nome.",
+      "verification": "Verificato il 20/11/2026 sul dettaglio di un'erogazione e su un archivio del registro: i testi coincidono con valori e nomi configurati.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "uso-del-colore-verificato-caso-per-caso",
+      "engine": "equalAccess",
+      "rule": "style_color_misuse",
+      "selector": "link[rel=\"stylesheet\"]",
+      "reason": "Caso da verificare, non un difetto: IBM Equal Access lo segnala su ogni foglio di stile che usa colori e chiede di controllare a mano che il colore non sia l'unico modo di trasmettere un'informazione (WCAG 1.4.1). Il controllo e' stato fatto caso per caso sulla console di gestione e i casi trovati sono stati corretti con un'unica convenzione di forme (la forma porta il significato, il colore si aggiunge), con almeno 3:1 di contrasto (WCAG 1.4.11). Convenzione, logica delle scelte, contrasti misurati ed elenco dei casi: targets/govway/docs/icone-di-stato/icone-di-stato.html (sorgente icone-di-stato.rst nella stessa cartella). Alla scadenza il controllo va rifatto sulle pagine nuove o cambiate.",
+      "verification": "Verificato il 20/11/2026 su GovWay 3.4.4 installato, con Chromium, Firefox ed Edge 157: elenchi di erogazioni, fruizioni, API, utenti, allarmi, policy, plugin, handler e regole; dettaglio di erogazioni, fruizioni e API; Configurazione dei gruppi; connettori multipli; date di scadenza dei certificati. Ogni stato ha una forma propria, le immagini si caricano, il testo alternativo e' lo stato stesso, nessun errore JavaScript o HTTP.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
     }
   ]
 }

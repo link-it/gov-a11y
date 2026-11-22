@@ -1,3 +1,87 @@
+2026-11-21  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Ricorsione dei flow: opzione 'mutating', regex sugli URL dei link che cambiano lo stato con una
+	GET (es. frecce di riordino). Sono seguiti per ultimi, rileggendo i link prima di ognuno; la vista
+	risultante è esclusa da Lighthouse e non si ricorre da essa. Spenta di default.
+	Ricorsione da CONFIGURA: 'recurse.configMax', limite di pagine proprio; prima la ricorsione dal
+	dettaglio esauriva il limite comune. Spenta di default.
+	Passo 'scan': '"lighthouse": false' (con 'lighthouseNote') esclude da Lighthouse la sola vista
+	del passo.
+	Ricorsione: i link da non seguire non sono più cablati nel tool (menu e intestazione della console
+	GovWay) ma dichiarati nel target con 'recurse.excludeLinks'; 'scanMenu' non ha più un selettore
+	predefinito delle voci e, scritto come oggetto singolo, non perde più le sue opzioni.
+	Lighthouse: porta CDP libera a ogni scansione invece della 9222 fissa, che due scansioni
+	contemporanee si contendevano lasciando viste senza punteggio.
+	Viste in errore HTTP: lo stato HTTP di ogni vista è rilevato e riportato (log, report, summary.json,
+	SARIF, JUnit); prima la pagina d'errore dell'applicazione era analizzata come una vista valida.
+	Opzione 'failOnHttpError' (--fail-on-http-error), spenta di default: accesa, uno stato >= 400 fa
+	fallire il gate.
+	Documentazione aggiornata; test di integrazione per configMax ed excludeLinks, suite gate-http-error.
+
+	* [targets/govway]
+	Console: frecce 'Sposta su/giù' degli elenchi ordinati dichiarate 'mutating' (dopo il primo
+	spostamento puntavano a voci non più esistenti e Lighthouse riceveva 503); 'excludeLinks' per menu
+	e intestazione; 'configMax' 40 da CONFIGURA di erogazioni e fruizioni, i cui elenchi delle
+	funzionalità prima non venivano aperti.
+	Console: nuovi flow "riordino-trasformazioni-*" e "riordino-rate-limiting-*" (erogazione e
+	fruizione) su API della testsuite con voci da riordinare: spostano le voci, scansionano ogni stato e
+	ripristinano l'ordine; quelli del rate limiting aprono anche una policy con filtro su risorse puntuali.
+	Console e monitor: 'failOnHttpError' acceso.
+
+2026-11-20  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Nuovo passo dei flow "scanFormVariants": scansiona le combinazioni dei campi di un form con il
+	motore delle varianti di scanCharts, senza griglia; opzioni "fixed" e "reveal". Test di integrazione.
+	Varianti dei form: id dei campi codificati per CSS (gli id JSF con ':' non venivano riconosciuti);
+	la vista dell'opzione '--' si chiama 'non-selezionato'.
+	Elenchi paginati: "nextPage" (comando di pagina successiva, "max" pagine, "back" per tornare alla
+	prima) esamina anche le pagine dopo la prima, come viste '<nome>/pagina-N'. Test di integrazione.
+	report.html: viste e dettaglio per pagina richiudibili (aperte solo le viste con qualcosa da
+	riportare).
+
+	* [targets/govway]
+	Monitor: nuovi flow "monitoraggio-transazioni" (combinazioni di Periodo, Profilo Interoperabilità
+	e Tipo), "transazioni-per-esito" e dettaglio delle transazioni per esito, tab per tab.
+	Console e monitor: "nextPage"; la console torna poi alla prima pagina, perché da una pagina
+	successiva la sua radice risponde vuota.
+	targets.govway.json generato da componi-targets.mjs come somma dei due target separati (--verifica
+	controlla che sia aggiornato).
+	Registri dei falsi positivi: corretto nel monitor un selettore con :has() annidato (non valido);
+	nuove voci verificate, tolte quelle senza riscontro; voce per style_color_misuse di IBM, scadenza
+	2027-11-20.
+	Nuova documentazione docs/icone-di-stato: convenzione delle icone di stato di console e monitor,
+	contrasti misurati e casi censiti.
+
+2026-11-19  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Gate del secondo motore: "failOnEqualAccess" (--fail-on-equal-access), spento di default; acceso,
+	le violazioni IBM decidono l'esito come quelle di axe (SARIF 'error', Sonar, JUnit). Test unitari.
+	Tempi della scansione per vista e per fase, in tempi.json, nel report e nel log.
+	"keyboardWalkWaitMs" (--keyboard-walk-wait-ms, default 120): attesa dopo ogni Tab, finora fissa;
+	il percorso si ferma dopo 10 Tab a vuoto.
+	Fuoco coperto (2.4.11): una copertura vista durante una richiesta in corso si ricontrolla a rete
+	ferma; prima l'esito era intermittente.
+	"equalAccessKeyboardConfirm": i casi da verificare IBM sul fuoco confermati dal percorso col Tab
+	escono dai da verificare e sono elencati a parte. Senza effetto sul gate.
+	scanMenu: "recurse.fromItem", ricorsione anche dalle voci di menu che non aprono un elenco.
+	Percorso col Tab: giro completo e trappola riconosciuti dall'identità dell'elemento e non dalla sua
+	descrizione troncata; ripresa dopo che un aggiornamento AJAX sostituisce l'elemento col fuoco.
+	Report HTML: tabella dei falsi positivi a colonne fisse; riepilogo per pagina richiudibile, una
+	tabella per console, celle che non vanno più a capo lettera per lettera.
+	Test unitari e di integrazione.
+
+	* [targets/govway]
+	Registri dei falsi positivi: nuove voci con risposta dimostrata per i casi da verificare di IBM
+	(etichette, icone, widget che gestiscono la tastiera sui figli, finestre modali RichFaces, ...),
+	fra cui "form-senza-nome-non-sono-landmark" e "icone-stato-allarmi-non-sono-testo".
+	Calendario del filtro date del monitor modale, con il percorso col Tab nel pannello; menu di riga
+	degli allarmi della console con il suo percorso.
+	5 screenshot per vista, 30 ms dopo ogni Tab, ricorsione dalle voci di menu senza elenco (esclusi
+	'Accedi' come altro utente e l'abilitazione delle porte), gate del secondo motore acceso.
+
 2026-11-18  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

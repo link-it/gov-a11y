@@ -1,5 +1,5 @@
 {
-  "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi per govwayMonitor. Si applica SOLO agli incomplete, mai alle violazioni. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato): una deroga senza prova è un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, così la misura viene rifatta periodicamente. Riferito da targets.govway_monitor.json -> monitor.falsePositives.",
+  "$comment": "Occorrenze 'incomplete' esaminate e riconosciute come falsi positivi per govwayMonitor. Per axe-core si applica SOLO agli incomplete, mai alle violazioni; le voci con \"engine\": \"equalAccess\" valgono per il secondo motore, violazioni comprese, e con failOnEqualAccess tolgono la violazione dal gate: vi entrano solo casi dimostrati sulla specifica e sui browser. Ogni voce richiede 'reason' (perché non è un difetto) e 'verification' (come lo si è accertato): una deroga senza prova è un'opinione. La 'expires' fa tornare le occorrenze fra quelle da verificare, così la misura viene rifatta periodicamente. Riferito da targets.govway_monitor.json -> monitor.falsePositives.",
   "falsePositives": [
     {
       "id": "testo-svg-dei-grafici",
@@ -114,16 +114,6 @@
       "expires": "2027-10-01"
     },
     {
-      "id": "celle-delle-tabelle-sovrapposte",
-      "rule": "color-contrast",
-      "cause": "elmPartiallyObscuring",
-      "selector": "td.rich-table-cell",
-      "reason": "Celle delle tabelle RichFaces che axe vede sovrapposte in parte ad altri elementi (es. la riga 'Correlazione Applicativa Risposta Fallita' della tabella 'Distribuzione per Errori' con visualizzazione 'Tempo Medio Risposta'). Lo sfondo effettivo è quello della riga, bianco o #f6f6fc nelle righe alterne. La voce copre la sola causa 'elmPartiallyObscuring': un contrasto davvero insufficiente e misurabile resterebbe una violazione.",
-      "verification": "Misurato in pagina (2026-10-02) sulle celle delle tabelle RichFaces (elenco Ricerche Utente, stesso componente e stessa classe): testo #46464e su #ffffff = 9,35:1, su #f6f6fc circa 8,6:1 (14px). Confermato dalla schermata del report 'Distribuzione per Errori - Tempo Medio Risposta'. Soglia 4,5:1.",
-      "author": "andrea.poli@link.it",
-      "expires": "2027-10-01"
-    },
-    {
       "id": "testi-sotto-la-maschera-delle-finestre-modali",
       "rule": "color-contrast",
       "cause": "bgOverlap",
@@ -132,6 +122,266 @@
       "verification": "Misurato il 2026-11-18 (flow modale-esporta-transazioni, viste colonne-personalizza e documento-csv): 9 testi della lista transazioni (id msgDt_tbl:*), colore #6e6e78; contrasto stimato 5,04:1 sulla riga chiara della lista e 1,17:1 solo sotto la maschera; nella vista transazioni-list senza finestra gli stessi testi non hanno violazioni axe. Soglia 4,5:1.",
       "author": "andrea.poli@link.it",
       "expires": "2027-11-18"
+    },
+    {
+      "id": "pannello-del-calendario-e-un-dialog",
+      "engine": "equalAccess",
+      "rule": "table_headers_exists",
+      "selector": "table.rich-calendar-popup[role=\"dialog\"]",
+      "reason": "Il pannello del calendario (rich:calendar della libreria govway-monitor-ui) e' una <table> a cui lo script del componente, all'apertura, assegna role=\"dialog\" e aria-label=\"Calendario\": non c'e' un contenitore separato su cui metterlo. Per ARIA in HTML una <table> ammette qualsiasi ruolo, e con role=\"dialog\" non e' piu' una tabella: righe e celle non hanno il ruolo di riga e di cella (HTML-AAM: td e' 'cell' solo dentro una tabella esposta come tabella), quindi non ci sono intestazioni da associare. IBM Equal Access considera tabella di dati ogni <table> senza role=\"presentation\"/\"none\" (TableUtil.isDataTable), a prescindere dal ruolo dichiarato: e' una semplificazione del motore. axe non segnala nulla.",
+      "verification": "Verificato il 19/11/2026 sul pannello aperto da eventi.jsf (periodo Personalizzato, Data inizio), sull'albero di accessibilita' prodotto dai browser: Chromium 151, Chrome 156 ed Edge 157 via CDP (Accessibility.getFullAXTree) sulla pagina, Firefox 158 e WebKitGTK 2.54 via AT-SPI sul markup del pannello. In tutti il pannello e' un 'dialog \"Calendario\"' con contenitori generici e 41 pulsanti, senza alcun ruolo table, row o cell. Controllo: lo stesso markup senza role=\"dialog\" in Firefox espone table, row e cell; in WebKitGTK una tabella con th e caption e' esposta come tabella, la stessa con role=\"dialog\" no.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "celle-del-pannello-del-calendario",
+      "engine": "equalAccess",
+      "rule": "table_headers_related",
+      "selector": "table.rich-calendar-popup[role=\"dialog\"] td",
+      "reason": "Celle del pannello del calendario: come per la voce pannello-del-calendario-e-un-dialog, la tabella ha role=\"dialog\" e le sue celle non sono celle di una tabella, quindi non c'e' alcuna intestazione a cui collegarle.",
+      "verification": "Come per pannello-del-calendario-e-un-dialog: nessun ruolo cell nell'albero di accessibilita' di Chromium, Chrome, Edge, Firefox e WebKitGTK.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "form-senza-nome-non-sono-landmark",
+      "engine": "equalAccess",
+      "rule": "aria_form_label_unique",
+      "selector": "form:not([aria-label]):not([aria-labelledby]):not([title]):not([role])",
+      "reason": "I <form> generati da JSF (h:form, a4j:form) non hanno nome accessibile. Per HTML-AAM e ARIA in HTML un <form> ha il ruolo 'form', ed e' quindi un landmark, solo se ha un nome accessibile; senza nome non ha un ruolo corrispondente e non e' un landmark: non c'e' quindi un landmark da distinguere dagli altri con un nome univoco. IBM Equal Access assegna sempre il ruolo 'form' al <form> e confronta fra loro anche i nomi vuoti (AriaUtil.isLandmarkNameUnique con i nomi vuoti inclusi): e' una semplificazione del motore. Dare un nome a ogni form li renderebbe tutti landmark e peggiorerebbe la navigazione per landmark. La voce copre solo i form senza nome (niente aria-label, aria-labelledby, title o role): due form con lo stesso nome restano segnalati. axe non segnala nulla.",
+      "verification": "Verificato il 19/11/2026 su una pagina di controllo con due form senza nome e uno con aria-label. Via AT-SPI, cioe' quello che leggono i lettori di schermo su Linux: Firefox 158 espone i form senza nome con il ruolo 'form' (contenitore, non landmark) e quello con nome come 'landmark' con xml-roles=form; Chrome 156 uguale; WebKitGTK 2.54 non espone nessuno dei tre come landmark. Orca 49.7 riconosce come landmark solo il ruolo LANDMARK (AXUtilitiesRole.is_landmark, AXUtilitiesCollection.find_all_landmarks): nella navigazione e nell'elenco dei landmark compare solo il form con nome. Chromium 151, Chrome 156 ed Edge 157 via CDP (Accessibility.getFullAXTree) riportano per tutti e tre il ruolo interno 'form' di Chromium; la mappatura verso la piattaforma e' quella vista via AT-SPI su Chrome, stesso motore di Edge (Edge da flatpak non si registra sul bus AT-SPI).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "icone-stato-allarmi-non-sono-testo",
+      "engine": "equalAccess",
+      "rule": "text_contrast_sufficient",
+      "selector": "[class*=\"icona-allarme-\"] > i.material-icons",
+      "reason": "Icone dello stato degli allarmi (statoAllarmi.xhtml: riepilogo e colonna Stato): sono glifi di Material Icons, cioe' grafica disegnata con un font, nascosti ai lettori di schermo (aria-hidden), e lo stato che rappresentano e' dato anche come testo per i lettori di schermo. Non sono testo nel senso di WCAG (una sequenza di caratteri che esprime qualcosa in linguaggio umano): per la grafica che porta informazione il criterio e' 1.4.11 Non-text Contrast, soglia 3:1, non 1.4.3 con 4.5:1. IBM Equal Access misura il glifo come testo di 18px e applica 4.5:1. La voce copre solo questi glifi; il loro contrasto e' garantito dai colori di linkit-base.css, scelti per avere almeno 3:1 con lo sfondo su cui stanno: se un colore scende sotto 3:1 la deroga non vale piu' e va corretto il colore.",
+      "verification": "Calcolati il 19/11/2026 i rapporti dei colori di linkit-base.css con gli sfondi misurati in pagina (riepilogo rgb(70,70,78), righe della tabella #ffffff e #f6f6fc, che al passaggio del mouse non cambiano). Riepilogo: errore #FF5660 3,00:1, ok #00B658 3,49:1, warning #FFAB4D 4,98:1, disabilitato #C2C2C9 5,28:1. Tabella, sul fondo meno favorevole #f6f6fc: errore #FF2D39 3,43:1, ok #00A550 3,01:1, warning #C1813A 3,02:1, disabilitato #8F8F94 3,01:1. Simulazione in pagina (allarmi, Cerca): IBM resta sulle sole icone; nessuna violazione axe.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "bersagli-sotto-la-finestra-modale",
+      "engine": "equalAccess",
+      "rule": "target_spacing_sufficient",
+      "selector": "#salvaRicercaModalPnlContainer input[type=\"radio\"][name=\"privacyRicerca\"]",
+      "reason": "Radio 'Privata'/'Pubblica' della finestra 'Salva Ricerca'. IBM Equal Access lo misura contro un campo della pagina sottostante (la combobox 'esitoGruppo' del filtro), che si trova a 2px ma e' coperto dalla finestra modale: finche' la finestra e' aperta il campo non riceve il puntatore e non e' quindi un bersaglio (WCAG 2.5.8 riguarda i bersagli attivabili con il puntatore). Il radio piu' vicino della finestra dista 74px. Il radio ha inoltre la dimensione stabilita dal browser (13x13, l'autore ne cambia solo bordo, padding e margine), caso che 2.5.8 esclude ('User agent control').",
+      "verification": "Verificato il 19/11/2026 su transazioni.jsf con la finestra 'Salva Ricerca' aperta: document.elementFromPoint nei punti del campo 'esitoGruppoCombocomboboxField' restituisce elementi della finestra (textarea e blocchi .prop) e mai il campo; un clic di Playwright sul campo fallisce perche' il contenuto di #salvaRicercaModalPnlContainer intercetta il puntatore. Distanza fra i due radio della finestra: 74px. IBM segnala solo questo radio e cita come altro bersaglio un 'input'.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "testo-di-un-comando-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": ":is([role=\"button\"], [role=\"link\"], a[href], button) :is(div, p), :is(div, p):is([role=\"button\"], [role=\"link\"])",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. Il testo sta dentro un comando, di cui e' il nome: l'etichetta 'Profilo: Tutti' del pulsante che apre il menu dei profili (role=button) e il contenuto delle righe dell'elenco delle transazioni live (div.rowTransazione con role=link: API, soggetti, esito, data). Per WAI-ARIA 1.2 i figli di un 'button' sono presentazionali, quindi un titolo li' non esisterebbe per le tecnologie assistive; nelle righe-collegamento il testo forma il nome del collegamento, come le celle di una riga di tabella, e non apre una sezione. IBM valuta solo grassetto e dimensione del testo, senza guardare il ruolo degli antenati.",
+      "verification": "Verificato il 19/11/2026 sul monitor (scansione completa del 19/11): tutti i casi 'text_block_heading' coperti dal selettore hanno un antenato con role=button (div[data-gw-menu-pannello][aria-haspopup=menu]) o role=link (div.rowTransazione[data-gw-riga-tastiera], reso collegamento da utils.js con Invio). Nessun testo coperto e' fuori da un comando.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "etichetta-di-campo-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "div.prop:has(> label), div.prop:has(> span.labelSpacer), div:has(> div.prop:first-child > label), div:has(> div.prop:first-child > span.labelSpacer), div.divNoEdit, div.outputFieldLabel:has(> label)",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. Il testo e' l'etichetta di un campo del form o di un valore di un dettaglio ('Tipo', 'Periodo', 'Esito', 'Soggetto Locale'...), resa in grassetto e piu' grande del corpo. IBM la propone come titolo quando il campo sta in un blocco annidato (combobox RichFaces, valore in sola lettura) e il suo percorso si ferma prima di incontrarlo. Le sezioni dei form hanno gia' i loro titoli (sottotitoli con role=heading). Stessa risposta per il blocco che contiene il div.prop (IBM parte dal contenitore e propone l'etichetta del primo campo, es. 'Visualizza per' o l'asterisco di obbligatorieta'), per i valori in sola lettura (div.divNoEdit: 'GovWay 3.4.4', 'abilitata', '20000' nella pagina Informazioni) e per le etichette dei dettagli (div.outputFieldLabel con la sua label, es. 'Esito' con l'icona decorativa 'check' marcata aria-hidden).",
+      "verification": "Verificato il 19/11/2026 sulle viste del monitor: ogni caso coperto e' un blocco div.prop il cui primo figlio e' l'etichetta (label, o lo span.labelSpacer di solo spazio) seguita dal campo o dal valore; il testo proposto da IBM coincide con quello dell'etichetta. Esteso il 20/11/2026: sul form dei report statistici (contenitore div[id] il cui primo figlio e' div.prop con label 'Visualizza per'), sulla pagina Informazioni (div.divNoEdit con lo span.spanNoEdit del valore) e sul dettaglio della transazione (div.outputFieldLabel = icona aria-hidden + label 'Esito'); in ogni caso il testo proposto e' l'etichetta o il valore di un campo.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "form-senza-campi-da-inviare",
+      "engine": "equalAccess",
+      "rule": "form_submit_button_exists",
+      "selector": "form:not(:has(input:not([type=\"hidden\"], [type=\"button\"], [type=\"submit\"], [type=\"image\"], [type=\"reset\"]), select, textarea))",
+      "reason": "Caso da verificare ('il form ha un pulsante di invio?'): il form non ha alcun campo compilabile, solo campi nascosti di JSF (stato della vista, token CSRF) e collegamenti o pulsanti di comando (il menu laterale, i form di servizio delle esportazioni, dei pannelli dei grafici, delle finestre modali). Non c'e' nulla che l'utente inserisca e debba inviare, quindi un pulsante di invio non ha oggetto, e non c'e' input che possa provocare un cambio di contesto (WCAG 3.2.2, il criterio a cui IBM lega la regola).",
+      "verification": "Verificato il 19/11/2026 su transazioni.jsf, analisiStatistica.jsf e sulle pagine dei grafici: i form coperti dal selettore non contengono input diversi da hidden/button/submit/image/reset, ne' select o textarea (conteggio in pagina: 0 campi visibili). I form con campi (es. formSearchTransazioni) restano esclusi e da verificare.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "comandi-dietro-la-finestra-modale",
+      "engine": "equalAccess",
+      "rule": "widget_tabbable_exists",
+      "selector": "body:has([aria-modal=\"true\"]) :is([tabindex=\"-1\"], [role=\"radiogroup\"]):not([aria-modal=\"true\"] *)",
+      "reason": "Caso da verificare ('il comando non ha un elemento raggiungibile col Tab'): il comando e' dietro una finestra modale aperta. Mentre la finestra e' aperta il componente rich:modalPanel (govway-monitor-ui, modalPanel.js) toglie dal Tab tutti i comandi della pagina sottostante con tabindex=-1, salvando il valore originale, e lo ripristina alla chiusura; la finestra e' dichiarata aria-modal=true. E' il contenimento del fuoco richiesto da una finestra modale (WCAG 2.4.3; APG, Dialog Modal), non un comando irraggiungibile.",
+      "verification": "Verificato il 19/11/2026 nei flow delle finestre modali del monitor (esporta transazioni/configurazioni, stato API, nessuna selezione, conferma eliminazione, salva ricerca, importa ricerche): i casi coperti sono tutti fuori dal contenitore con aria-modal=true; il selettore non corrisponde a nulla quando nessuna finestra e' aperta, perche' aria-modal viene tolto alla chiusura (modalPanel.js) e i tabindex originali sono ripristinati. Esteso il 20/11/2026 al gruppo di radio dietro la finestra (salva ricerca): i radio hanno tabindex=-1 dati da modalPanel.js, quindi il gruppo resta senza elementi raggiungibili finche' la finestra e' aperta.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "giorni-del-calendario-tabindex-mobile",
+      "engine": "equalAccess",
+      "rule": "widget_tabbable_exists",
+      "selector": "table:has(td.rich-calendar-cell[role=\"button\"][tabindex=\"0\"]) td.rich-calendar-cell[role=\"button\"][tabindex=\"-1\"]",
+      "reason": "Caso da verificare ('il comando non ha un elemento raggiungibile col Tab'): sono i giorni del calendario a comparsa, gestiti con il tabindex mobile (roving tabindex) della griglia delle date: un solo giorno alla volta e' nell'ordine di tabulazione (tabindex=0) e gli altri si raggiungono con le frecce. E' lo schema della griglia delle date di APG (Date Picker Dialog); IBM lo riconosce solo se la tabella ha role=grid.",
+      "verification": "Verificato il 19/11/2026 su transazioni.jsf con Periodo 'Personalizzato' e calendario aperto: all'apertura il fuoco e' sul giorno selezionato (20 ottobre 2026, tabindex=0); freccia destra porta al 21 e freccia giu' al 28, spostando il tabindex=0 sulla cella che riceve il fuoco. Il selettore richiede che nella stessa tabella esista la cella con tabindex=0.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "frecce-dello-spinner-fuori-dal-tab",
+      "engine": "equalAccess",
+      "rule": "widget_tabbable_exists",
+      "selector": "input.rich-spinner-button[type=\"image\"][tabindex=\"-1\"]",
+      "reason": "Caso da verificare ('il comando non ha un elemento raggiungibile col Tab'): sono le frecce su/giu' dello spinner 'Numero risultati' dei grafici. Il controllo si usa dal suo campo, che e' nell'ordine di tabulazione e cambia valore con i tasti freccia su e giu'; le frecce sono fuori dal Tab come quelle di un input type=number nativo e funzionano comunque con Invio e Spazio se ricevono il fuoco.",
+      "verification": "Verificato il 19/11/2026: nel percorso col Tab della scansione (vista stat-tutte/distribuzione-per-errori-bar-chart) il campo 'formSliderBars:numeroRisultatiSliderBarsInput' e' una fermata del Tab; in SpinnerScript.js (govway-monitor-ui) 'editChange' sul campo gestisce i tasti 38/40 (su/giu') e '_attachKeyboardBehaviors' Invio/Spazio sulle frecce.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "intestazioni-di-colonna-non-sono-titoli",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "th :is(div, p)",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. E' il testo dell'intestazione di una colonna ('Transazione', 'Data', 'Label', 'Modulo', 'Soggetto'...), dentro il <div> per l'ordinamento che RichFaces mette nella cella. La cella e' gia' un <th> della tabella di dati, cioe' un'intestazione di colonna per le tecnologie assistive, che la leggono con ogni cella della colonna; un titolo di sezione al suo posto romperebbe la tabella.",
+      "verification": "Verificato il 19/11/2026 nelle tabelle del monitor (risultati delle transazioni, tabelle delle statistiche, elenco delle ricerche salvate): i casi coperti sono div.sortDiv (id '...header:sortDiv') figli di thead > tr > th di tabelle di dati; nessun caso coperto e' fuori da un <th>.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-19"
+    },
+    {
+      "id": "avviso-nessun-risultato-non-e-un-titolo",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "div.tableNoData, div.tableNoData div.buttonrow",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. 'Trovati 0 Risultati' e' l'avviso che un elenco o un report non ha dati, nel blocco che prende il posto della tabella: un messaggio, non il titolo di una sezione.",
+      "verification": "Verificato il 20/11/2026 sull'archivio stati degli allarmi e sui report statistici in forma di tabella senza dati: il blocco div.tableNoData (con il div.buttonrow interno) contiene solo il testo 'Trovati 0 Risultati'.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "radio-nativi-gestiscono-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "div[role=\"radiogroup\"]:has(input[type=\"radio\"])",
+      "reason": "Caso da verificare ('il gruppo ha un accesso da tastiera?'): si'. Il gruppo (gwGruppiDiOpzioni in utils.js) racchiude radio nativi: il browser gestisce Tab sul gruppo e frecce fra le opzioni, senza bisogno di gestori propri.",
+      "verification": "Verificato il 20/11/2026 sui filtri delle ricerche: il contenitore role=radiogroup contiene solo input type=radio nativi, raggiungibili col Tab e selezionabili con le frecce.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "schede-richfaces-gestiscono-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "tr[role=\"tablist\"]",
+      "reason": "Caso da verificare ('la lista di schede ha un accesso da tastiera?'): si'. Le schede del dettaglio (rich:tabPanel, govway-monitor-ui) hanno il tabindex mobile e le frecce, gestite sulle singole schede e non sul contenitore, che e' quello che IBM esamina.",
+      "verification": "Verificato il 20/11/2026 sul dettaglio della transazione: la scheda attiva ha tabindex=0 e le altre -1; Freccia destra porta il fuoco sulla scheda successiva, Invio la attiva, Tab esce dalla lista.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "combobox-suggerimenti-gestisce-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "input[role=\"combobox\"][aria-autocomplete=\"list\"]",
+      "reason": "Caso da verificare ('il combobox ha un accesso da tastiera?'): si'. Il campo con suggerimenti (rich:suggestionbox) apre l'elenco digitando e lo percorre con le frecce, indicando l'opzione con aria-activedescendant.",
+      "verification": "Verificato il 20/11/2026 sul nome dell'allarme: digitando l'elenco si apre (aria-expanded=true), Freccia giu' imposta aria-activedescendant sull'opzione e il valore scelto entra nel campo.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "liste-di-trasferimento-gestiscono-la-tastiera",
+      "engine": "equalAccess",
+      "rule": "aria_keyboard_handler_exists",
+      "selector": "div.rich-shuttle-list-content[role=\"listbox\"]",
+      "reason": "Caso da verificare ('la lista ha un accesso da tastiera?'): si'. Le liste di trasferimento (rich:listShuttle, ListBase.js) sono focalizzabili e si usano con le frecce (voce attiva in aria-activedescendant), la barra spaziatrice (seleziona o deseleziona la voce attiva) e Ctrl+A.",
+      "verification": "Verificato il 20/11/2026 nella finestra di stato delle API: frecce sposta la voce attiva e la seleziona, barra spaziatrice la seleziona o deseleziona (aggiunta nella stessa data in ListBase.js), Ctrl+A seleziona tutto.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "sentinelle-delle-finestre-modali-etichetta",
+      "engine": "equalAccess",
+      "rule": "input_label_visible",
+      "selector": "button.rich-mpnl-button[aria-hidden=\"true\"][tabindex=\"-1\"]",
+      "reason": "Caso da verificare ('il controllo ha un'etichetta visibile?'): non e' un controllo. E' una delle sentinelle con cui rich:modalPanel delimita la finestra: pulsante vuoto ritagliato a 1px (clip), nascosto alle tecnologie assistive, fuori dal Tab e coperto dalla maschera, non raggiungibile ne' cliccabile.",
+      "verification": "Verificato il 20/11/2026 sulle finestre modali (importa ricerche, esporta, stato API): computed clip rect(0,0,1,1), z-index -300, aria-hidden=true, tabindex=-1; elementFromPoint sul suo riquadro restituisce la maschera.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "sentinelle-delle-finestre-modali-bersaglio",
+      "engine": "equalAccess",
+      "rule": "target_spacing_sufficient",
+      "selector": "button.rich-mpnl-button[aria-hidden=\"true\"][tabindex=\"-1\"]",
+      "reason": "Caso da verificare ('il bersaglio e' abbastanza distante?'): non e' un bersaglio. E' una sentinella di rich:modalPanel ritagliata a 1px, sotto la maschera e fuori dal Tab: il puntatore non la raggiunge.",
+      "verification": "Verificato il 20/11/2026: come per sentinelle-delle-finestre-modali-etichetta, elementFromPoint sul riquadro della sentinella restituisce la maschera.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "fuoco-dietro-la-finestra-modale-style-focus-visible",
+      "engine": "equalAccess",
+      "rule": "style_focus_visible",
+      "selector": "body:has([aria-modal=\"true\"]) :not([aria-modal=\"true\"], [aria-modal=\"true\"] *)",
+      "reason": "Caso da verificare ('con il fuoco l'elemento e' visibile?'): l'elemento sta dietro una finestra modale aperta (rich:modalPanel o il calendario, entrambi aria-modal=true), che trattiene il fuoco: finche' e' aperta l'elemento non riceve il fuoco da tastiera. La domanda ha risposta nella stessa vista a finestra chiusa, dove il percorso col Tab lo misura.",
+      "verification": "Verificato il 20/11/2026 sulle viste con finestra modale o calendario aperti: il percorso col Tab parte dentro il contenitore aria-modal e vi resta (modalPanel.js, calendar.js); gli elementi coperti dal selettore sono fuori da quel contenitore.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "fuoco-dietro-la-finestra-modale-element-tabbable-unobscured",
+      "engine": "equalAccess",
+      "rule": "element_tabbable_unobscured",
+      "selector": "body:has([aria-modal=\"true\"]) :not([aria-modal=\"true\"], [aria-modal=\"true\"] *)",
+      "reason": "Caso da verificare ('con il fuoco l'elemento e' non coperto?'): l'elemento sta dietro una finestra modale aperta (rich:modalPanel o il calendario, entrambi aria-modal=true), che trattiene il fuoco: finche' e' aperta l'elemento non riceve il fuoco da tastiera. La domanda ha risposta nella stessa vista a finestra chiusa, dove il percorso col Tab lo misura.",
+      "verification": "Verificato il 20/11/2026 sulle viste con finestra modale o calendario aperti: il percorso col Tab parte dentro il contenitore aria-modal e vi resta (modalPanel.js, calendar.js); gli elementi coperti dal selettore sono fuori da quel contenitore.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "fuoco-dietro-la-finestra-modale-element-tabbable-visible",
+      "engine": "equalAccess",
+      "rule": "element_tabbable_visible",
+      "selector": "body:has([aria-modal=\"true\"]) :not([aria-modal=\"true\"], [aria-modal=\"true\"] *)",
+      "reason": "Caso da verificare ('con il fuoco l'elemento e' visibile nella finestra?'): l'elemento sta dietro una finestra modale aperta (rich:modalPanel o il calendario, entrambi aria-modal=true), che trattiene il fuoco: finche' e' aperta l'elemento non riceve il fuoco da tastiera. La domanda ha risposta nella stessa vista a finestra chiusa, dove il percorso col Tab lo misura.",
+      "verification": "Verificato il 20/11/2026 sulle viste con finestra modale o calendario aperti: il percorso col Tab parte dentro il contenitore aria-modal e vi resta (modalPanel.js, calendar.js); gli elementi coperti dal selettore sono fuori da quel contenitore.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "uso-del-colore-verificato-caso-per-caso",
+      "engine": "equalAccess",
+      "rule": "style_color_misuse",
+      "selector": "link[rel=\"stylesheet\"]",
+      "reason": "Caso da verificare, non un difetto: IBM Equal Access lo segnala su ogni foglio di stile che usa colori e chiede di controllare a mano che il colore non sia l'unico modo di trasmettere un'informazione (WCAG 1.4.1). Il controllo e' stato fatto caso per caso sulla console di monitoraggio e i casi trovati sono stati corretti con un'unica convenzione di forme (la forma porta il significato, il colore si aggiunge), con almeno 3:1 di contrasto (WCAG 1.4.11). Convenzione, logica delle scelte, contrasti misurati ed elenco dei casi: targets/govway/docs/icone-di-stato/icone-di-stato.html (sorgente icone-di-stato.rst nella stessa cartella). Alla scadenza il controllo va rifatto sulle pagine nuove o cambiate.",
+      "verification": "Verificato il 20/11/2026 su GovWay 3.4.4 installato, con Chromium, Firefox ed Edge 157: intestazione, pagina di stato, Eventi, allarmi (elenco e riepilogo, con e senza presa in carico), lista delle transazioni (vista personalizzata, classica e Live), Configurazione API, Tracciamento PDND, grafici a barre per esito e torte. Ogni stato ha una forma propria, le immagini si caricano, il testo alternativo e' lo stato stesso, nessun errore JavaScript o HTTP.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "nome-del-gruppo-e-la-legend",
+      "engine": "equalAccess",
+      "rule": "text_block_heading",
+      "selector": "div:has(> fieldset > legend)",
+      "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. Il testo proposto ('Configura Export', 'Dati Ricerca', 'Ricerche') e' la <legend> di un <fieldset>: e' il nome del gruppo di campi, dato nel modo previsto da HTML e dalla tecnica WCAG H71, e i lettori di schermo lo annunciano entrando nel gruppo. Un titolo non aggiungerebbe struttura. IBM segnala il <div> che contiene il <fieldset>, perche' il testo della legend e' in grassetto.",
+      "verification": "Verificato il 20/11/2026 sulle finestre 'Salva Ricerca' ed 'Esporta Transazioni' e sull'importazione delle ricerche: l'XPath indicato da IBM corrisponde al <div> il cui figlio e' un <fieldset> con <legend> (j_id1064, j_id862), che il selettore riconosce.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "contenuto-json-non-e-una-citazione",
+      "engine": "equalAccess",
+      "rule": "text_quoted_correctly",
+      "selector": "textarea[id$='outDettaglioErroreTextArea'], td[id$=':colMsg'] > span[id$=':outMsg2']",
+      "reason": "Caso da verificare ('il testo fra virgolette e' una citazione?'): la risposta e' no. Il testo e' il contenuto di un messaggio ricevuto dal servizio, mostrato cosi' com'e': un Problem Details (RFC 7807) in JSON, nel dettaglio dell'errore della transazione e nei messaggi diagnostici. Le virgolette delimitano le stringhe JSON, non citano parole di altri; marcarle come <q> o <blockquote> (tecnica H49) altererebbe il dato.",
+      "verification": "Verificato il 20/11/2026 sul dettaglio di una transazione con esito Fault applicativo: textarea outDettaglioErroreTextArea (Informazioni Generali) e due span outMsg2 della tabella dei diagnostici, tutti con il JSON {\"type\":\"https://httpstatuses.com/500\",\"title\":...}.",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
+    },
+    {
+      "id": "form-senza-invio-nessun-cambio-di-contesto",
+      "engine": "equalAccess",
+      "rule": "form_submit_button_exists",
+      "selector": "form",
+      "reason": "Caso da verificare ('il form ha un pulsante di invio?'): il pulsante di invio e' una tecnica sufficiente (H32), non un requisito. Quello che 3.2.2 chiede e' che cambiare un campo non provochi un cambio di contesto. Nei form del monitor le ricerche e le azioni partono da comandi espliciti (Cerca, Filtra, Salva, Esporta...); cambiare un campo aggiorna solo contenuti della stessa pagina (campi dipendenti, il grafico della pagina iniziale). Il fuoco, che prima di questa data finiva sul body quando l'aggiornamento ricreava il campo, ora resta sul campo (utils.js, gwConservaFuocoNegliAggiornamenti).",
+      "verification": "Verificato il 20/11/2026 con la correzione di utils.js, scegliendo un'opzione da tastiera (freccia giu', Invio) o scrivendo in ogni campo visibile dei form segnalati: pagina iniziale, ricerca transazioni, Eventi, Analisi statistica, ricerca allarmi, Configurazione API, finestre Salva Ricerca ed Esporta Transazioni. In tutti: URL invariato, pagina non ricaricata, nessuna finestra nuova, fuoco sullo stesso campo (17 su 17 anche su Firefox ed Edge 157).",
+      "author": "andrea.poli@link.it",
+      "expires": "2027-11-20"
     }
   ]
 }

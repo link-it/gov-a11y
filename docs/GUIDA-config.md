@@ -43,11 +43,15 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `textSpacing` | booleano | `false` | **1.4.12**: applica interlinea 1.5, spaziatura lettere 0.12em, parole 0.16em, paragrafi 2em e segnala il testo che viene tagliato per effetto della spaziatura (`overflow: hidden`, ellissi); il testo già troncato con la spaziatura normale è un caso da verificare, quello nascosto di proposito si ignora (equiv. CLI `--text-spacing`) |
 | `keyboardWalk` | booleano | `false` | **2.4.7 / 2.4.11 / 2.1.2**: percorre la vista col tasto Tab dall'inizio (fino a `keyboardWalkMax` fermate) e segnala focus senza indicatore visibile (né outline o box-shadow, né un cambio d'aspetto dell'elemento o dei due contenitori più vicini: bordo, fondo, colore, sottolineatura), focus nascosto del tutto da un altro elemento visibile (non conta uno strato trasparente, né chi copre solo una parte), focus bloccato. Con una finestra modale aperta (`aria-modal="true"` o `<dialog>` modale) il percorso parte dalla finestra; se la finestra ha un solo comando il focus che resta lì non è una trappola. Registra l'ordine di focus in `tabOrder` (evidenza per il 2.4.3). Un passo `scan` con `"keyboard": false` lo salta per quella vista (equiv. CLI `--keyboard-walk`) |
 | `keyboardWalkMax` | intero | `45` | Fermate massime del percorso col Tab per vista (equiv. CLI `--keyboard-walk-max`). Il percorso finisce prima se torna a un elemento già visitato o esce dalla pagina; oltre il limite gli elementi non vengono verificati, e nelle viste con molti comandi ripetuti (righe di tabella, icone di una griglia) di solito sono altre copie degli stessi componenti |
+| `keyboardWalkWaitMs` | intero | `120` | Attesa in millisecondi dopo ogni Tab, prima di leggere l'elemento col fuoco e il suo aspetto (equiv. CLI `--keyboard-walk-wait-ms`). Serve agli stili del fuoco per applicarsi (transizioni CSS, script sull'evento `focus`): troppo breve, un indicatore che c'è può risultare invisibile. È il costo principale del controllo (fermate × attesa): abbassarlo solo dopo aver verificato che l'esito resti lo stesso sulle viste del target |
+| `equalAccessKeyboardConfirm` | booleano | `true` | Con `equalAccess` e `keyboardWalk` entrambi attivi: i casi da verificare di IBM sul fuoco (`style_focus_visible` «il fuoco si vede?», `element_tabbable_unobscured` «è coperto?», `element_tabbable_visible` «diventa visibile?») a cui il percorso col Tab ha già risposto **sullo stesso elemento** (abbinato con l'XPath dato da IBM) e con esito positivo escono dai da verificare: niente screenshot né verifica manuale. Restano nel report, in un elenco a parte per vista («confermati dal percorso col Tab», con la misura che li conferma), e in `summary.json` (`equalAccess.confermatiDaTab`). Gli elementi che il Tab non raggiunge, o con misura negativa, restano da verificare; non tocca il gate. Il criterio è quello del percorso col Tab (l'aspetto cambia in modo misurabile): più debole di un controllo a occhio. Senza uno dei due controlli non ha effetto (equiv. CLI `--equal-access-keyboard-confirm` / `--no-equal-access-keyboard-confirm`) |
 | `languageParts` | oggetto | — | **3.1.2**: espressioni regolari per lingua, `{ "it": ["Accedendo accetti"], "en": ["\\b(the\|your)\\b"] }`. Un testo (o un `aria-label`, `placeholder`, `title`, valore di un pulsante) che corrisponde a un'espressione della lingua L, dentro una parte di pagina la cui lingua (l'attributo `lang` più vicino) non è L, è una violazione |
 | `failOn` | stringa | `serious` | Gate axe (`critical`\|`serious`\|`moderate`\|`minor`\|`none`) — **globale** |
 | `failOnNameless` | booleano | `true` | Gate: fallisce se elementi interattivi senza nome — **globale**. Attivo di suo: un comando annunciato col solo ruolo è inservibile a chi non vede lo schermo. Si spegne con `false` |
 | `failOnScreenReader` | booleano | `false` | Gate: fallisce se il virtual screen reader produce annunci col solo ruolo — **globale**. Richiede `screenReader` |
+| `failOnEqualAccess` | booleano | `false` | Gate del secondo motore: fallisce se IBM Equal Access trova violazioni — **globale**. I casi da verificare non contano; una vista su cui il motore non riesce a girare (dopo un secondo tentativo) è un esito non verificabile. Vale sulle viste dei target con `equalAccess`. Le violazioni vanno nel SARIF a livello `error` e in Sonar. Spento di default: su un'applicazione nuova il motore va prima conosciuto, poi si accende perché i difetti corretti non tornino |
 | `failOnEmpty` | booleano | `true` | Gate: fallisce se una vista è stata analizzata **vuota**, cioè con l'albero di accessibilità senza alcun nodo — **globale**. Una vista così non si è renderizzata (backend irraggiungibile, sessione persa, errore dell'app, tempi): su una pagina bianca nessuna regola può fallire, quindi il suo esito pulito è falso. Lo strumento attende una volta (5 s) prima di analizzarla; se resta vuota la segnala nel log, nel report (riga e riquadro dedicato), in `summary.json` (`vuota`, `emptyViews`) e come test fallito nel JUnit. Si spegne con `false` |
+| `failOnHttpError` | booleano | `false` | Gate: fallisce se una vista è arrivata con stato HTTP **≥ 400** — **globale**. Lo stato è quello del documento che ha caricato la vista (Navigation Timing); con un errore è stata esaminata la pagina d'errore dell'applicazione, di solito accessibile, e la vista voluta non è mai stata vista. Lo stato di ogni vista è sempre rilevato e riportato nel log, nel report (riga e riquadro dedicato), in `summary.json` (`httpStatus`, `httpErrorViews`), nel SARIF; con l'opzione accesa la vista è anche un test fallito nel JUnit. Spento di default, perché un'applicazione può rispondere di proposito con un 4xx a una pagina che si vuole esaminare (es. "non trovato") |
 | `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
@@ -65,7 +69,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 > per quel controllo e il gate non è superato ("esito non verificabile"), come per Lighthouse senza punteggio.
 > Sono spenti di default perché cambierebbero gli esiti delle applicazioni già in scansione.
 
-> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnEmpty`, `failOnScreenReader`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
+> `failOn`, `failOnNameless`, `failOnMouseOnly`, `failOnEmpty`, `failOnHttpError`, `failOnScreenReader`, `failOnEqualAccess`, `minScore`, `showIncomplete`, `productVersion` sono **globali**: il gate è complessivo e il
 > report è aggregato su tutti i target, quindi vanno in `defaults`; un override per-target non si applica.
 
 ## Oggetto target
@@ -89,11 +93,32 @@ Tutte hanno un default built-in, quindi sono opzionali.
   "viewport": { "width": 1366, "height": 900 },
   "extraHTTPHeaders": { "X-Auth": "${A11Y_APP_PRINCIPAL}" }, // header aggiuntivi (es. auth di test SPA); ${NOME} = variabile d'ambiente NOME
 
+  "nextPage": { "selector": "…", "max": 1 }, // elenchi paginati: esamina anche le pagine successive (vedi sotto)
+
   "pages": [ … ],                        // viste da scansionare sempre (deterministiche)
   "flows": [ … ]                         // navigazioni scriptate (dettagli/report)
   // + eventuali override dei parametri del blocco defaults (tags, crawl, screenReader, …)
 }
 ```
+
+### `nextPage` — pagine successive degli elenchi
+
+Un elenco paginato mostra nella prima pagina solo una parte dei record: le righe che cadono più
+avanti (un esito, uno stato, un tipo diverso) non verrebbero mai esaminate. Con `nextPage`, dopo la
+prima pagina il tool preme il comando di pagina successiva e scansiona la pagina dopo come vista a sé
+(`<nome>/pagina-2`, …). Vale per le viste di `pages[]`, per le voci di `scanMenu` che aprono un
+elenco con righe (la voce viene riaperta dopo dettaglio e ricorsione) e per lo stato finale dei flow
+senza step `scan` espliciti (es. i risultati di una ricerca).
+
+| Chiave | Descrizione |
+|---|---|
+| `selector` | **obbligatorio**: il comando di pagina successiva. Deve trovarlo **solo quando è attivo**: all'ultima pagina di solito non è un collegamento o è disabilitato (un elemento disabilitato ferma comunque il passaggio) |
+| `max` | pagine in più da esaminare; default 1 |
+| `back` | opzionale: comando di pagina precedente, premuto una volta per ogni pagina in più per riportare l'elenco alla prima. Serve alle applicazioni che ricordano in sessione la pagina dell'elenco e se ne lasciano condizionare altrove (es. una console che, ferma sulla seconda pagina, risponde vuota alla propria radice) |
+| `wait`, `waitQuietMs`, `delayMs`, `timeoutMs` | attese dopo il clic, come negli step; `wait` predefinito `networkidle` |
+
+Il selettore dipende dalla libreria di componenti dell'applicazione e per questo sta nel target: il
+tool non ne ha uno predefinito.
 
 ### `login`
 
@@ -196,10 +221,12 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
 | `{ "back": true }` / `{ "reload": true }` | Torna alla pagina precedente / ricarica. Con `clearCookies` portano l'app negli stati di sessione scaduta o persa |
 | `{ "script": "file.mjs#funzione", "args": { … } }` | Esegue una funzione JavaScript accanto al config, per le viste che nessun passo dichiarativo raggiunge (vedi sotto). **Solo nei flow** |
 | `{ "scan": "<etichetta>" }` | **Scansiona lo stato corrente** (permette più scan in un flow) |
+| `{ "scan": "<etichetta>", "lighthouse": false, "lighthouseNote": "<motivo>" }` | Come sopra, ma **senza Lighthouse** per questa sola vista: serve quando l'URL raggiunto ha cambiato lo stato (es. un collegamento che sposta una voce con una GET), perché Lighthouse lo ricaricherebbe ripetendo l'azione. Nel report la vista risulta "escluso", con il motivo |
 | `{ "scan": "<etichetta>", "include": "<selettore CSS>" }` | Come sopra, ma axe analizza **solo** la parte indicata: per gli stati in cui un elemento sovrapposto (es. una tendina aperta) copre per costruzione il resto della vista, che si analizza comunque a riposo |
 | `{ "scanTabs": "<selettore>" }` | Scopre i tab a runtime, clicca e scansiona ognuno |
 | `{ "scanOptions": { "selector": "…", "name": "…", "skip": "<regex>" } }` | Scopre a runtime le opzioni di un `<select>` nativo, le sceglie una alla volta e scansiona lo stato prodotto da ognuna. `name` antepone un prefisso al nome delle viste, `skip` esclude le opzioni il cui testo corrisponde (es. il segnaposto). Accetta anche la sola stringa del selettore |
 | `{ "scanCharts": { … } }` | Enumera icone-report di una griglia, genera e scansiona ognuna |
+| `{ "scanFormVariants": { … } }` | Varia i campi del form della vista corrente (assi incrociati e lineari, come in `scanCharts`) e scansiona ogni combinazione |
 | `{ "scanMenu": [ … ] }` | Enumera a runtime le voci di uno o più menù, naviga e scansiona ognuna |
 
 In `fill` e `select` il campo si indica con `"selector"` (CSS) oppure con `"label"`, cioè per **nome
@@ -212,7 +239,7 @@ Opzione del flow `"lighthouse": false`: esclude Lighthouse dalle viste di quel f
 Modificatori comuni per ogni step: `delayMs` (attesa extra), `timeoutMs`, `optional: true` (se
 fallisce non interrompe il flow), `desc` (etichetta nei log), `sourceHint`.
 
-Se un flow non ha step `scan`/`scanTabs`/`scanCharts`, scansiona lo **stato finale**.
+Se un flow non ha step `scan`/`scanTabs`/`scanCharts`/`scanFormVariants`, scansiona lo **stato finale**.
 
 #### Passo `script`
 
@@ -333,6 +360,40 @@ step apre ogni report e lo scansiona, e `field` non serve. Se invece gli assi ci
 chiave obbligatoria, lo step viene **saltato** con un avviso che la nomina: meglio una lacuna
 dichiarata che un selettore di un'altra applicazione usato come ripiego.
 
+#### Config di `scanFormVariants`
+
+Il motore delle varianti di `scanCharts`, senza la griglia dei report: per le viste che si
+ridisegnano a ogni scelta (un cruscotto con periodo, profilo e tipo) o che si generano con un
+comando. I campi della vista corrente si scoprono a runtime e le combinazioni degli assi si
+scansionano una per una; per ognuna la vista viene **riaperta dall'URL in cui il passo è
+cominciato**, così ogni scelta parte dallo stato predefinito.
+
+| Chiave | Descrizione |
+|---|---|
+| `field` | **obbligatorio**: come sono fatti i campi, con le stesse chiavi di `scanCharts` (`selector`, `idSuffix`, `toggle`, `list`, `option`, e opzionali `group`, `label`, `requiredMarker`) |
+| `productAxes` | assi incrociati fra loro (pattern su etichetta e valore, oppure `required`) |
+| `linearAxes` | assi variati una voce alla volta, con gli altri al predefinito |
+| `submit` | opzionale: comando da premere dopo le scelte, per le viste che si generano su richiesta |
+| `ready` | opzionale: selettore da attendere dopo la riapertura della vista |
+| `fixed` | opzionale: campi portati a un valore fisso prima di ogni combinazione, `{ "<pattern>": "<opzione>" }` (pattern su etichetta e valore, come gli assi). Es. un periodo ampio, perché i risultati non siano vuoti |
+| `reveal` | opzionale: comando che rende visibili i campi quando, riaperta la vista, sono nascosti (es. il riquadro dei filtri ricordato chiuso dopo una ricerca); si preme solo se nessun campo visibile corrisponde agli assi |
+| `skip` | opzionale: regex delle opzioni da non scegliere |
+| `name` | opzionale: prefisso del nome delle viste |
+| `maxViews` | tetto di viste; default 400 |
+
+Serve almeno un asse; un campo con una sola opzione non è un asse. Senza `field` completo il passo
+viene saltato con un avviso. Le attese (`wait`, `waitQuietMs`, `timeoutMs`, `delayMs`) sono quelle
+dello step e si applicano dopo ogni combinazione.
+
+```jsonc
+{ "scanFormVariants": {
+    "productAxes": ["Periodo", "Profilo", "Tipo"],
+    "maxViews": 150,
+    "field": { "selector": "input[id$=comboboxField]", "idSuffix": "comboboxField", "group": "div.prop",
+               "toggle": "##{base}comboboxButton", "list": "##{base}list", "option": ".rich-combobox-item" } },
+  "wait": "networkidle", "waitQuietMs": 3000, "timeoutMs": 20000 }
+```
+
 #### Config di `scanMenu`
 
 Naviga **dinamicamente** le voci di uno o più menù (nessuna label/URL cablata: enumera a runtime).
@@ -340,13 +401,13 @@ Valore: una stringa (selettore voci), un oggetto, o un **array** di menù. Ogni 
 
 | Chiave | Descrizione |
 |---|---|
-| `item` (o `menuItem`) | selettore delle voci del menù (es. `#menuct a.voceMenuRC`) |
+| `item` (o `menuItem`) | **obbligatorio**: selettore delle voci del menù (es. GovWay `#menuct a.voceMenuRC`); senza, il menù viene saltato con un avviso |
 | `open` | opzionale: selettore da cliccare per **aprire un dropdown** prima di enumerare/cliccare |
 | `listRow` | opzionale: selettore del **primo elemento** di una lista → entra nel dettaglio (es. `[id^='entry_']`) |
 | `detailEdit` | opzionale: dal dettaglio, segue ogni **matita/edit-link** e scansiona il form di modifica (es. `a.edit-link`). I link con `target=_blank` (**newTab**) sono gestiti come popup: scansiona la nuova scheda e la chiude |
 | `detailMenu` | opzionale: dropdown **3-puntini** sul dettaglio: `{ open, item }` → segue ogni azione (enumerate a runtime, variano per oggetto) |
 | `detailConfig` | opzionale: bottone **CONFIGURA** → entra nel wizard e lo scansiona; se `recurse` è attivo, **esplora ricorsivamente** anche il wizard (Controllo Accessi, Validazione, Trasformazioni…). Non avanza tra gli step né salva |
-| `recurse` | opzionale: dal dettaglio, **esplorazione ricorsiva "solo navigazione"**: `{ depth, max, skip, tabs }` → segue i link `<a href>` (matite, count-link tipo Soggetti(0)/Ruoli(0)…) ovunque, con dedup su URL normalizzato (token di sessione ignorati); su ogni pagina **espande e scansiona i tab client-side** (`tabs`, default `.ui-tabs-nav a`; `false` per disattivare). **Non** tocca form/checkbox/SALVA. `depth` = profondità, `max` = tetto pagine per dettaglio, `skip` = regex azioni da escludere. Copre anche il wizard CONFIGURA (vedi `detailConfig`) |
+| `recurse` | opzionale: dal dettaglio, **esplorazione ricorsiva "solo navigazione"**: `{ depth, max, skip, tabs }` → segue i link `<a href>` (matite, count-link tipo Soggetti(0)/Ruoli(0)…) ovunque, con dedup su URL normalizzato (token di sessione ignorati); su ogni pagina **espande e scansiona i tab client-side** (`tabs`, default `.ui-tabs-nav a`; `false` per disattivare). **Non** tocca form/checkbox/SALVA. `depth` = profondità, `max` = tetto pagine per dettaglio, `skip` = regex azioni da escludere (sostituisce quella predefinita: per aggiungere un'esclusione riportare anche i valori di default). `fromItem: true` (default `false`): se la voce di menu non apre un elenco con righe (`listRow` assente o senza elementi: pagine di soli collegamenti, form, elenchi vuoti) la ricorsione parte dalla pagina della voce stessa, con gli stessi limiti e filtri. `excludeLinks` (selettore CSS, default nessuno): link da **non seguire**, tipicamente menu e intestazione dell'applicazione, che porterebbero la ricorsione fuori dalla sezione che sta esplorando (es. GovWay: `"#menuct a, a.td2PageHeader, a.voceMenuRC"`). `configMax` (default: nessuno, la ricorsione da CONFIGURA usa il limite `max` del dettaglio): limite proprio della ricorsione dalla pagina aperta da `detailConfig`; senza, se la ricorsione dal dettaglio esaurisce il limite la pagina di configurazione resta inesplorata (il dedup resta condiviso). `mutating` (regex sull'URL, default nessuna): link che **cambiano lo stato** con una GET, per esempio le frecce che riordinano un elenco e ricreano le voci con identificativi nuovi. Vengono seguiti **dopo** tutti gli altri link della pagina, i cui URL restano così validi; prima di ciascuno la pagina viene riaperta e i suoi link riletti, e si segue quello nella stessa posizione, con gli identificativi aggiornati. La vista risultante è scansionata senza Lighthouse (ricaricarne l'URL ripeterebbe l'azione; nel report risulta "escluso" con il motivo) e non si ricorre da essa. Copre anche il wizard CONFIGURA (vedi `detailConfig`) |
 | `skip` | opzionale: regex di voci da saltare (per testo o href) |
 
 Le voci di **logout** sono **sempre saltate** (guardia universale: non deautenticarsi). Ogni voce →
@@ -361,7 +422,7 @@ Le voci di **logout** sono **sempre saltate** (guardia universale: non deautenti
 ```
 
 > **Principio:** non cablare etichette testuali dove è possibile **scoprirle a runtime**
-> (`scanTabs`, `scanCharts`, `scanMenu`), così il tool resta robusto ai cambi di label o all'aggiunta
+> (`scanTabs`, `scanCharts`, `scanFormVariants`, `scanMenu`), così il tool resta robusto ai cambi di label o all'aggiunta
 > di viste/voci.
 
 ## Credenziali e sicurezza

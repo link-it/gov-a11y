@@ -1,6 +1,7 @@
 {
   "$app": "GovWay",
-  "$defaultsNote": "Parametri dichiarativi validi per tutti i target di questo file. La CLI ha sempre la precedenza (CLI > target > defaults > built-in). Qui: crawl attivo (utile sulla console link-based; sul monitor RichFaces troverà poco ma non nuoce), screen-reader e Lighthouse su entrambi i target. tags include wcag22aa.",
+  "$generato": "File generato da componi-targets.mjs come somma di targets.govway_monitor.json e targets.govway_console.json: non modificarlo a mano, modifica i file separati e rilancia lo script.",
+  "$defaultsNote": "Parametri dichiarativi validi per entrambi i target, identici nei due file separati. La CLI ha sempre la precedenza (CLI > target > defaults > built-in).",
   "defaults": {
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "crawl": 1500,
@@ -17,13 +18,24 @@
     "textSpacing": true,
     "keyboardWalk": true,
     "keyboardWalkMax": 200,
-    "languageParts": { "en": ["free software: you can redistribute"] },
+    "keyboardWalkWaitMs": 30,
+    "$keyboardWalkWaitNote": "Attesa dopo ogni Tab: 30 ms invece di 120. Provato il 19/11/2026 su 40 tipi di pagina della console e 21 viste del monitor con 120, 80, 50, 30 e 0 ms: stesse fermate e stessi elementi segnalati con ogni attesa, anche 0 (il CSS delle console non ha transizioni sul fuoco). 30 ms tengono un margine; il percorso per vista passa da 5,3 a 1,5 s (console) e da 3,4 a 1,0 s (monitor).",
+    "screenshotsMax": 20,
+    "languageParts": {
+      "en": [
+        "free software: you can redistribute"
+      ]
+    },
     "equalAccess": true,
+    "failOnEqualAccess": true,
+    "failOnHttpError": true,
+    "$failOnHttpErrorNote": "Nelle console GovWay nessuna vista esaminata deve rispondere con stato HTTP >= 400: la pagina d'errore (\"Il sistema e' momentaneamente indisponibile\", 503) indica un bug o un percorso di scansione sbagliato (URL con identificativi non piu' validi, contesto di navigazione mancante). Analizzata come una vista qualsiasi risultava pulita.",
     "$languagePartsNote": "3.1.2: l'unica frase intera in inglese delle due console e' la licenza GPL nella pagina Informazioni, marcata lang=\"en\". Le etichette dei certificati (Not Before, Self Signed), i nomi di opzioni (Signed JWT with Client Secret) e i messaggi diagnostici di runtime sono termini tecnici o dati dell'ambiente e non si dichiarano qui."
   },
   "$comment": "GovWay (app JSF/RichFaces): due target, govwayMonitor e govwayConsole. 'base' arriva da --base o env A11Y_BASE_URL (es. http://localhost:8080). I selettori di login riflettono i form reali delle console 3.4; adeguali se cambiano. 'sourceHint' DEVE puntare a un sorgente VERSIONATO (dir deploy/), non a dir esplose/build (WAR/WW/build/dist): e' il file su cui Sonar aggancia (approssimato) le issue. CREDENZIALI: mai nel file -> env A11Y_MONITOR_USER/PASS, A11Y_CONSOLE_USER/PASS (o flag --user/--pass). App non-SPA: NON serve navWait/navDelayMs (default networkidle va bene).",
   "monitor": {
     "name": "govwayMonitor",
+    "falsePositives": "falsePositives.govway_monitor.json",
     "enabled": true,
     "loginPath": "/govwayMonitor/",
     "user": "operatore",
@@ -35,6 +47,14 @@
     },
     "sourceHint": "tools/web_interfaces/monitor/deploy/pages/templates/defaultTemplate.xhtml",
     "contextPath": "/govwayMonitor/",
+    "$nextPageNote": "Elenchi del monitor (rich:datascroller della libreria govway-monitor-ui): la pagina successiva e' il collegamento <a id=\"<tabella>_next_top_link\">, presente solo quando esiste; all'ultima pagina il comando e' una cella disabilitata senza collegamento. Si esamina anche la seconda pagina: ad esempio i Fault applicativi possono comparire solo li'.",
+    "nextPage": {
+      "selector": "a[id$='_next_top_link']",
+      "max": 1,
+      "wait": "networkidle",
+      "waitQuietMs": 1500,
+      "timeoutMs": 15000
+    },
     "$pagesNote": "Il menu di govwayMonitor naviga via postback AJAX (RichFaces): il crawl non scopre URL. Queste sono le pagine d'ingresso GET-navigabili (verificate a runtime). Le pagine di DETTAGLIO (dettaglio*, fault*, dump*, tokenInfo, visualizza*, transazioniLivello2) sono escluse perche' richiedono un record gia' selezionato in sessione.",
     "pages": [
       {
@@ -145,11 +165,201 @@
         ]
       },
       {
+        "name": "transazioni-per-esito",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/includes/transazioniCustom.xhtml",
+        "$note": "Risultati della ricerca per ogni valore del filtro 'Esito' (Fallite, Fault Applicativo, Errori di Consegna, ...), scoperti a runtime: ogni esito ha righe con colore e glifo propri, che nella prima pagina della ricerca senza filtro possono mancare. Il periodo e' portato a 'Ultimo mese' prima di ogni ricerca, perche' quello predefinito puo' essere troppo breve per avere risultati. '[Qualsiasi]' e' gia' coperto da transazioni-risultati.",
+        "steps": [
+          {
+            "scanFormVariants": {
+              "productAxes": [
+                "^Esito\\s"
+              ],
+              "skip": "^\\[Qualsiasi\\]$",
+              "fixed": {
+                "^Periodo\\s": "Ultimo mese"
+              },
+              "submit": "#filtra",
+              "reveal": "#panelTransazioni_header",
+              "maxViews": 20,
+              "field": {
+                "$comment": "Come in stat-tutte: la comboBox RichFaces delle console GovWay.",
+                "selector": "input[id$=comboboxField]",
+                "idSuffix": "comboboxField",
+                "group": "div.prop",
+                "label": "label",
+                "toggle": "##{base}comboboxButton",
+                "list": "##{base}list",
+                "option": ".rich-combobox-item"
+              }
+            },
+            "wait": "networkidle",
+            "waitQuietMs": 1500,
+            "timeoutMs": 15000,
+            "delayMs": 1000
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio-ok",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Dettaglio di una transazione con esito Ok, tab per tab: il glifo accanto all'etichetta 'Esito' e i contenuti del dettaglio dipendono dall'esito. La ricerca filtra per esito 'Completate con successo' sull'ultimo mese e apre la prima riga; senza transazioni con quell'esito il flow si interrompe con un avviso.",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il periodo"
+          },
+          {
+            "click": "#periodoCombolist .rich-combobox-item:text-is('Ultimo mese')",
+            "delayMs": 400,
+            "desc": "periodo: ultimo mese"
+          },
+          {
+            "click": "#esitoGruppoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il filtro esito"
+          },
+          {
+            "click": "#esitoGruppoCombolist .rich-combobox-item:text-is('Completate con successo')",
+            "delayMs": 400,
+            "desc": "esito: Completate con successo"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "div.rowTransazione",
+            "timeoutMs": 10000,
+            "desc": "attendi almeno una riga"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio-fault",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Dettaglio di una transazione con esito Fault applicativo, tab per tab: il glifo accanto all'etichetta 'Esito' e i contenuti del dettaglio dipendono dall'esito. La ricerca filtra per esito 'Fault Applicativo' sull'ultimo mese e apre la prima riga; senza transazioni con quell'esito il flow si interrompe con un avviso.",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il periodo"
+          },
+          {
+            "click": "#periodoCombolist .rich-combobox-item:text-is('Ultimo mese')",
+            "delayMs": 400,
+            "desc": "periodo: ultimo mese"
+          },
+          {
+            "click": "#esitoGruppoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il filtro esito"
+          },
+          {
+            "click": "#esitoGruppoCombolist .rich-combobox-item:text-is('Fault Applicativo')",
+            "delayMs": 400,
+            "desc": "esito: Fault Applicativo"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "div.rowTransazione",
+            "timeoutMs": 10000,
+            "desc": "attendi almeno una riga"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "transazione-dettaglio-fallita",
+        "start": "/govwayMonitor/transazioni/pages/list/transazioni.jsf",
+        "skipIfMissing": "#filtra",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/transazioni/pages/form/dettagliMessaggioTab.xhtml",
+        "$note": "Dettaglio di una transazione con esito Fallita, tab per tab: il glifo accanto all'etichetta 'Esito' e i contenuti del dettaglio dipendono dall'esito. La ricerca filtra per esito 'Fallite' sull'ultimo mese e apre la prima riga; senza transazioni con quell'esito il flow si interrompe con un avviso.",
+        "steps": [
+          {
+            "click": "#periodoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il periodo"
+          },
+          {
+            "click": "#periodoCombolist .rich-combobox-item:text-is('Ultimo mese')",
+            "delayMs": 400,
+            "desc": "periodo: ultimo mese"
+          },
+          {
+            "click": "#esitoGruppoCombocomboboxButton",
+            "delayMs": 300,
+            "desc": "apri il filtro esito"
+          },
+          {
+            "click": "#esitoGruppoCombolist .rich-combobox-item:text-is('Fallite')",
+            "delayMs": 400,
+            "desc": "esito: Fallite"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "esegui ricerca"
+          },
+          {
+            "wait": "div.rowTransazione",
+            "timeoutMs": 10000,
+            "desc": "attendi almeno una riga"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della prima transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
         "name": "stat-tutte",
         "start": "/govwayMonitor/stat/pages/form/analisiStatistica.jsf",
         "skipIfMissing": "fieldset legend",
         "sourceHint": "tools/web_interfaces/monitor/deploy/pages/stat/pages/form/analisiStatistica.xhtml",
-        "$note": "Analisi Statistica: la griglia analisiStatistica.jsf espone 33 report (11 sezioni x 3 tipi: Line/Bar/Pie chart, Tabella). Lo step scanCharts li enumera DINAMICAMENTE e per ognuno ri-naviga alla griglia, clicca l'icona (a.tipologia-button, etichetta dal fieldset legend + span), clicca #generaReport e scansiona il report reale (grafico SVG o dataTable). Copre TUTTE le statistiche senza cablarle. Inoltre, se il form presenta la select 'dimensioni' (Bar chart e Tabella delle distribuzioni per-X), enumera le sue opzioni a runtime e genera+scansiona il report per OGNUNA: ogni variante compare come flow:stat-tutte/<sezione>-<tipo>/<opzione>. dimensionSkip='personalizzato' esclude la variante 'personalizzato' (aprirebbe una select 'Seleziona Informazione 3D' non compilata, stato non valido; il suo layout non aggiunge strutture a11y nuove rispetto alle altre): restano 2-dimensioni e 3-dimensioni (include la data). Valori semi-cablati (per CONTENUTO, non per id/label di posizione): dimensionField='dimensioni' (individua la select) e dimensionSkip='personalizzato' (variante da saltare). I filtri hanno default validi, non serve compilarli. NB: con le dimensioni il totale sale (~69 report) -> run piu' lungo; usa scanCharts.limit per campionare in sviluppo.",
+        "$note": "Analisi Statistica: la griglia espone i report (sezioni x tipo di grafico). Lo step scanCharts li enumera DINAMICAMENTE e per ognuno ri-naviga, clicca l'icona, compila le varianti e scansiona il report reale. Le varianti non sono cablate: i campi del form si scoprono a runtime da etichetta, valore corrente e obbligatorieta' (il marcatore '*'). 'productAxes' elenca gli assi da incrociare fra loro — qui la select delle dimensioni e ogni campo obbligatorio, cioe' 'Tipo Identificazione' per Applicativo e 'Claim' per Token; 'linearAxes' quelli variati un'opzione alla volta con gli altri al predefinito — qui 'Visualizza per', che cambia il dato rappresentato (transazioni, banda, tempo) ma non l'impaginazione, e incrociarlo triplicherebbe il tempo senza produrre strutture nuove. Scegliendo '3-dimensioni (personalizzato)' compare il campo obbligatorio 'Informazione 3D': i nuovi obbligatori vengono riempiti con la prima opzione utile. L'opzione '--' dei campi obbligatori viene mantenuta perche' genera la pagina d'errore, anch'essa una vista da verificare, ma non viene incrociata con gli altri assi. 'maxViews' limita l'esplosione combinatoria.",
         "steps": [
           {
             "scanCharts": {
@@ -157,8 +367,14 @@
               "icon": "a.tipologia-button",
               "generate": "#generaReport",
               "label": "span.tipologia-button-text",
-              "dimensionField": "dimensioni",
-              "dimensionSkip": "personalizzato",
+              "productAxes": [
+                "dimensioni",
+                "required"
+              ],
+              "linearAxes": [
+                "Visualizza per"
+              ],
+              "maxViews": 300,
               "field": {
                 "$comment": "Come si riconosce un campo del form e come se ne aprono le opzioni. Qui sono i selettori della comboBox RichFaces usata dalle console GovWay; '#{base}' e' la radice dell'id del campo, cioe' il suo id senza 'idSuffix'.",
                 "selector": "input[id$=comboboxField]",
@@ -172,7 +388,43 @@
               }
             },
             "wait": "networkidle",
-            "delayMs": 2500
+            "$waitQuietNote": "I report statistici finiscono di costruirsi nel browser dopo che la rete e' a riposo: il grafico chiede i propri dati e viene disegnato, e fino ad allora la pagina mostra la maschera di attesa di RichFaces. Senza attendere che il DOM si fermi, le viste piu' pesanti venivano esaminate a meta' costruzione.",
+            "waitQuietMs": 3000,
+            "timeoutMs": 20000,
+            "delayMs": 500
+          }
+        ]
+      },
+      {
+        "name": "monitoraggio-transazioni",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/commons/pages/welcome.xhtml",
+        "$note": "Monitoraggio Transazioni, la pagina iniziale (vi si arriva anche dal titolo in alto a sinistra): il grafico degli esiti si ridisegna a ogni scelta di Periodo, Profilo Interoperabilita' e Tipo. La pagina da sola veniva esaminata solo nella combinazione predefinita; lo step scanFormVariants incrocia tutte le opzioni dei tre campi, scoperte a runtime come in Analisi Statistica (stessa comboBox RichFaces, stessa descrizione del campo). Ogni combinazione riparte dalla pagina riaperta. I profili disponibili dipendono dall'installazione: con un solo profilo il campo non e' un asse.",
+        "steps": [
+          {
+            "scanFormVariants": {
+              "productAxes": [
+                "Periodo",
+                "Profilo",
+                "Tipo"
+              ],
+              "maxViews": 150,
+              "field": {
+                "$comment": "Come in stat-tutte: la comboBox RichFaces delle console GovWay.",
+                "selector": "input[id$=comboboxField]",
+                "idSuffix": "comboboxField",
+                "group": "div.prop",
+                "label": "label",
+                "toggle": "##{base}comboboxButton",
+                "list": "##{base}list",
+                "option": ".rich-combobox-item"
+              }
+            },
+            "wait": "networkidle",
+            "$waitQuietNote": "Il grafico chiede i propri dati e si disegna dopo che la rete e' a riposo: si attende che il DOM si fermi.",
+            "waitQuietMs": 3000,
+            "timeoutMs": 20000,
+            "delayMs": 500
           }
         ]
       },
@@ -182,16 +434,61 @@
         "start": "/govwayMonitor/transazioni/pages/form/transazioni.jsf",
         "sourceHint": "tools/web_interfaces/monitor/src/src_core/META-INF/taglib/fileUpload.xhtml",
         "steps": [
-          { "clickText": "Esamina archivio", "exact": true, "wait": "networkidle", "delayMs": 1500, "desc": "scegli la ricerca 'Esamina archivio'" },
-          { "wait": "input[type='file'][name='theFile']", "timeoutMs": 8000, "desc": "attendi il campo di caricamento" },
-          { "scan": "form" },
-          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/transazioni-esempio.zip"] }, "wait": "a[id*='-delete-cmd_']", "timeoutMs": 15000, "delayMs": 800, "desc": "carica l'archivio di prova: compare la riga del file con il comando di rimozione" },
-          { "scan": "archivio-caricato" },
-          { "click": "#filtra", "wait": "networkidle", "delayMs": 1500, "desc": "Avvia Analisi" },
-          { "wait": "#msgDt_tbl", "timeoutMs": 8000, "desc": "attendi la tabella delle transazioni dell'archivio" },
-          { "scan": "risultati" },
-          { "click": "div.rowTransazione", "wait": "networkidle", "delayMs": 2000, "desc": "apri il dettaglio della transazione" },
-          { "scanTabs": ".rich-tab-header", "wait": "networkidle", "delayMs": 1200 }
+          {
+            "clickText": "Esamina archivio",
+            "exact": true,
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "scegli la ricerca 'Esamina archivio'"
+          },
+          {
+            "wait": "input[type='file'][name='theFile']",
+            "timeoutMs": 8000,
+            "desc": "attendi il campo di caricamento"
+          },
+          {
+            "scan": "form"
+          },
+          {
+            "upload": {
+              "selector": "input[type='file'][name='theFile']",
+              "files": [
+                "fixtures/transazioni-esempio.zip"
+              ]
+            },
+            "wait": "a[id*='-delete-cmd_']",
+            "timeoutMs": 15000,
+            "delayMs": 800,
+            "desc": "carica l'archivio di prova: compare la riga del file con il comando di rimozione"
+          },
+          {
+            "scan": "archivio-caricato"
+          },
+          {
+            "click": "#filtra",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Avvia Analisi"
+          },
+          {
+            "wait": "#msgDt_tbl",
+            "timeoutMs": 8000,
+            "desc": "attendi la tabella delle transazioni dell'archivio"
+          },
+          {
+            "scan": "risultati"
+          },
+          {
+            "click": "div.rowTransazione",
+            "wait": "networkidle",
+            "delayMs": 2000,
+            "desc": "apri il dettaglio della transazione"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
         ]
       },
       {
@@ -201,11 +498,34 @@
         "skipIfMissing": "[id$='carica-iconLink']",
         "sourceHint": "tools/web_interfaces/monitor/deploy/pages/core/pages/list/ricercheUtenteList.xhtml",
         "steps": [
-          { "scan": "lista" },
-          { "click": "[id$='carica-iconLink']", "wait": "input[type='file'][name='theFile']", "timeoutMs": 8000, "delayMs": 800, "desc": "apri il modale 'Importa Ricerche'" },
-          { "scan": "importa" },
-          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/ricerche-esempio.json"] }, "wait": "a[id*='-delete-cmd_']", "timeoutMs": 15000, "delayMs": 800, "desc": "carica il file di prova: compare la riga del file con il comando di rimozione" },
-          { "scan": "file-caricato" }
+          {
+            "scan": "lista"
+          },
+          {
+            "click": "[id$='carica-iconLink']",
+            "wait": "input[type='file'][name='theFile']",
+            "timeoutMs": 8000,
+            "delayMs": 800,
+            "desc": "apri il modale 'Importa Ricerche'"
+          },
+          {
+            "scan": "importa"
+          },
+          {
+            "upload": {
+              "selector": "input[type='file'][name='theFile']",
+              "files": [
+                "fixtures/ricerche-esempio.json"
+              ]
+            },
+            "wait": "a[id*='-delete-cmd_']",
+            "timeoutMs": 15000,
+            "delayMs": 800,
+            "desc": "carica il file di prova: compare la riga del file con il comando di rimozione"
+          },
+          {
+            "scan": "file-caricato"
+          }
         ]
       },
       {
@@ -401,6 +721,216 @@
         ]
       },
       {
+        "name": "allarmi-lista",
+        "$note": "Stato Allarmi: aperta dall'URL la pagina mostra solo il riepilogo degli stati e il filtro, l'elenco compare dopo 'Cerca'. Si entra dalla voce di menu, come un utente. La voce esiste solo nelle installazioni con gli allarmi: senza, questo flow e i successivi sugli allarmi vengono saltati.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/list/statoAllarmi.xhtml",
+        "steps": [
+          {
+            "click": "table[id$='statoAllarmiLnk']",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "scan": "filtro"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "wait": "a[id$='dettaglio-iconLink']",
+            "timeoutMs": 8000,
+            "desc": "attendi l'elenco degli allarmi"
+          },
+          {
+            "scan": "elenco"
+          }
+        ]
+      },
+      {
+        "name": "allarme-dettaglio",
+        "$note": "Dettaglio di un allarme ATTIVO (icona 'alarm' nella colonna Modalita'): solo questi hanno il tab dei parametri, quindi la riga si sceglie per modalita' e non per posizione. I tab sono scoperti a runtime (scanTabs). L'Archivio Stati sta nel flow 'allarme-archivio-stati', separato perche' escluso da Lighthouse.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
+        "steps": [
+          {
+            "click": "table[id$='statoAllarmiLnk']",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "click": "tr.rich-table-row:has(i:text-is('alarm')) a[id$='dettaglio-iconLink']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "dettaglio del primo allarme attivo"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "allarme-archivio-stati",
+        "lighthouse": false,
+        "$lighthouseNote": "Lighthouse ricarica la vista per URL in una scheda separata con la stessa sessione. L'Archivio Stati e' una vista JSF raggiunta con un'azione (allarme.jsf): ricaricata per URL risponde 200 ma senza percorso ne' titolo, cioe' non e' la stessa vista, e l'audit resta senza punteggio (verificato il 2026-11-18).",
+        "$note": "Archivio Stati di un allarme ATTIVO, aperto dal tab Stato del suo dettaglio, e dettaglio della prima voce dell'archivio se presente (con l'archivio vuoto il passo opzionale non trova il link e la seconda vista coincide con la prima).",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
+        "steps": [
+          {
+            "click": "table[id$='statoAllarmiLnk']",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "click": "tr.rich-table-row:has(i:text-is('alarm')) a[id$='dettaglio-iconLink']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "dettaglio del primo allarme attivo"
+          },
+          {
+            "click": ".rich-tab-header >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "tab Stato"
+          },
+          {
+            "click": "a[id$='history-iconLink']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Archivio Stati"
+          },
+          {
+            "scan": "archivio-stati"
+          },
+          {
+            "click": "a[id$='dettaglio-iconLink']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "optional": true,
+            "desc": "dettaglio della prima voce dell'archivio (se presente)"
+          },
+          {
+            "scan": "archivio-stati-dettaglio"
+          }
+        ]
+      },
+      {
+        "name": "allarme-dettaglio-passivo",
+        "$note": "Dettaglio di un allarme PASSIVO (icona 'alarm_off'): senza il tab dei parametri e con un tab Stato diverso. Se non ci sono allarmi passivi il click fallisce e il flow si interrompe con un avviso.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/pages/form/allarme.xhtml",
+        "steps": [
+          {
+            "click": "table[id$='statoAllarmiLnk']",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "click": "tr.rich-table-row:has(i:text-is('alarm_off')) a[id$='dettaglio-iconLink']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "dettaglio del primo allarme passivo"
+          },
+          {
+            "scanTabs": ".rich-tab-header",
+            "wait": "networkidle",
+            "delayMs": 1200
+          }
+        ]
+      },
+      {
+        "name": "allarme-modifica-stato",
+        "$note": "Matita 'Modifica Stato' dell'elenco: form con il nuovo stato, il dettaglio e l'acknowledge. 'Salva' non viene premuto. La matita compare solo per gli allarmi il cui stato e' modificabile manualmente: se manca, il flow si interrompe con un avviso.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/includes/formAllarmeStato.xhtml",
+        "steps": [
+          {
+            "click": "table[id$='statoAllarmiLnk']",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "click": "a[id$='edit-iconLink']:has-text('Modifica Stato')",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Modifica Stato del primo allarme che lo consente"
+          },
+          {
+            "scan": "form"
+          }
+        ]
+      },
+      {
+        "name": "allarme-criteri-acknowledge",
+        "$note": "Matita 'Modifica Criteri Acknowledge' dell'elenco: form dei criteri, con la finestra informativa del campo. 'Salva' non viene premuto. La matita compare solo per gli allarmi con criteri modificabili: se manca, il flow si interrompe con un avviso.",
+        "start": "/govwayMonitor/commons/pages/welcome.jsf",
+        "skipIfMissing": "table[id$='statoAllarmiLnk']",
+        "sourceHint": "tools/web_interfaces/monitor/deploy/pages/allarmi/includes/formAllarmeStato.xhtml",
+        "steps": [
+          {
+            "click": "table[id$='statoAllarmiLnk']",
+            "wait": "networkidle",
+            "delayMs": 1000,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "input[value='Cerca']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Cerca"
+          },
+          {
+            "click": "a[id$='edit-iconLink']:has-text('Modifica Criteri')",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Modifica Criteri Acknowledge del primo allarme che lo consente"
+          },
+          {
+            "scan": "form"
+          }
+        ]
+      },
+      {
         "name": "eventi-filtro-date",
         "$note": "Il calendario (rich:calendar) esiste solo con 'Periodo = Personalizzato': senza questo passo i selettori di data non vengono mai esaminati. Il pannello viene poi aperto, per scansionarlo da dentro.",
         "start": "/govwayMonitor/eventi/pages/list/eventi.jsf",
@@ -423,6 +953,10 @@
             "click": "img[id$='dataInizioCalendarPopupButton']",
             "delayMs": 1200,
             "desc": "apri il calendario di Data Inizio"
+          },
+          {
+            "scan": "",
+            "$keyboardNote": "Il calendario aperto e' una finestra di dialogo modale (aria-modal=true, il Tab cicla fra i suoi comandi, Esc lo chiude): il percorso col Tab parte dentro il pannello e ne misura i comandi. I controlli della pagina sotto il calendario non sono raggiungibili finche' e' aperto; il loro percorso e' quello della stessa vista a calendario chiuso."
           }
         ]
       },
@@ -449,6 +983,10 @@
             "click": "img[id$='dataInizioCalendarPopupButton']",
             "delayMs": 1200,
             "desc": "apri il calendario di Data Inizio"
+          },
+          {
+            "scan": "",
+            "$keyboardNote": "Il calendario aperto e' una finestra di dialogo modale (aria-modal=true, il Tab cicla fra i suoi comandi, Esc lo chiude): il percorso col Tab parte dentro il pannello e ne misura i comandi. I controlli della pagina sotto il calendario non sono raggiungibili finche' e' aperto; il loro percorso e' quello della stessa vista a calendario chiuso."
           }
         ]
       },
@@ -481,6 +1019,10 @@
             "click": "img[id$='dataInizioCalendarPopupButton']",
             "delayMs": 1200,
             "desc": "apri il calendario di Data Inizio"
+          },
+          {
+            "scan": "",
+            "$keyboardNote": "Il calendario aperto e' una finestra di dialogo modale (aria-modal=true, il Tab cicla fra i suoi comandi, Esc lo chiude): il percorso col Tab parte dentro il pannello e ne misura i comandi. I controlli della pagina sotto il calendario non sono raggiungibili finche' e' aperto; il loro percorso e' quello della stessa vista a calendario chiuso."
           }
         ]
       }
@@ -491,6 +1033,7 @@
   "console": {
     "name": "govwayConsole",
     "enabled": true,
+    "falsePositives": "falsePositives.govway_console.json",
     "loginPath": "/govwayConsole/",
     "user": "amministratore",
     "login": {
@@ -501,6 +1044,15 @@
     },
     "sourceHint": "tools/web_interfaces/control_station/deploy/public/loginAS.jsp",
     "contextPath": "/govwayConsole/",
+    "$nextPageNote": "Elenchi della console (full-list.jsp, anche le viste personalizzate di erogazioni, fruizioni, API): il comando 'Successiva' e' un <button id=\"ds_next_top\"> presente solo quando esiste una pagina successiva; all'ultima pagina c'e' solo l'immagine disabilitata. Si esamina anche la seconda pagina: righe che cadono piu' avanti (stati, esiti, tipi diversi) altrimenti non verrebbero mai viste. Dopo la seconda pagina si torna alla prima con 'Precedente' (back): ferma su una pagina successiva, la console risponde con una pagina vuota alla propria radice /govwayConsole/, da cui il menu riparte per ogni voce.",
+    "nextPage": {
+      "selector": "button#ds_next_top",
+      "back": "button#ds_prev_top",
+      "max": 1,
+      "wait": "networkidle",
+      "waitQuietMs": 1500,
+      "timeoutMs": 15000
+    },
     "pages": [
       {
         "name": "landing",
@@ -512,7 +1064,7 @@
       {
         "name": "menu",
         "start": "/govwayConsole/",
-        "$note": "scanMenu console: 3 menu (sinistro/omino/Profili). Sul menu sinistro: listRow entry_ -> dettaglio, poi RICORSIONE solo-navigazione (recurse {depth,max}: segue matite, count-link Soggetti/Ruoli/Proprieta, ecc., ovunque, con dedup su URL normalizzato e skip di distruttivi/SALVA), + detailMenu 3-puntini + detailConfig CONFIGURA. Tutto dinamico, non cablato, anti-logout. depth/max sono parametri regolabili.",
+        "$note": "scanMenu console: 3 menu (sinistro/omino/Profili). Sul menu sinistro: listRow entry_ -> dettaglio, poi RICORSIONE solo-navigazione (recurse {depth,max}: segue matite, count-link Soggetti/Ruoli/Proprieta, ecc., ovunque, con dedup su URL normalizzato e skip di distruttivi/SALVA), + detailMenu 3-puntini + detailConfig CONFIGURA; le voci che non aprono un elenco (Cache PDND, Tracciamento, Generale, ...) esplorano i loro collegamenti dalla pagina stessa (recurse.fromItem). Tutto dinamico, non cablato, anti-logout. depth/max sono parametri regolabili.",
         "steps": [
           {
             "scanMenu": [
@@ -521,7 +1073,16 @@
                 "listRow": "[id^='entry_']",
                 "recurse": {
                   "depth": 2,
-                  "max": 40
+                  "max": 40,
+                  "fromItem": true,
+                  "$skipNote": "Il filtro predefinito (azioni distruttive, logout, salva, esporta) piu' loginAsSu ('Accedi' nella pagina Utenti cambia l'identita' della sessione) e Abilitazione (porteDelegateAbilitazione/porteApplicativeAbilitazione abilitano o disabilitano la porta con una GET).",
+                  "excludeLinks": "#menuct a, a.td2PageHeader, a.voceMenuRC",
+                  "$excludeLinksNote": "Link da non seguire nella ricorsione: menu sinistro (#menuct), voci di menu (voceMenuRC) e comandi dell'intestazione (td2PageHeader, es. il cambio di profilo). Porterebbero la ricorsione fuori dalla sezione che sta esplorando. Fino al 21/11/2026 questa esclusione era cablata nel tool.",
+                  "configMax": 40,
+                  "$configMaxNote": "Limite proprio della ricorsione dalla pagina di configurazione (CONFIGURA) di erogazioni e fruizioni. Prima il limite era quello del dettaglio (max 40), che la ricorsione dal dettaglio esauriva seguendo i collegamenti verso altre API: della pagina di configurazione veniva seguito un solo collegamento, e gli elenchi delle funzionalita' (trasformazioni, rate limiting, controllo accessi, ...) non venivano aperti.",
+                  "mutating": "Pos=(su|giu)\\b",
+                  "$mutatingNote": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati (regole proxy pass ppPos, trasformazioni trPos, handler hPos, archivi dei plugin plPos, policy del controllo del traffico CTPolictyActivePos) riordinano la configurazione con una GET e ricreano le voci con identificativi nuovi. Seguite come link che cambiano lo stato: dopo gli altri link e rileggendo ogni volta gli identificativi; nell'ordine giu' della 1a, su della 2a, giu' della 2a, ... l'elenco torna all'ordine iniziale. Prima (fino al 20/11/2026) erano seguite con gli URL letti all'inizio: dopo il primo spostamento puntavano a voci non piu' esistenti (pagina d'errore, 503 per Lighthouse).",
+                  "skip": "logout|signout|esci|elimina|delete|remove|rimuovi|reset|export|download|salva|annulla|loginAsSu|Abilitazione"
                 },
                 "detailMenu": {
                   "open": "#divIconMenu_barraTitolo",
@@ -551,11 +1112,34 @@
         "start": "/govwayConsole/",
         "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
         "steps": [
-          { "click": "a.voceMenuRC[title='Importa']", "wait": "networkidle", "delayMs": 800, "desc": "apri Importa dal menu" },
-          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/govway-tag-esempio.zip"] }, "delayMs": 300, "desc": "scegli l'archivio di prova" },
-          { "scan": "file-scelto" },
-          { "click": ".buttonrowform input[type='submit']", "wait": "networkidle", "delayMs": 1500, "desc": "Importa: esegue l'import e mostra il resoconto" },
-          { "scan": "resoconto" }
+          {
+            "click": "a.voceMenuRC[title='Importa']",
+            "wait": "networkidle",
+            "delayMs": 800,
+            "desc": "apri Importa dal menu"
+          },
+          {
+            "upload": {
+              "selector": "input[type='file'][name='theFile']",
+              "files": [
+                "fixtures/govway-tag-esempio.zip"
+              ]
+            },
+            "delayMs": 300,
+            "desc": "scegli l'archivio di prova"
+          },
+          {
+            "scan": "file-scelto"
+          },
+          {
+            "click": ".buttonrowform input[type='submit']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Importa: esegue l'import e mostra il resoconto"
+          },
+          {
+            "scan": "resoconto"
+          }
         ]
       },
       {
@@ -566,11 +1150,111 @@
         "start": "/govwayConsole/",
         "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
         "steps": [
-          { "click": "a.voceMenuRC[title='Elimina']", "wait": "networkidle", "delayMs": 800, "desc": "apri Elimina dal menu" },
-          { "upload": { "selector": "input[type='file'][name='theFile']", "files": ["fixtures/govway-tag-esempio.zip"] }, "delayMs": 300, "desc": "scegli l'archivio di prova" },
-          { "scan": "file-scelto" },
-          { "click": ".buttonrowform input[type='submit']", "wait": "networkidle", "delayMs": 1500, "desc": "Elimina: rimuove gli oggetti dell'archivio e mostra il resoconto" },
-          { "scan": "resoconto" }
+          {
+            "click": "a.voceMenuRC[title='Elimina']",
+            "wait": "networkidle",
+            "delayMs": 800,
+            "desc": "apri Elimina dal menu"
+          },
+          {
+            "upload": {
+              "selector": "input[type='file'][name='theFile']",
+              "files": [
+                "fixtures/govway-tag-esempio.zip"
+              ]
+            },
+            "delayMs": 300,
+            "desc": "scegli l'archivio di prova"
+          },
+          {
+            "scan": "file-scelto"
+          },
+          {
+            "click": ".buttonrowform input[type='submit']",
+            "wait": "networkidle",
+            "delayMs": 1500,
+            "desc": "Elimina: rimuove gli oggetti dell'archivio e mostra il resoconto"
+          },
+          {
+            "scan": "resoconto"
+          }
+        ]
+      },
+      {
+        "name": "allarmi-nuovo",
+        "$note": "Allarmi > Aggiungi: il form cambia interamente secondo il plugin scelto (sezioni e parametri propri di ciascuno), e il flow menu vede solo gli allarmi gia' configurati. scanOptions sceglie uno alla volta tutti i plugin installati, scoperti a runtime, e scansiona il form che ne risulta; 'Salva' non viene mai premuto. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
+        "start": "/govwayConsole/",
+        "skipIfMissing": "a.voceMenuRC[title='Allarmi']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/edit-page.jsp",
+        "steps": [
+          {
+            "click": "a.voceMenuRC[title='Allarmi']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "input[type='submit'][value='Aggiungi'], input[type='button'][value='Aggiungi']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Aggiungi: form senza plugin"
+          },
+          {
+            "scan": "form"
+          },
+          {
+            "scanOptions": {
+              "selector": "select[name='allPlugin']",
+              "name": "plugin",
+              "skip": "^-$"
+            },
+            "wait": "networkidle",
+            "delayMs": 600
+          }
+        ]
+      },
+      {
+        "name": "allarmi-azioni-riga",
+        "$note": "Elenco degli Allarmi: il menu delle azioni di riga (tre puntini) e la vista 'Visualizza runtime' che apre. Il flow menu entra nel dettaglio della prima riga, che puo' non avere azioni (allarme passivo): qui si apre il primo menu di riga presente, quale che sia l'allarme. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
+        "start": "/govwayConsole/",
+        "skipIfMissing": "a.voceMenuRC[title='Allarmi']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "a.voceMenuRC[title='Allarmi']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri Allarmi dal menu"
+          },
+          {
+            "click": "[id^='spanIconMenu_']",
+            "delayMs": 400,
+            "desc": "apri il menu azioni della prima riga che ne ha uno"
+          },
+          {
+            "scan": "menu-aperto",
+            "$keyboardNote": "Il percorso col Tab parte con il menu aperto: misura anche che spostando il fuoco il menu non resti a coprire gli elementi raggiunti. Il percorso puo' chiudere il menu: i passi seguenti ricaricano l'elenco e lo riaprono."
+          },
+          {
+            "reload": true,
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "ricarica l'elenco: il percorso col Tab puo' aver chiuso il menu, e un clic sull'icona lo richiuderebbe se fosse rimasto aperto"
+          },
+          {
+            "click": "[id^='spanIconMenu_']",
+            "delayMs": 400,
+            "desc": "riapri il menu azioni della prima riga che ne ha uno"
+          },
+          {
+            "click": ".context-menu a >> visible=true",
+            "wait": "networkidle",
+            "delayMs": 800,
+            "desc": "prima azione del menu (Visualizza runtime)"
+          },
+          {
+            "scan": "azione"
+          }
         ]
       },
       {
@@ -584,6 +1268,232 @@
             "click": "input[name='datainizio']",
             "delayMs": 900,
             "desc": "apri il calendario dando il fuoco al campo"
+          }
+        ]
+      },
+      {
+        "name": "riordino-trasformazioni-erogazione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=erogazione&resetSearch=yes&search=ApiSoapTestTrasformazioni",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di ApiSoapTestTrasformazioni"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='TrasformazioniList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='trPos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='trPos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          }
+        ]
+      },
+      {
+        "name": "riordino-trasformazioni-fruizione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=fruizione&resetSearch=yes&search=ApiSoapTestTrasformazioni",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di ApiSoapTestTrasformazioni"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='TrasformazioniList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='trPos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='trPos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          }
+        ]
+      },
+      {
+        "name": "riordino-rate-limiting-erogazione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=erogazione&resetSearch=yes&search=CustomPolicyRest",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di CustomPolicyRest"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri la prima policy dell'elenco (filtro con risorse/azioni puntuali: elenco a selezione multipla senza etichetta visibile)"
+          },
+          {
+            "scan": "dettaglio-policy"
+          }
+        ]
+      },
+      {
+        "name": "riordino-rate-limiting-fruizione",
+        "$note": "Le frecce 'Sposta su' e 'Sposta giu'' degli elenchi ordinati sotto CONFIGURA. Il flow del menu entra solo nella prima erogazione o fruizione dell'elenco, che nell'ambiente di test non ne ha: qui si cerca per nome un'API della testsuite che le ha. Ogni clic legge la pagina corrente, quindi usa gli identificativi aggiornati dopo lo spostamento precedente (le voci spostate sono ricreate con identificativi nuovi). Giu' sulla prima voce e poi su sulla seconda riportano l'elenco all'ordine iniziale. Se l'API non c'e' il flow viene saltato (skipIfMissing).",
+        "start": "/govwayConsole/aspsErogazioniList.do?_tabKey_tipologiaErogazione=fruizione&resetSearch=yes&search=CustomPolicyRest",
+        "skipIfMissing": "[id^='entry_'] a[href*='aspsErogazioniChange']",
+        "sourceHint": "tools/web_interfaces/lib/jsplib/full-list.jsp",
+        "steps": [
+          {
+            "click": "[id^='entry_'] a[href*='aspsErogazioniChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 400,
+            "desc": "apri il dettaglio di CustomPolicyRest"
+          },
+          {
+            "click": "[id^='form-add-tab-link']",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "CONFIGURA: elenco delle configurazioni"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyList'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri l'elenco ordinato del primo gruppo"
+          },
+          {
+            "scan": "elenco"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=giu'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta giu' la prima voce"
+          },
+          {
+            "scan": "spostata-giu",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='CTPolictyActivePos=su'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "Sposta su la voce ora in seconda posizione: l'elenco torna all'ordine iniziale"
+          },
+          {
+            "scan": "spostata-su",
+            "lighthouse": false,
+            "lighthouseNote": "il suo URL sposta la voce: ricaricarlo per Lighthouse ripeterebbe lo spostamento"
+          },
+          {
+            "click": "a[href*='AttivazionePolicyChange'] >> nth=0",
+            "wait": "networkidle",
+            "delayMs": 600,
+            "desc": "apri la prima policy dell'elenco (filtro con risorse/azioni puntuali: elenco a selezione multipla senza etichetta visibile)"
+          },
+          {
+            "scan": "dettaglio-policy"
           }
         ]
       }

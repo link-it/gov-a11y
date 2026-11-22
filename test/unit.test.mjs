@@ -157,6 +157,40 @@ const reflowNM = esitoNM.controlli.find(c => c.id === 'reflow');
 check(reflowNM && reflowNM.esito === 'non superato' && reflowNM.viste.some(v => /secondo tentativo/.test(v.nota)), 'reflow non eseguito su una vista: non superato, con il motivo per vista');
 check(esitoNM.gate.motivi.some(m => /non eseguito su 1 vista: esito non verificabile \(lista-live\)/.test(m)), 'gate: esito non verificabile, non una violazione');
 
+console.log('— secondo motore senza failOnEqualAccess (predefinito)');
+const CON_IBM = [{ target: 'app', targetName: 'App', name: 'lista-ibm', url: 'http://h/app/ibm', violations: [], incomplete: [],
+  lhScore: null, axTree: { nodes: 12, nameless: [] }, ariaSnapshot: '- main', sr: null, vuota: false,
+  equalAccess: { violazioni: [{ regola: 'table_headers_exists', motivo: 'Fail_1', messaggio: 'Table has no headers', snippet: '<table>', xpath: '/html/body/table', wcag: ['1.3.1'] }], daVerificare: [] } }];
+const esitoIbm = M.valutaControlli(CON_IBM);
+const cIbm = esitoIbm.controlli.find(c => c.id === 'equalAccess');
+check(esitoIbm.gate.superato && !cIbm.decide && cIbm.esito === 'segnalazioni', 'violazioni IBM senza failOnEqualAccess: segnalazioni, gate superato');
+const sommarioIbm = M.writeSummaryAndHtml(CON_IBM, M.writeAriaTrees(CON_IBM));
+check(sommarioIbm.failOnEqualAccess === false, 'summary.json: failOnEqualAccess false per difetto');
+M.writeSarif(CON_IBM, sommarioIbm);
+check(JSON.parse(readFileSync(join(OUT, 'a11y.sarif'), 'utf8')).runs.find(r => r.tool.driver.name === 'IBM Equal Access').results.every(r => r.level === 'note'), 'SARIF: violazioni IBM a livello note');
+M.writeSonar(CON_IBM, sommarioIbm);
+check(!JSON.parse(readFileSync(join(OUT, 'sonar-issues.json'), 'utf8')).issues.some(i => i.engineId === 'equal-access'), 'Sonar: niente IBM se non decide');
+
+console.log('— tempi della scansione');
+const CON_TEMPI = [
+  { target: 'app', targetName: 'App', name: 'lenta', url: 'http://h/app/lenta', violations: [], incomplete: [], lhScore: null, axTree: { nodes: 12, nameless: [] }, ariaSnapshot: '- main', sr: null, vuota: false,
+    tempi: { inizio: 1000, primaDellaVista: 2000, totale: 9000, fasi: { attesa: 500, axe: 1500, keyboardWalk: 7000 } } },
+  { target: 'app', targetName: 'App', name: 'veloce', url: 'http://h/app/veloce', violations: [], incomplete: [], lhScore: null, axTree: { nodes: 12, nameless: [] }, ariaSnapshot: '- main', sr: null, vuota: false,
+    tempi: { inizio: 12000, primaDellaVista: 1000, totale: 3000, fasi: { attesa: 400, axe: 1600, keyboardWalk: 1000 } } },
+];
+M.writeSummaryAndHtml(CON_TEMPI, M.writeAriaTrees(CON_TEMPI));
+const tempi = JSON.parse(readFileSync(join(OUT, 'tempi.json'), 'utf8'));
+check(tempi.numeroViste === 2 && tempi.visteMs === 12000 && tempi.navigazioneMs === 3000 && tempi.mediaVistaMs === 6000, `tempi.json: viste, tempo nelle viste e navigazione (${tempi.visteMs}/${tempi.navigazioneMs})`);
+check(tempi.fasi[0].id === 'keyboardWalk' && tempi.fasi[0].totaleMs === 8000 && tempi.fasi[0].vistaPiuLenta === 'lenta', 'tempi.json: fasi ordinate per durata, con la vista piu\' lenta');
+check(tempi.visteLente[0].nome === 'lenta' && tempi.perVista.length === 2, 'tempi.json: viste piu\' lente in testa');
+const htmlTempi = readFileSync(join(OUT, 'report.html'), 'utf8');
+check(/<details class="disclaimer">\s*<summary><h2>Tempi della scansione/.test(htmlTempi) && /Percorso col tasto Tab/.test(htmlTempi), 'report.html: riepilogo dei tempi in un blocco chiuso');
+check(/<details class="tempi"><summary>Tempi: <b>9,0 s<\/b> nella vista, 2,0 s per arrivarci/.test(htmlTempi), 'report.html: tempi della singola vista in un blocco chiuso');
+check(M.fmtDurata(65000) === '1 min 5 s' && M.fmtDurata(3720000) === '1 h 2 min' && M.fmtDurata(1500) === '1,5 s', 'formato delle durate');
+const SENZA_TEMPI = [{ ...CON_TEMPI[0], tempi: undefined }];
+M.writeSummaryAndHtml(SENZA_TEMPI, M.writeAriaTrees(SENZA_TEMPI));
+check(!/Tempi della scansione/.test(readFileSync(join(OUT, 'report.html'), 'utf8')), 'senza dati di tempo il blocco non compare');
+
 console.log('— vista vuota (pagina non renderizzata)');
 const VUOTA = [{ target: 'app', targetName: 'App', name: 'lista-bianca', url: 'http://h/app/lista', violations: [], incomplete: [],
   lhScore: null, axTree: { nodes: 0, nameless: [] }, ariaSnapshot: '', sr: null, vuota: true }];
@@ -276,6 +310,34 @@ const gruppiCc = M.contrastiPerComponente([
   { name: 'v2', incomplete: [{ id: 'color-contrast', nodes: [nodoCc({ ...stimaA })] }], equalAccess: null },
 ]);
 eq(gruppiCc.map(g => [g.componente, g.esito, g.viste.length, g.occorrenze, g.motori.join('+')]), [['a.chip > span.num', 'non conforme', 2, 2, 'axe+IBM'], ['span.hint', 'conforme', 1, 1, 'axe']], 'stime per componente: sotto soglia prima; lo stesso elemento visto dai due motori conta una volta');
+
+// Casi da verificare di IBM sul fuoco confermati dal percorso col Tab
+{
+  const caso = (regola, xpath) => ({ regola, xpath, messaggio: 'm', snippet: '<a>', wcag: ['2.4.7'] });
+  const daVerificare = [
+    caso('style_focus_visible', '/html[1]/body[1]/a[1]'),          // misurato, fuoco visibile -> confermato
+    caso('style_focus_visible', '/html[1]/body[1]/a[2]'),          // misurato, fuoco NON visibile -> resta
+    caso('element_tabbable_unobscured', '/html[1]/body[1]/a[1]'),  // non coperto -> confermato
+    caso('element_tabbable_unobscured', '/html[1]/body[1]/a[3]'),  // coperto -> resta
+    caso('element_tabbable_visible', '/html[1]/body[1]/a[4]'),     // fuori dalla finestra -> resta
+    caso('element_tabbable_visible', '/html[1]/body[1]/a[1]'),     // visibile -> confermato
+    caso('style_focus_visible', '/html[1]/body[1]/a[9]'),          // non raggiunto dal Tab -> resta
+    caso('text_block_heading', '/html[1]/body[1]/a[1]'),           // regola non sul fuoco -> resta
+    caso('style_focus_visible', null),                             // senza XPath -> resta
+  ];
+  const misure = {
+    '/html[1]/body[1]/a[1]': { ok: true, coperto: false, mostrato: true },
+    '/html[1]/body[1]/a[2]': { ok: false, coperto: false, mostrato: true },
+    '/html[1]/body[1]/a[3]': { ok: true, coperto: true, mostrato: true },
+    '/html[1]/body[1]/a[4]': { ok: true, coperto: false, mostrato: false },
+  };
+  const c = M.confermaDalTab(daVerificare, misure);
+  eq(c.confermati.map(x => x.regola + ' ' + x.xpath), ['style_focus_visible /html[1]/body[1]/a[1]', 'element_tabbable_unobscured /html[1]/body[1]/a[1]', 'element_tabbable_visible /html[1]/body[1]/a[1]'],
+    'conferma dal Tab: solo le domande sul fuoco, sullo stesso elemento, con misura positiva');
+  eq(c.daVerificare.length, 6, 'conferma dal Tab: gli altri casi restano da verificare');
+  check(c.confermati.every(x => /^Percorso col tasto Tab: /.test(x.conferma)), 'conferma dal Tab: ogni caso confermato dichiara la misura');
+  eq(M.confermaDalTab(daVerificare, {}).daVerificare.length, daVerificare.length, 'conferma dal Tab: senza misure nulla cambia');
+}
 
 console.log(failed ? `\n❌ unit: ${failed} check falliti` : '\n✅ unit: tutti i check superati');
 process.exit(failed ? 1 : 0);

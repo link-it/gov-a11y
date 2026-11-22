@@ -22,8 +22,10 @@ responsabilità di chi firma la dichiarazione di accessibilità.
 Una voce con `"engine": "equalAccess"` vale per il secondo motore, e lì copre **sia le violazioni
 sia i casi da verificare**. La differenza ha due ragioni:
 
-- IBM Equal Access **non decide l'esito** della scansione (non partecipa al gate): derogarne una
-  violazione non fa passare nulla che altrimenti fallirebbe;
+- IBM Equal Access di norma **non decide l'esito** della scansione: derogarne una violazione non
+  fa passare nulla che altrimenti fallirebbe. Con `failOnEqualAccess` invece la decide, e una voce
+  del registro toglie la violazione dal gate: si dichiarano solo i casi che non sono difetti,
+  dimostrati sulla specifica (WCAG, ARIA in HTML), mai un difetto vero perché correggerlo costa;
 - alcune sue regole danno per violazione un comportamento **voluto** di una libreria. Esempio: gli
   ancoraggi del focus trap di Angular CDK (e di ngx-bootstrap) sono `div` focalizzabili con
   `aria-hidden="true"`, che rimandano subito il focus dentro il dialog. IBM li segnala come

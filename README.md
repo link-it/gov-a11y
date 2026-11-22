@@ -14,7 +14,7 @@ Un **unico tool**, **config per-app**: si usa su più webapp (GovCat, GovPay, Go
 | **2. Accessibility-tree assertions** | Linux CI, stesso flow Playwright | `ariaSnapshot` di Chromium → elementi interattivi **senza nome accessibile** (gate opz. `--fail-on-nameless`) |
 | **2b. Comandi solo-mouse** | Linux CI, stesso flow Playwright | `addEventListener` strumentato → elementi con un **gestore del clic non raggiungibili da tastiera** (gate `--fail-on-mouse-only`, **attivo di default**) |
 | **3. Virtual screen reader** | Linux CI (dep in più) | `@guidepup/virtual-screen-reader` → **trascrizione degli annunci** per vista, con cross-check degli annunci "solo-ruolo" |
-| **Secondo motore** | Linux CI (dep in più) | [IBM Equal Access](https://github.com/IBMa/equal-access) (`accessibility-checker-engine`) sullo **stesso stato** di ogni vista: regole e algoritmi indipendenti da axe, esiti a confronto per criterio WCAG, senza gate |
+| **Secondo motore** | Linux CI (dep in più) | [IBM Equal Access](https://github.com/IBMa/equal-access) (`accessibility-checker-engine`) sullo **stesso stato** di ogni vista: regole e algoritmi indipendenti da axe, esiti a confronto per criterio WCAG; decide il gate solo con `--fail-on-equal-access` |
 | 4. NVDA/VoiceOver reali | runner Win/macOS | fuori da questo tool (guidepup reale) |
 | 5. SR manuale (umano) | desktop | necessario a campione per conformità AgID |
 
@@ -78,15 +78,20 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--fail-on <sev>` | `serious` | Gate axe: fallisci se violazioni ≥ gravità (`critical\|serious\|moderate\|minor\|none`) |
 | `--fail-on-nameless` | **on** | **Gate livello 2**: fallisci se esistono elementi interattivi senza nome accessibile. Si disattiva con `"failOnNameless": false` nel config |
 | `--fail-on-screen-reader` | off | **Gate livello 3**: fallisci se il virtual screen reader produce annunci col solo ruolo |
+| `--fail-on-equal-access` | off | **Gate del secondo motore**: fallisci se IBM Equal Access trova violazioni (i casi da verificare non contano) o non riesce a girare su una vista. Vale sulle viste dei target con `equalAccess`. Si attiva con `"failOnEqualAccess": true` nel config |
 | `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
 | `--fail-on-empty` | **on** | **Gate delle viste vuote**: fallisci se una vista è stata analizzata senza alcun contenuto accessibile (albero di accessibilità vuoto: pagina non renderizzata per backend irraggiungibile, sessione persa, errore dell'app). Il suo "nessuna violazione" non vale. Prima di arrendersi lo strumento attende una volta (5 s). Si disattiva con `"failOnEmpty": false` nel config |
+| `--fail-on-http-error` | off | **Gate delle viste in errore HTTP**: fallisci se una vista è arrivata con stato HTTP ≥ 400. È stata esaminata la pagina d'errore dell'applicazione (URL non più valido, contesto di navigazione mancante, sessione persa, bug), che di solito è accessibile e farebbe risultare pulita una vista mai vista. Lo stato di ogni vista è comunque riportato. Si attiva anche con `"failOnHttpError": true` nel config |
 | `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
 | `--reflow` | off | **1.4.10**: la vista a 320px di larghezza non deve scorrere in orizzontale |
 | `--text-spacing` | off | **1.4.12**: con la spaziatura del testo aumentata nessun testo viene tagliato |
 | `--keyboard-walk` | off | **2.4.7 / 2.4.11 / 2.1.2**: percorso col tasto Tab (focus visibile, non coperto, nessuna trappola) e ordine di focus |
+| `--keyboard-walk-max <n>` | 45 | Fermate massime del percorso col Tab per vista |
+| `--keyboard-walk-wait-ms <ms>` | 120 | Attesa dopo ogni Tab prima di leggere il fuoco e il suo aspetto: serve a transizioni e script sul `focus`, ed è il costo principale del controllo. Abbassarla solo dopo aver verificato che l'esito resti lo stesso |
 | `--no-reflow` / `--no-text-spacing` / `--no-keyboard-walk` | — | Spengono i tre controlli precedenti anche se attivi in config |
+| `--no-equal-access-keyboard-confirm` | — | Con `--equal-access` e `--keyboard-walk` attivi, per difetto i casi da verificare di IBM sul fuoco (si vede, non è coperto, diventa visibile) a cui il percorso col Tab ha risposto positivamente sullo stesso elemento passano fra i «confermati dal percorso col Tab» (elenco a parte nel report, `equalAccess.confermatiDaTab` in `summary.json`). Questo flag li lascia tutti da verificare |
 | `--screen-reader` | off | **Livello 3**: esegui il virtual screen reader su ogni vista (richiede optional deps) |
-| `--equal-access` | off | **Secondo motore**: IBM Equal Access (regole WCAG 2.2 A/AA) sullo stesso stato di ogni vista analizzato da axe. Esiti in una sezione propria e in un confronto per criterio fra i due motori, senza gate (richiede il modulo `accessibility-checker-engine`) |
+| `--equal-access` | off | **Secondo motore**: IBM Equal Access (regole WCAG 2.2 A/AA) sullo stesso stato di ogni vista analizzato da axe. Esiti in una sezione propria e in un confronto per criterio fra i due motori; senza gate, salvo `--fail-on-equal-access` (richiede il modulo `accessibility-checker-engine`) |
 | `--no-contrast-estimate` | — | Niente stima del contrasto. Per difetto ogni testo il cui contrasto è da verificare (axe) o segnalato dal secondo motore ha una misura fatta sui pixel dello sfondo reale: rapporto minimo e massimo e soglia richiesta, accanto all'occorrenza e in una tabella per componente. Non tocca il gate |
 | `--no-screenshots` | — | Niente screenshot delle occorrenze. Per difetto ogni violazione e ogni caso da verificare ha un'immagine della zona della pagina con l'elemento evidenziato (al massimo `screenshotsMax` per vista, 20), in `screenshot/` |
 | `--lighthouse` | off | Punteggio Lighthouse Accessibility (richiede il modulo `lighthouse`). L'audit gira in una tab separata aperta via CDP: riceve una copia dei **cookie di sessione** del context di scansione (ognuno col suo path) e del suo `sessionStorage`, e gli `extraHTTPHeaders` del target, così valuta le pagine autenticate. Se Lighthouse finisce su un'altra pagina (es. rimandato al login) il punteggio viene scartato e segnalato |
@@ -102,8 +107,8 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
-> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `equalAccess`, `screenshots`, `screenshotsMax`, `contrastEstimate`, `contrastEstimateMax`, `reflow`, `textSpacing`, `keyboardWalk`, `languageParts`, `failOn`,
-> `failOnNameless`, `failOnEmpty`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
+> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `equalAccess`, `equalAccessKeyboardConfirm`, `screenshots`, `screenshotsMax`, `contrastEstimate`, `contrastEstimateMax`, `reflow`, `textSpacing`, `keyboardWalk`, `keyboardWalkMax`, `keyboardWalkWaitMs`, `languageParts`, `failOn`,
+> `failOnNameless`, `failOnEmpty`, `failOnHttpError`, `failOnEqualAccess`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
 > [`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md).
@@ -182,7 +187,7 @@ per testo, su `<select>` o tendina), `clickText`(+`exact`),
 `click`, `focus`, `press`(tasto), `clearCookies`, `back`, `reload`, `script`(funzione JS accanto al config, solo nei flow),
 `postMessage`(messaggio alla finestra della pagina, come dalla shell che ospita l'app), `wait`(`networkidle`|`load`|`domcontentloaded`|selettore), `waitQuietMs`(attende che il DOM
 smetta di cambiare per quel tratto, es. un grafico disegnato da script), `delayMs`, `timeoutMs`,
-`optional` (non interrompe il flow), `scan`, `scanTabs`, `scanOptions`, `scanCharts`, `scanMenu`. Usa **selettori
+`optional` (non interrompe il flow), `scan`, `scanTabs`, `scanOptions`, `scanCharts`, `scanFormVariants`, `scanMenu`. Gli elenchi paginati si esaminano anche oltre la prima pagina con `nextPage` nel target (selettore del comando di pagina successiva). Usa **selettori
 stabili** (id non generati, `title`, testo, classe), mai id JSF `j_idNN`. In `fill` e `select` il
 valore può arrivare da una **variabile d'ambiente** (`"env": "A11Y_…"` al posto di `"value"`): il flow
 viene saltato se manca e il valore è mascherato con `***` in log e report.
@@ -204,6 +209,7 @@ Esempio completo annotato: **[`examples/targets/targets.example.json`](examples/
 | File | Uso |
 |------|-----|
 | `summary.json` | riepilogo per-pagina: `counts`, `incomplete`, `lhScore`, `namelessInteractive`, `srStops`/`srRoleOnly`; totali `totals`/`incompleteTotal`/`falsePositivesTotal`/`namelessTotal`/`srRoleOnlyTotal`; elenco `falsePositives` con motivazione, verifica e occorrenze coperte; **`gate`** (`superato`, `motivi`) e **`controlli`** (ogni controllo con soglia, risultato, esito e viste coinvolte) |
+| `tempi.json` | tempi della scansione: durata complessiva, login, navigazione fra le viste, tempo per fase (axe, IBM, Tab, riflusso, screenshot, …) con totale, media e massimo, viste più lente, dettaglio per vista. Gli stessi dati sono in `report.html`, in blocchi chiusi per default (riepilogo e, in ogni vista, «Tempi») |
 | `report.html` | report leggibile: in testa i dati della scansione, l'**esito del gate con i motivi** e la tabella dei **controlli eseguiti**; poi violazioni, "da verificare", a11y-tree, **trascrizione screen reader** e, per vista, i controlli rimasti senza esito |
 | `axe-results.json` | risultati axe grezzi: `violations` **e** `incomplete` (+ `axTree`, `sr`) |
 | `aria-tree/*.yaml` | **albero ARIA per vista** (Chromium `ariaSnapshot`): evidenza per la revisione manuale di ordine di lettura, ruoli e struttura |

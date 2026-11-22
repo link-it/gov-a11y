@@ -26,6 +26,8 @@ import { fileURLToPath } from 'node:url';
 const dir = dirname(fileURLToPath(import.meta.url));
 const SUITES = [
   ['unit',        'unit.test.mjs'],         // funzioni pure + reporter + gate
+  ['gate-ibm',    'gate-equal-access.test.mjs'], // gate del secondo motore (--fail-on-equal-access)
+  ['gate-http',   'gate-http-error.test.mjs'],   // gate delle viste in errore HTTP (--fail-on-http-error)
   ['detection',   'detection.test.mjs'],    // livelli 2/3 (accessibility tree + screen reader)
   ['integration', 'integration.test.mjs'],  // motore end-to-end su mock server
 ];
