@@ -1,3 +1,10 @@
+2026-11-23  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Copertura e limiti nel report: la voce sulla navigazione da tastiera tiene conto del percorso col
+	Tab (fuoco visibile e non coperto, trappole, ordine registrato); restano manuali l'effetto dei tasti
+	e la logica dell'ordine di focus.
+
 2026-11-21  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

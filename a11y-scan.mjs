@@ -3775,14 +3775,19 @@ function buildCoverage() {
   if (DO_MOUSE_ONLY) esempi.push('comandi utilizzabili col solo mouse');
   if ([...TAG_USATI].includes('best-practice')) esempi.push('regole di buona pratica (fuori dai criteri WCAG)');
 
+  // Navigazione da tastiera: si dichiara cio' che hanno fatto i controlli attivi (solo mouse, percorso col Tab)
+  // e cio' che resta manuale in ogni caso: l'effetto dei tasti e la logica dell'ordine di focus (2.4.3).
+  const tastiera = [];
+  if (DO_MOUSE_ONLY) tastiera.push('segnala i comandi con un gestore del clic non raggiungibili da tastiera');
+  if (CONTROLLI_USATI.has('keyboardWalk')) tastiera.push('percorre ogni vista col tasto Tab (fuoco visibile e non coperto, '
+    + "nessuna trappola) registrando l'ordine di focus, ma solo sullo stato analizzato di ogni vista");
   const manualRequired = [
-    DO_MOUSE_ONLY
-      ? "Navigazione da tastiera: l'automazione segnala i comandi con un gestore del clic non "
-        + 'raggiungibili da tastiera, ma non se i tasti attesi facciano poi la cosa giusta, '
-        + "né l'ordine di focus reale."
-      : 'Navigazione da tastiera: in questa scansione il controllo dei comandi utilizzabili col solo '
-        + 'mouse non è attivo, quindi raggiungibilità dei comandi, ordine di focus e '
-        + 'comportamento dei tasti vanno verificati a mano.',
+    tastiera.length
+      ? `Navigazione da tastiera: l'automazione ${tastiera.join(' e ')}; non verifica se i tasti attesi `
+        + "facciano poi la cosa giusta, né se l'ordine di focus sia logico."
+      : "Navigazione da tastiera: in questa scansione non è attivo alcun controllo da tastiera, quindi "
+        + 'raggiungibilità dei comandi, fuoco visibile, ordine di focus e comportamento dei tasti vanno '
+        + 'verificati a mano.',
     DO_SR
       ? "Test con screen reader reale (fedeltà d'uso, verbosità, senso degli annunci): quello "
         + "virtuale verifica che cosa viene annunciato, non com'è usare l'applicazione."

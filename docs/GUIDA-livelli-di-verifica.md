@@ -292,7 +292,9 @@ L'automazione, sommando tutti i livelli, copre **indicativamente il 30-40%** dei
 AA (la stima è riportata anche nel campo `coverage` di `summary.json`). Restano necessariamente
 manuali:
 
-- navigazione da tastiera e ordine di focus reale;
+- navigazione da tastiera: l'effetto dei tasti nei componenti e la logica dell'ordine di focus
+  (`keyboardWalk` verifica fuoco visibile, non coperto e senza trappole, e registra l'ordine, ma non
+  lo giudica);
 - test con uno screen reader reale (verbosità, fedeltà, senso degli annunci in contesto);
 - qualità di testi alternativi, label e messaggi di errore (l'automazione vede se mancano, non se
   hanno senso);
