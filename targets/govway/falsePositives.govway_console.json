@@ -74,9 +74,9 @@
       "id": "etichetta-di-campo-non-e-un-titolo",
       "engine": "equalAccess",
       "rule": "text_block_heading",
-      "selector": "div.prop:has(> label, > span.gw-etichetta-vuota), div.divNoEdit",
+      "selector": "div.prop:has(> label, > span.gw-etichetta-vuota, > span.gw-etichetta), div.divNoEdit",
       "reason": "Caso da verificare ('il testo e' usato come titolo?'): la risposta e' no. E' l'etichetta di un campo del form o di un valore in sola lettura ('Tipo', 'Descrizione', 'Stato', 'Nome'...), in grassetto e piu' grande del corpo, nella colonna delle etichette. IBM la propone come titolo quando il campo sta in un blocco annidato e il suo percorso si ferma prima di incontrarlo. Le sezioni dei form hanno gia' i loro titoli (sottotitoli con role=heading). Stessa risposta per i valori in sola lettura (div.divNoEdit, es. 'GovWay 3.4.4' nella pagina Informazioni): sono il valore di un campo, non un titolo.",
-      "verification": "Verificato il 19/11/2026 su configurazioneGenerale.do e sulle pagine di elenco della console: i 11 casi div.prop della pagina di configurazione hanno come primo figlio un <label> (edit-page.jsp), seguito dal campo o dal valore; il testo proposto da IBM coincide con quello dell'etichetta. Esteso il 20/11/2026 alla pagina Informazioni: i casi sono div.divNoEdit con lo span.spanNoEdit del valore, accanto all'etichetta del campo.",
+      "verification": "Dal 24/11/2026 l'etichetta di un valore in sola lettura o di un link e' uno span.gw-etichetta invece di un <label> senza campo associato (segnalato da SonarQube), con lo stesso aspetto: stesso caso, selettore esteso. Verificato il 19/11/2026 su configurazioneGenerale.do e sulle pagine di elenco della console: i 11 casi div.prop della pagina di configurazione hanno come primo figlio un <label> (edit-page.jsp), seguito dal campo o dal valore; il testo proposto da IBM coincide con quello dell'etichetta. Esteso il 20/11/2026 alla pagina Informazioni: i casi sono div.divNoEdit con lo span.spanNoEdit del valore, accanto all'etichetta del campo.",
       "author": "andrea.poli@link.it",
       "expires": "2027-11-20"
     },
