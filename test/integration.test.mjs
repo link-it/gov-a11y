@@ -149,7 +149,7 @@ const server = createServer((req, res) => {
     // trappola vera, fuori da una finestra modale: il campo trattiene il Tab
     // indicatore di caricamento: copre tutta la pagina solo mentre una richiesta e' in corso
     '/app3/maschera': `<div id="maschera" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9"></div><main><h1>Maschera</h1><a id="aggiorna" href="#a">Aggiorna</a> <a id="altro" href="#b">Altro</a></main><script>document.getElementById('aggiorna').addEventListener('focus', () => { const m = document.getElementById('maschera'); m.style.display = 'block'; fetch('/app3/lento').then(() => { m.style.display = 'none'; }); });</script>`,
-    '/app3/coperto': `<div style="position:fixed;top:0;left:0;width:100%;height:60px;background:#333;z-index:9"></div><main style="padding-top:80px"><h1>Coperto</h1><button id="coperto" type="button" style="position:absolute;top:10px;left:10px">Sotto la barra</button><span style="position:relative;display:inline-block"><select id="velato" aria-label="Scelta"><option>uno</option></select><div style="position:absolute;inset:0;opacity:0;background:#fff"></div></span><p style="width:130px"><a id="prec" href="#p">Settimana prec.</a> <a id="attuale" href="#a">Settimana attuale.</a></p><span style="position:relative;display:inline-block"><input id="campo-meta" aria-label="Valori" style="width:80px"><span style="position:absolute;top:0;right:0;width:45px;height:100%;background:#ccc"></span></span></main>`,
+    '/app3/coperto': `<div style="position:fixed;top:0;left:0;width:100%;height:60px;background:#333;z-index:9"></div><main style="padding-top:80px"><h1>Coperto</h1><button id="coperto" type="button" style="position:absolute;top:10px;left:10px">Sotto la barra</button><span style="position:relative;display:inline-block"><select id="velato" aria-label="Scelta"><option>uno</option></select><div style="position:absolute;inset:0;opacity:0;background:#fff"></div></span><p style="width:130px"><a id="prec" href="#p">Settimana prec.</a> <a id="attuale" href="#a">Settimana attuale.</a></p><span style="position:relative;display:inline-block"><input id="campo-meta" aria-label="Valori" style="width:80px"><span style="position:absolute;top:0;right:0;width:45px;height:100%;background:#ccc"></span></span><button id="sotto-vuota" type="button" style="position:fixed;bottom:8px;left:300px">Sotto la fascia vuota</button></main><div id="fascia-vuota" style="position:fixed;bottom:0;left:0;width:100%;height:40px;z-index:9"></div>`,
     '/app3/bloccato': `<main><h1>Bloccato</h1><input id="blocca" aria-label="Campo" onkeydown="if (event.key === 'Tab') event.preventDefault()"><a href="#dopo">Dopo</a></main>`,
     // due collegamenti diversi con lo stesso testo lungo, poi un bottone senza indicatore del focus
     // un aggiornamento periodico sostituisce l'icona di stato proprio mentre ha il fuoco (come il polling AJAX
@@ -157,6 +157,10 @@ const server = createServer((req, res) => {
     '/app3/ridisegno': `<main><h1>Ridisegno</h1><a href="#c">Salta</a> <span id="stato"><a id="icona" href="#s">Stato</a></span> <a href="#d">Dopo</a> <button type="button">Fine</button></main>
 <script>document.getElementById('icona').addEventListener('focus', () => setTimeout(() => { document.getElementById('stato').innerHTML = '<a id="icona" href="#s">Stato</a>'; }, 10), { once: true });</script>`,
     '/app3/omonimi': `<style>#ultimo:focus{outline:none;box-shadow:none}</style><main><h1>Omonimi</h1><a class="titoloEntry" href="#r1">ApiDemoBlockingRestIDAC02CheckAuthz@Demo v1</a> <button type="button" class="azioni">Azioni</button> <a class="titoloEntry" href="#r2">ApiDemoBlockingRestIDAC02CheckAuthz@Demo v2</a> <button id="ultimo" type="button">Ultimo</button></main>`,
+    // combobox come ng-select: l'input col fuoco e' tre livelli sotto il contenitore che cambia bordo, e il
+    // componente marca il fuoco con una classe sulla sua radice; il campo di controllo ha lo stesso
+    // annidamento ma un contenitore alto che cambia aspetto senza classe del fuoco (':focus-within')
+    '/app3/widget': `<style>input:focus{outline:none;box-shadow:none}.cont{border:1px solid #ccc}.sel.sel-focused .cont{border-color:#007eff}.form4:focus-within .c4{border:1px solid #007eff}.foto{position:relative;display:inline-block}.foto input{position:absolute;inset:0;opacity:0}.foto:focus-within .matita{box-shadow:0 0 0 3px #428fdc}[role=button]:focus{outline:none}.x{color:#6c757d}#pulisci:focus .x{color:#d0021b}</style><main><h1>Widget</h1><div class="sel"><div class="cont"><div class="vals"><div class="inp"><input id="combo" role="combobox" aria-label="Dominio"></div></div></div></div><div class="form4"><div class="c4"><div class="b4"><div class="a4"><input id="senza" aria-label="Senza indicatore"></div></div></div></div><div class="foto"><div class="matita">Modifica</div><input type="file" id="foto" aria-label="Carica la foto"></div> <div class="foto foto-senza"><div>Modifica</div><input type="file" id="foto-senza" aria-label="Carica senza indicatore"></div> <span id="pulisci" role="button" tabindex="0" title="Svuota"><span class="x" aria-hidden="true">×</span></span> <span id="pulisci-senza" role="button" tabindex="0" title="Svuota senza indicatore"><span class="x" aria-hidden="true">×</span></span></main><script>const s = document.querySelector('.sel'); s.addEventListener('focusin', () => s.classList.add('sel-focused')); s.addEventListener('focusout', () => s.classList.remove('sel-focused'));</script>`,
     '/app3/focus': `<style>#nofocus:focus{outline:none;box-shadow:none}.voce a:focus{outline:none}.voce:focus-within{background:#373741;border-left:12px solid #c85000}</style><main><h1>Focus</h1><button id="nofocus" type="button">Senza focus</button><button id="confocus" type="button">Con focus</button><div class="voce"><a id="voce" href="#v">Voce di menu</a></div></main>`,
     '/app3/lingua': `<main><h1>Login</h1><p id="frase">Accedendo accetti i termini</p><p lang="it">Accedendo accetti, ma con lang</p></main>`,
     // testi sotto il bordo di un contenitore che scorre; la sentinella, se vista (IntersectionObserver)
@@ -305,8 +309,14 @@ writeFileSync(CFG, JSON.stringify({
     reflow: true, textSpacing: true, keyboardWalk: true, equalAccess: true, falsePositives: 'fp-app3.json',
     languageParts: { it: ['Accedendo accetti'] },
     pages: [{ name: 'ok', path: '/app3/ok' }, { name: 'larga', path: '/app3/larga' }, { name: 'taglio', path: '/app3/taglio' }, { name: 'troncato', path: '/app3/troncato' },
-      { name: 'focus', path: '/app3/focus' }, { name: 'omonimi', path: '/app3/omonimi' }, { name: 'ridisegno', path: '/app3/ridisegno' }, { name: 'modale', path: '/app3/modale' }, { name: 'bloccato', path: '/app3/bloccato' }, { name: 'coperto', path: '/app3/coperto' }, { name: 'maschera', path: '/app3/maschera' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' },
+      { name: 'focus', path: '/app3/focus' }, { name: 'widget', path: '/app3/widget' }, { name: 'omonimi', path: '/app3/omonimi' }, { name: 'ridisegno', path: '/app3/ridisegno' }, { name: 'modale', path: '/app3/modale' }, { name: 'bloccato', path: '/app3/bloccato' }, { name: 'coperto', path: '/app3/coperto' }, { name: 'maschera', path: '/app3/maschera' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' },
       { name: 'sfumato', path: '/app3/sfumato' }, { name: 'trappola', path: '/app3/trappola' }],
+  },
+  // stesse viste di app3 con i criteri estesi del percorso col Tab, spenti di default
+  app3x: {
+    name: 'MockApp3x', enabled: true, loginPath: '/app3/ok',
+    keyboardWalk: true, keyboardWalkWidgetFocus: true, keyboardWalkObscuredPaintOnly: true,
+    pages: [{ name: 'widget', path: '/app3/widget' }, { name: 'coperto', path: '/app3/coperto' }],
   },
   // login su un'altra origine (loginPath assoluto), pagine su --base autenticate dal cookie condiviso
   app2: {
@@ -433,6 +443,12 @@ check(ids('focus').includes('gova11y-focus-visible'), '2.4.7: bottone senza indi
 const fv = app3('focus')?.violations.find(v => v.id === 'gova11y-focus-visible');
 check(!!fv && fv.nodes.length === 1 && fv.nodes[0].target[0] === 'button#nofocus', '2.4.7: segnalato solo il bottone senza focus, non quello con outline ne\' la voce evidenziata dal contenitore');
 check(JSON.stringify(app3('focus')?.tabOrder || []).includes('button#confocus'), 'ordine di focus registrato (tabOrder)');
+const fvWidget = (app3('widget')?.violations.find(v => v.id === 'gova11y-focus-visible')?.nodes || []).map(n => n.target[0]);
+check(JSON.stringify(fvWidget) === JSON.stringify(['input#combo', 'input#senza', 'input#foto', 'input#foto-senza', 'span#pulisci', 'span#pulisci-senza']),
+  `2.4.7 senza keyboardWalkWidgetFocus: si guardano solo l'elemento e i due contenitori più vicini, come prima (${fvWidget})`);
+const fvWidgetX = (results.find(r => r.target === 'app3x' && r.name === 'widget')?.violations.find(v => v.id === 'gova11y-focus-visible')?.nodes || []).map(n => n.target[0]);
+check(JSON.stringify(fvWidgetX) === JSON.stringify(['input#senza', 'input#foto-senza', 'span#pulisci-senza']),
+  `2.4.7 con keyboardWalkWidgetFocus: il fuoco mostrato dal contenitore di un widget che marca il fuoco con una classe, da un fratello del comando trasparente steso sopra di lui o dall'icona dentro il comando è visibile; senza la classe un contenitore alto non basta, e i comandi senza indicatore restano segnalati (${fvWidgetX})`);
 check((app3('ridisegno')?.tabOrder || []).some(t => /"Fine"/.test(t)),
   `percorso col Tab: un elemento ridisegnato mentre ha il fuoco non ferma il percorso (${JSON.stringify(app3('ridisegno')?.tabOrder)})`);
 check((app3('omonimi')?.violations.find(v => v.id === 'gova11y-focus-visible')?.nodes || []).some(n => n.target[0] === 'button#ultimo'),
@@ -442,8 +458,12 @@ check(!ids('modale').some(i => /gova11y-(focus-obscured|keyboard-trap)/.test(i))
 check(!ids('maschera').includes('gova11y-focus-obscured') && (app3('maschera')?.tabOrder || []).some(t => /aggiorna/.test(t)),
   "2.4.11: l'indicatore di caricamento steso durante una richiesta non conta come copertura (rilettura a rete ferma)");
 const coperti = (app3('coperto')?.violations.find(v => v.id === 'gova11y-focus-obscured')?.nodes || []).map(n => n.target[0]);
-check(JSON.stringify(coperti) === JSON.stringify(['button#coperto']),
-  `2.4.11: segnalato solo il comando nascosto del tutto, non quello sotto uno strato trasparente, il link che va a capo ne' il campo coperto a meta' (${coperti})`);
+check(JSON.stringify(coperti) === JSON.stringify(['button#coperto', 'button#sotto-vuota']),
+  `2.4.11: segnalato il comando nascosto del tutto, non quello sotto uno strato trasparente, il link che va a capo o il campo coperto a metà; senza keyboardWalkObscuredPaintOnly anche il comando sotto una fascia fissa vuota, come prima (${coperti})`);
+const app3x = n => results.find(r => r.target === 'app3x' && r.name === n);
+const copertiX = (app3x('coperto')?.violations.find(v => v.id === 'gova11y-focus-obscured')?.nodes || []).map(n => n.target[0]);
+check(JSON.stringify(copertiX) === JSON.stringify(['button#coperto']),
+  `2.4.11 con keyboardWalkObscuredPaintOnly: la fascia fissa vuota e senza sfondo non copre (${copertiX})`);
 check(ids('bloccato').includes('gova11y-keyboard-trap'), `2.1.2: il campo che trattiene il Tab fuori da una finestra modale e' una trappola (${ids('bloccato')})`);
 check(ids('lingua').includes('gova11y-language-of-parts'), '3.1.2: testo italiano in pagina inglese segnalato');
 check(app3('lingua')?.violations.find(v => v.id === 'gova11y-language-of-parts')?.nodes.length === 1, '3.1.2: il testo con lang="it" non viene segnalato');

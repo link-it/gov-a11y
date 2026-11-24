@@ -1,3 +1,24 @@
+2026-11-24  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Percorso col Tab: due parametri nuovi, spenti di default, per criteri più precisi. Senza, l'esito
+	resta quello di prima.
+	keyboardWalkWidgetFocus (fuoco visibile, 2.4.7): oltre all'elemento e ai due contenitori più vicini
+	si guarda anche più in alto, fino al componente che marca il proprio fuoco con una classe (per
+	esempio ng-select-focused). Nelle combobox ng-select l'input col fuoco è tre livelli sotto il
+	contenitore che cambia bordo, e il fuoco risultava non visibile su ogni combobox. Senza la classe
+	del fuoco un contenitore alto non basta: un intero form evidenziato con :focus-within non fa
+	passare i suoi campi. Per un comando trasparente steso sopra un altro elemento (l'input file
+	invisibile sopra il pulsante "carica") si guardano anche gli elementi del suo contenitore diretto;
+	per un comando piccolo (al più 20 elementi interni) anche gli elementi che contiene: la X
+	"Clear all" di ng-select mostra il fuoco colorando l'icona.
+	keyboardWalkObscuredPaintOnly (fuoco coperto, 2.4.11): copre solo un elemento che in quel punto
+	disegna qualcosa (sfondo, bordo, ombra, testo, immagine o controllo), cercato fra tutti quelli
+	sopra l'elemento col fuoco. Un contenitore fisso vuoto e senza sfondo, come la fascia dei messaggi
+	a comparsa quando non ce ne sono, intercetta il clic ma lascia vedere l'elemento.
+	Opzioni CLI --[no-]keyboard-walk-widget-focus e --[no-]keyboard-walk-obscured-paint-only; accesi
+	nel target GovCat 2.5.1. Test d'integrazione con e senza i parametri.
+
 2026-11-23  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

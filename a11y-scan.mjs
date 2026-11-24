@@ -150,6 +150,11 @@ if (args.help || args.h) {
                       focus non coperto, nessuna trappola) e registra l'ordine di focus
   --keyboard-walk-max <n>  Fermate massime del percorso col Tab per vista (default 45)
   --keyboard-walk-wait-ms <ms>  Attesa dopo ogni Tab prima di leggere il fuoco e il suo aspetto (default 120)
+  --[no-]keyboard-walk-widget-focus  Fuoco visibile anche con l'indicatore nel widget che marca il fuoco con
+                      una classe (ng-select), nel contenitore di un comando trasparente o nell'icona
+                      interna di un comando piccolo (default spento)
+  --[no-]keyboard-walk-obscured-paint-only  Fuoco coperto solo da un elemento che in quel punto disegna
+                      qualcosa: un contenitore vuoto e senza sfondo non copre (default spento)
                       (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
   --[no-]equal-access-keyboard-confirm  Casi da verificare di IBM sul fuoco (si vede, non e' coperto, diventa
                       visibile) confermati dalla misura del percorso col Tab sullo stesso elemento: escono dai
@@ -306,6 +311,12 @@ let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
 const cliOnOff = k => (args[`no-${k}`] ? false : (args[k] ? true : undefined));
 const CLI_REFLOW = cliOnOff('reflow'), CLI_TEXT_SPACING = cliOnOff('text-spacing'), CLI_KEYBOARD = cliOnOff('keyboard-walk');
 let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, KEYBOARD_MAX = 45, KEYBOARD_ATTESA_MS = 120, LANGUAGE_PARTS = null;
+/* Criteri estesi del percorso col Tab, predefiniti SPENTI perché cambiano l'esito sui target già in
+   scansione: fuoco visibile anche quando l'indicatore sta nel widget che marca il fuoco con una
+   classe, nel contenitore del comando trasparente o nell'icona interna (keyboardWalkWidgetFocus);
+   fuoco coperto solo da un elemento che in quel punto disegna qualcosa (keyboardWalkObscuredPaintOnly). */
+const CLI_KEYBOARD_WIDGET = cliOnOff('keyboard-walk-widget-focus'), CLI_KEYBOARD_COPERTO = cliOnOff('keyboard-walk-obscured-paint-only');
+let KEYBOARD_WIDGET = false, KEYBOARD_COPERTO_DISEGNA = false;
 /* Secondo motore, indipendente da axe: IBM Equal Access, con regole e algoritmi propri. Due motori
    diversi trovano problemi diversi, ed e' quello che chiedono le linee guida che prescrivono la
    verifica "con almeno due strumenti". Predefinito SPENTO (modulo opzionale); i suoi esiti decidono
@@ -362,6 +373,8 @@ function applyTargetParams(target) {
   DO_KEYBOARD = !!resolveParam(CLI_KEYBOARD, target, 'keyboardWalk', false);
   KEYBOARD_MAX = parseInt(resolveParam(args['keyboard-walk-max'], target, 'keyboardWalkMax', 45), 10) || 45;
   { const a = parseInt(resolveParam(args['keyboard-walk-wait-ms'], target, 'keyboardWalkWaitMs', 120), 10); KEYBOARD_ATTESA_MS = Number.isFinite(a) && a >= 0 ? a : 120; }
+  KEYBOARD_WIDGET = !!resolveParam(CLI_KEYBOARD_WIDGET, target, 'keyboardWalkWidgetFocus', false);
+  KEYBOARD_COPERTO_DISEGNA = !!resolveParam(CLI_KEYBOARD_COPERTO, target, 'keyboardWalkObscuredPaintOnly', false);
   LANGUAGE_PARTS = resolveParam(undefined, target, 'languageParts', null) || null;
   if (DO_REFLOW) CONTROLLI_USATI.add('reflow');
   if (DO_TEXT_SPACING) CONTROLLI_USATI.add('textSpacing');
@@ -1542,9 +1555,10 @@ async function analyzeTextSpacing(page) {
    misura del fuoco. Si risolvono nella pagina PRIMA di iniziare, sullo stesso DOM che ha visto IBM:
    l'abbinamento usa il percorso del motore, non uno ricostruito qui. Le misure degli elementi
    raggiunti tornano in 'misure', per percorso. */
-async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = []) {
+async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = [], opzioni = {}) {
+  const { fuocoNeiWidget = false, copertoSoloSeDisegna = false } = opzioni;
   await installaDescrivi(page);
-  await page.evaluate(daMisurare => {
+  await page.evaluate(({ daMisurare, fuocoNeiWidget }) => {
     window.__gwEaPercorsi = new Map();
     for (const xp of daMisurare) {
       try {
@@ -1561,12 +1575,49 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
     const proprieta = ['outlineStyle', 'outlineWidth', 'outlineColor', 'boxShadow', 'backgroundColor', 'backgroundImage', 'color', 'textDecorationLine',
       ...['Top', 'Right', 'Bottom', 'Left'].flatMap(l => [`border${l}Style`, `border${l}Width`, `border${l}Color`])];
     const aspetto = e => { const cs = getComputedStyle(e); return proprieta.map(p => cs[p]).join('|'); };
-    const daConfrontare = e => { const l = [e]; for (let p = e.parentElement; p && l.length < 3 && p !== document.body; p = p.parentElement) l.push(p); return l; };
-    const base = new Map();
-    for (const e of document.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]'))
-      for (const x of daConfrontare(e)) if (!base.has(x)) base.set(x, aspetto(x));
+    /* Si confrontano l'elemento e i due contenitori più vicini. Con keyboardWalkWidgetFocus (spento di
+       default: senza, il criterio resta quello di sempre) anche i casi che seguono.
+       Più in alto solo dentro un widget che
+       marca il proprio fuoco con una classe. È il caso delle combobox come ng-select: l'input con il
+       fuoco è tre livelli sotto il contenitore che cambia bordo, e il componente aggiunge
+       'ng-select-focused' al suo elemento radice. La classe lega il cambio d'aspetto al fuoco di questo
+       elemento: senza, un contenitore alto che cambia aspetto per altri motivi (':focus-within' di un
+       intero form) farebbe passare anche i campi senza indicatore. */
+    const LIVELLI_WIDGET = fuocoNeiWidget ? 6 : 2;
+    const catena = e => { const l = [e]; for (let p = e.parentElement; p && l.length <= LIVELLI_WIDGET && p !== document.body; p = p.parentElement) l.push(p); return l; };
+    const classi = x => new Set(String(x.getAttribute('class') || '').split(/\s+/).filter(Boolean));
+    /* Comando trasparente steso sopra un altro elemento (l'input file invisibile sopra un pulsante
+       "carica"): l'indicatore non può stare su di lui, e l'applicazione lo mostra su un fratello,
+       di solito con ':focus-within' sul contenitore. Per questi si confrontano anche gli elementi
+       dentro il contenitore diretto (al più 50). */
+    const trasparenteAlFuoco = e => { for (let x = e; x && x.nodeType === 1; x = x.parentElement) if (parseFloat(getComputedStyle(x).opacity) < 0.05) return true; return false; };
+    const vicinato = e => e.parentElement && e.parentElement !== document.body ? [...e.parentElement.querySelectorAll('*')].filter(x => x !== e).slice(0, 50) : [];
+    /* Indicatore su un elemento interno: il comando colora l'icona che contiene (la X "Clear all" di
+       ng-select diventa rossa col fuoco). Solo per i comandi piccoli, al più 20 elementi interni: in
+       un contenitore grande un cambio d'aspetto all'interno può non avere niente a che fare col fuoco. */
+    const INTERNI_MAX = 20;
+    const interni = e => { if (!fuocoNeiWidget) return []; const d = e.querySelectorAll('*'); return d.length <= INTERNI_MAX ? [...d] : []; };
+    const base = new Map(), baseClassi = new Map();
+    const registra = x => { if (!base.has(x)) { base.set(x, aspetto(x)); baseClassi.set(x, classi(x)); } };
+    for (const e of document.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')) {
+      catena(e).forEach(registra);
+      interni(e).forEach(registra);
+      if (fuocoNeiWidget && trasparenteAlFuoco(e)) vicinato(e).forEach(registra);
+    }
+    const cambiato = x => base.has(x) && base.get(x) !== aspetto(x);
+    const classeDelFuoco = x => baseClassi.has(x) && [...classi(x)].some(c => !baseClassi.get(x).has(c) && /focus/i.test(c));
     // true/false: cambia o no rispetto alla partenza; null: elemento comparso dopo, senza aspetto di partenza
-    window.__gwFocusCambiaAspetto = e => base.has(e) ? daConfrontare(e).some(x => base.has(x) && base.get(x) !== aspetto(x)) : null;
+    window.__gwFocusCambiaAspetto = e => {
+      if (!base.has(e)) return null;
+      const l = catena(e);
+      if (l.slice(0, 3).some(cambiato)) return true;
+      if (interni(e).some(cambiato)) return true;
+      if (fuocoNeiWidget && trasparenteAlFuoco(e) && vicinato(e).some(cambiato)) return true;
+      if (!fuocoNeiWidget) return false;
+      let radice = -1;
+      for (let i = l.length - 1; i >= 1; i--) if (classeDelFuoco(l[i])) { radice = i; break; }
+      return radice > 0 && l.slice(0, radice + 1).some(cambiato);
+    };
     /* Identita' degli elementi raggiunti: il giro completo e la trappola si riconoscono dall'elemento
        stesso, non dalla sua descrizione. Descrizione e testo (troncato) possono coincidere per
        elementi diversi, come i collegamenti di due righe che cominciano con lo stesso nome lungo, e
@@ -1578,7 +1629,7 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
     window.__gwUltimoFuoco = null;
     window.__gwSuFocusin = ev => { window.__gwUltimoFuoco = ev.target; window.__gwUltimoFuocoDescr = window.__gwDescrivi(ev.target); };
     document.addEventListener('focusin', window.__gwSuFocusin, true);
-  }, daMisurare);
+  }, { daMisurare, fuocoNeiWidget });
   const ordine = [], senzaFocus = [], coperti = [], misure = {}, visitati = new Set();
   let trappola = null, prec = null, uguali = 0, recuperi = 0, saltaTab = false;
   /* Richieste in corso, per sapere quando la rete e' davvero ferma: waitForLoadState('networkidle')
@@ -1599,7 +1650,7 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
         await page.waitForTimeout(attesaMs);
       }
       saltaTab = false;
-      const leggiFuoco = () => page.evaluate(() => {
+      const leggiFuoco = () => page.evaluate(copertoSoloSeDisegna => {
         const e = document.activeElement;
         if (!e || e === document.body || e.id === '__gw_partenza') return null;
         const cs = getComputedStyle(e);
@@ -1611,11 +1662,31 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
         // provano piu' punti, cioe' il centro del riquadro e centro e angoli di ogni riga dell'elemento
         // (un link che va a capo ha un riquadro complessivo che comprende anche i vicini), e basta che
         // uno solo mostri l'elemento. Non conta chi copre restando trasparente (opacity 0: lo strato
-        // che alcuni componenti stendono sopra un select per intercettare il clic).
+        // che alcuni componenti stendono sopra un select per intercettare il clic). Con
+        // keyboardWalkObscuredPaintOnly (spento di default) non conta neanche chi in quel punto non
+        // disegna nulla: un contenitore fisso vuoto e senza sfondo (una fascia per i messaggi a
+        // comparsa, quando non ce ne sono) intercetta il clic ma lascia vedere l'elemento. Si scorrono
+        // tutti gli elementi sopra il punto, fino all'elemento col fuoco: copre il primo che disegna.
         const fuori = b.bottom < 0 || b.top > innerHeight;
         const trasparente = t => { for (let x = t; x && x.nodeType === 1; x = x.parentElement) if (parseFloat(getComputedStyle(x).opacity) < 0.05) return true; return false; };
-        const copritore = (x, y) => { const t = document.elementFromPoint(x, y);
-          return t && t !== e && !e.contains(t) && !t.contains(e) && !trasparente(t) ? t : null; };
+        const colorato = c => c && !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(c);
+        const disegna = t => {
+          if (/^(img|svg|canvas|video|iframe|object|embed|input|select|textarea|button)$/i.test(t.tagName)) return true;
+          const c = getComputedStyle(t);
+          return colorato(c.backgroundColor) || c.backgroundImage !== 'none' || c.boxShadow !== 'none'
+            || (c.backdropFilter && c.backdropFilter !== 'none')
+            || ['Top', 'Right', 'Bottom', 'Left'].some(l => c[`border${l}Style`] !== 'none' && parseFloat(c[`border${l}Width`]) > 0 && colorato(c[`border${l}Color`]))
+            || [...t.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+        };
+        const copritore = (x, y) => {
+          if (!copertoSoloSeDisegna) { const t = document.elementFromPoint(x, y);
+            return t && t !== e && !e.contains(t) && !t.contains(e) && !trasparente(t) ? t : null; }
+          for (const t of document.elementsFromPoint(x, y)) {
+            if (t === e || e.contains(t) || t.contains(e)) return null;
+            if (!trasparente(t) && disegna(t)) return t;
+          }
+          return null;
+        };
         const punti = [[b.left + b.width / 2, b.top + Math.min(b.height / 2, 5)]];
         for (const r of e.getClientRects()) if (r.width > 4 && r.height > 4)
           punti.push([r.left + r.width / 2, r.top + r.height / 2], [r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]);
@@ -1637,7 +1708,7 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
         let uid = window.__gwIdentita.get(e);
         if (!uid) { uid = ++window.__gwIdentitaN; window.__gwIdentita.set(e, uid); }
         return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok, copre, unicoNellaModale, mostrato, percorsoEa, uid };
-      });
+      }, copertoSoloSeDisegna);
       let f = await leggiFuoco();
       /* Una copertura puo' essere solo del momento: l'indicatore di caricamento che molte applicazioni
          stendono sopra la pagina durante una richiesta (polling, aggiornamenti AJAX). Si attende che la
@@ -2226,7 +2297,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   if (DO_KEYBOARD && extra.keyboard !== false) {
     const daMisurare = DO_EA_TAB && equalAccess
       ? [...new Set(equalAccess.daVerificare.filter(x => REGOLE_CONFERMATE_DAL_TAB[x.regola] && x.xpath).map(x => x.xpath))] : [];
-    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare)));
+    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare, { fuocoNeiWidget: KEYBOARD_WIDGET, copertoSoloSeDisegna: KEYBOARD_COPERTO_DISEGNA })));
     if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
     if (k && daMisurare.length) {
       const c = confermaDalTab(equalAccess.daVerificare, k.misure);

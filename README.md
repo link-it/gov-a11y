@@ -107,7 +107,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--check-deps` | | Verifica **senza scansionare** se le dipendenze opzionali richieste da questa esecuzione sono installate (exit 1 se ne manca una) |
 | `--help` | | Aiuto |
 
-> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `equalAccess`, `equalAccessKeyboardConfirm`, `screenshots`, `screenshotsMax`, `contrastEstimate`, `contrastEstimateMax`, `reflow`, `textSpacing`, `keyboardWalk`, `keyboardWalkMax`, `keyboardWalkWaitMs`, `languageParts`, `failOn`,
+> **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `equalAccess`, `equalAccessKeyboardConfirm`, `screenshots`, `screenshotsMax`, `contrastEstimate`, `contrastEstimateMax`, `reflow`, `textSpacing`, `keyboardWalk`, `keyboardWalkMax`, `keyboardWalkWaitMs`, `keyboardWalkWidgetFocus`, `keyboardWalkObscuredPaintOnly`, `languageParts`, `failOn`,
 > `failOnNameless`, `failOnEmpty`, `failOnHttpError`, `failOnEqualAccess`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in

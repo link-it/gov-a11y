@@ -37,6 +37,9 @@ defaults:
   keyboardWalkMax: 45         # fermate massime del percorso col Tab per vista
   keyboardWalkWaitMs: 120     # attesa dopo ogni Tab prima di leggere il fuoco (transizioni, script su 'focus');
                               # e' il costo principale del controllo: abbassarla solo a esito verificato
+  keyboardWalkWidgetFocus: false        # 2.4.7: indicatore anche nel widget che marca il fuoco con una classe
+                                        # (ng-select), nel contenitore di un comando trasparente, nell'icona interna
+  keyboardWalkObscuredPaintOnly: false  # 2.4.11: copre solo un elemento che in quel punto disegna qualcosa
   languageParts: null         # 3.1.2: espressioni per lingua, es. { it: ["Accedendo accetti"], en: ["\\b(the|your)\\b"] }
   # --- gate (GLOBALI: qui, non per-target) ---
   failOn: "serious"           # critical | serious | moderate | minor | none
