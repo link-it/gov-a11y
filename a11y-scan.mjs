@@ -114,6 +114,10 @@ if (args.help || args.h) {
                       HTTP >= 400 (pagina d'errore dell'app, URL non piu' valido, sessione persa). Lo
                       stato di ogni vista e' comunque riportato nei report. Spento di default; si
                       accende con "failOnHttpError": true nel config
+  --fail-on-skipped   Gate del perimetro: fallisci se una vista o un flow previsto dal config non e'
+                      stato analizzato, o solo in parte (flow saltato, interrotto o in errore, pagina
+                      non analizzata, login non confermato). Per la CI: un report incompleto non
+                      passa. Spento di default; si accende con "failOnSkipped": true nel config
   --fail-on-screen-reader  Gate del virtual screen reader: fallisci se esistono annunci col solo ruolo
                       (elementi letti senza nome). Richiede --screen-reader
   --fail-on-mouse-only  Gate tastiera, ATTIVO per impostazione predefinita: fallisci se esistono comandi
@@ -176,7 +180,7 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnEmpty, failOnHttpError, failOnScreenReader, failOnEqualAccess, minScore, noFlows, insecure, locale, loginBase,
+  failOnMouseOnly, failOnEmpty, failOnHttpError, failOnSkipped, failOnScreenReader, failOnEqualAccess, minScore, noFlows, insecure, locale, loginBase,
   productVersion, reflow, textSpacing, keyboardWalk, keyboardWalkMax, keyboardWalkWaitMs, languageParts, equalAccess,
   equalAccessKeyboardConfirm, screenshots, screenshotsMax,
   contrastEstimate, contrastEstimateMax.
@@ -243,6 +247,11 @@ const FAIL_ON_EMPTY = !!resolveParam(args['fail-on-empty'], null, 'failOnEmpty',
    spento di default perche' alcune applicazioni rispondono di proposito con un 4xx a pagine che si
    vogliono comunque esaminare (es. la pagina "non trovato"). */
 const FAIL_ON_HTTP_ERROR = !!resolveParam(args['fail-on-http-error'], null, 'failOnHttpError', false);
+/* Gate del perimetro, predefinito SPENTO: un flow saltato (sentinella assente) o interrotto lascia
+   fuori dal report viste previste dal config, e gli zeri del report non valgono per loro. Acceso, il
+   gate fallisce: in CI un report incompleto non deve passare. Spento resta una segnalazione, perche'
+   su un ambiente senza dati fissi un flow saltato puo' essere atteso. */
+const FAIL_ON_SKIPPED = !!resolveParam(args['fail-on-skipped'], null, 'failOnSkipped', false);
 /* Gate del secondo motore, predefinito SPENTO: IBM Equal Access ha regole proprie, e su
    un'applicazione nuova va prima conosciuto (quante segnalazioni, quali vere). Chi ha corretto
    i difetti che trova lo accende, perche' non ne tornino di nuovi. Conta solo le violazioni:
@@ -872,6 +881,12 @@ function normalizeLinks(hrefs, contextPath) {
 let _lhOk = 0, _lhFail = 0, _lhFirstErr = null;
 // motivo dell'ultimo audit senza punteggio: finisce nel risultato della vista (evidenza nei report)
 let _lhUltimoMotivo = null;
+// nota dell'ultimo audit riuscito solo al secondo tentativo (evidenza nei report)
+let _lhUltimaNota = null;
+let _lhRitentati = 0;
+// Errori di Lighthouse dovuti al momento (pagina lenta o bloccata), non alla vista: si ritenta una volta.
+const LH_ERRORI_TRANSITORI = new Set(['NO_FCP', 'PAGE_HUNG', 'PROTOCOL_TIMEOUT']);
+const LH_ATTESA_RITENTATIVO_MS = 5000;
 
 // Porta CDP su cui il browser della scansione si apre a Lighthouse (vedi scan()). Non e' fissa:
 // scan() ne chiede al sistema una libera prima di lanciare il browser. Con una porta fissa due
@@ -950,8 +965,9 @@ function lhStessaVista(a, b) {
   } catch { return null; }
 }
 
-async function runLighthouse(browser, url, target, extraHeaders) {
+async function runLighthouse(browser, url, target, extraHeaders, tentativo = 1) {
   _lhUltimoMotivo = null;
+  if (tentativo === 1) _lhUltimaNota = null;
   try {
     const { default: lighthouse } = await import('lighthouse');
     // Il browser e' lanciato con --remote-debugging-port=LH_PORT, porta libera scelta da scan().
@@ -975,6 +991,16 @@ async function runLighthouse(browser, url, target, extraHeaders) {
     const lhr = runner?.lhr;
     const rtErr = lhr?.runtimeError;
     if (rtErr && rtErr.code && rtErr.code !== 'NO_ERROR') {
+      if (tentativo === 1 && LH_ERRORI_TRANSITORI.has(rtErr.code)) {
+        console.warn(`  [lighthouse] ${rtErr.code} su ${url}: nuovo tentativo fra ${LH_ATTESA_RITENTATIVO_MS / 1000} s`);
+        await new Promise(r => setTimeout(r, LH_ATTESA_RITENTATIVO_MS));
+        const score = await runLighthouse(browser, url, target, extraHeaders, 2);
+        if (score != null) {
+          _lhRitentati++;
+          _lhUltimaNota = `punteggio al 2° tentativo (il primo: ${rtErr.code})`;
+        }
+        return score;
+      }
       _lhFail++;
       if (!_lhFirstErr) _lhFirstErr = `${rtErr.code}: ${rtErr.message}`;
       _lhUltimoMotivo = `${rtErr.code}: ${rtErr.message}`;
@@ -2264,14 +2290,14 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
       derogati = [...derogati, ...ea.derogati];
     }
   }
-  let lhScore = null, lhMotivo = null;
+  let lhScore = null, lhMotivo = null, lhNota = null;
   /* extra.senzaLighthouse: motivo per cui questa sola vista non passa da Lighthouse (es. il suo URL
      cambia la configurazione e ricaricarlo ripeterebbe l'azione). */
   const lhEscluso = DO_LH && (LH_ESCLUSO_NEL_FLOW || !!extra.senzaLighthouse);
   if (extra.senzaLighthouse && DO_LH) lhMotivo = extra.senzaLighthouse;
   if (DO_LH && !lhEscluso) await misura('lighthouse', async () => {
     const sessione = await lhPreparaSessione(page, target);
-    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; }
+    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; lhNota = lhScore != null ? _lhUltimaNota : null; }
     finally { await sessione.rilascia(); }
   });
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
@@ -2346,7 +2372,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   }
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso, lhMotivo, axTree, soloMouse, ariaSnapshot, sr, vuota, httpStatus, erroreHttp, tabOrder, equalAccess,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso, lhMotivo, lhNota, axTree, soloMouse, ariaSnapshot, sr, vuota, httpStatus, erroreHttp, tabOrder, equalAccess,
     controlliNonEseguiti: nonEseguiti, controlliEseguiti: eseguiti,
     tempi: { inizio: t0 - TEMPI.avvio, primaDellaVista, totale: performance.now() - t0, fasi },
   });
@@ -2668,6 +2694,8 @@ async function caricaScript(spec) {
    report: chi lo leggeva non poteva sapere che una vista prevista dal config non era stata
    analizzata, e gli zeri del report sembravano valere anche per lei. */
 const PERIMETRO = [];
+// flow la cui sentinella e' comparsa solo dopo aver ricaricato la pagina di partenza
+let _flowRitentati = 0;
 function annotaPerimetro(target, tipo, nome, esito, motivo) {
   PERIMETRO.push({ target: target.name || target.key, tipo, nome, esito, motivo: maskSecrets(String(motivo || '')) });
 }
@@ -2811,7 +2839,18 @@ async function runFlows(browser, target, pageResults) {
       // skipIfMissing: se un elemento-sentinella non c'e' (es. lista vuota), salta il flow. Attende
       // (non controllo istantaneo): le liste async possono comparire dopo navDelayMs; l'assenza va
       // confermata solo dopo un timeout ragionevole.
-      if (flow.skipIfMissing && !(await page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).catch(() => null))) {
+      const sentinellaPresente = () => page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).then(() => true, () => false);
+      let sentinella = !flow.skipIfMissing || await sentinellaPresente();
+      /* Un server lento puo' non mostrare la sentinella in tempo anche se i dati ci sono: prima di
+         saltare il flow si ricarica una volta la pagina di partenza. Nessuna vista e' ancora registrata. */
+      if (!sentinella) {
+        console.warn(`    flow '${flow.name}': sentinella '${flow.skipIfMissing}' assente, nuovo tentativo ricaricando ${flow.start}`);
+        await page.goto(absUrl(flow.start), { waitUntil: target.navWait || 'networkidle' }).catch(() => {});
+        if (target.navDelayMs) await page.waitForTimeout(target.navDelayMs);
+        sentinella = await sentinellaPresente();
+        if (sentinella) { _flowRitentati++; console.log(`    flow '${flow.name}': sentinella trovata al secondo tentativo`); }
+      }
+      if (!sentinella) {
         console.warn(`    flow '${flow.name}' saltato: sentinella '${flow.skipIfMissing}' assente (dati mancanti?)`);
         annotaPerimetro(target, 'flow', flow.name, 'saltato', `elemento '${flow.skipIfMissing}' assente in ${flow.start}: dati mancanti o pagina diversa da quella attesa`);
         continue;
@@ -3405,6 +3444,8 @@ async function scan() {
   } else if (anyLh && _lhFail) {
     console.warn(`\n\u26a0 [lighthouse] punteggi calcolati: ${_lhOk}, falliti: ${_lhFail} (primo errore: ${_lhFirstErr})`);
   }
+  if (anyLh && _lhRitentati) console.warn(`  [lighthouse] ${_lhRitentati} punteggi ottenuti al secondo tentativo`);
+  if (_flowRitentati) console.warn(`  [flow] ${_flowRitentati} flow avviati al secondo tentativo (sentinella comparsa dopo aver ricaricato la pagina)`);
   // Per la reportistica complessiva: un livello risulta attivo se lo è stato per almeno un target.
   DO_SR = anySr;
   DO_LH = anyLh;
@@ -3529,7 +3570,7 @@ function writeSarif(results, summary) {
   }
   for (const p of PERIMETRO) {
     regolaGov('gova11y-perimeter');
-    risGov.push({ ruleId: 'gova11y-perimeter', level: 'note', message: { text: `${p.tipo} '${p.nome}' ${p.esito}: ${p.motivo}` }, properties: { target: p.target, nome: p.nome, esito: p.esito } });
+    risGov.push({ ruleId: 'gova11y-perimeter', level: FAIL_ON_SKIPPED ? 'error' : 'note', message: { text: `${p.tipo} '${p.nome}' ${p.esito}: ${p.motivo}` }, properties: { target: p.target, nome: p.nome, esito: p.esito } });
   }
   /* L'esito del gate e' un risultato solo se fallisce: i lettori di SARIF (Jenkins Warnings, Code Scanning)
      contano ogni risultato come una segnalazione, anche con level 'none'. Superato, sta in invocations e
@@ -3674,7 +3715,7 @@ function writeJUnit(results, summary) {
     if (sr) (decide('screenReader') ? (motivi.push(`${sr} annunci col solo ruolo`), dettagli) : note).push(`screen reader: ${sr} annunci col solo ruolo`);
     if (pr.lhScore != null && MIN_SCORE != null && pr.lhScore < MIN_SCORE) (decide('lighthouse') ? (motivi.push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}% < ${(MIN_SCORE * 100).toFixed(0)}%`), dettagli) : note).push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}%`);
     if (pr.lhScore == null && !pr.lhEscluso && (pr.lhMotivo || DO_LH)) (decide('lighthouse') ? (motivi.push('senza punteggio Lighthouse'), dettagli) : note).push(`Lighthouse senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`);
-    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%`); else if (pr.lhEscluso) note.push(pr.lhMotivo ? `Lighthouse escluso: ${pr.lhMotivo}` : 'Lighthouse: escluso dal flow');
+    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%${pr.lhNota ? ` (${pr.lhNota})` : ''}`); else if (pr.lhEscluso) note.push(pr.lhMotivo ? `Lighthouse escluso: ${pr.lhMotivo}` : 'Lighthouse: escluso dal flow');
     const c = summarizeImpacts(pr.violations);
     note.push(`axe e controlli aggiuntivi: critical ${c.critical}, serious ${c.serious}, moderate ${c.moderate}, minor ${c.minor}`);
     const inc = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -3698,19 +3739,20 @@ function writeJUnit(results, summary) {
     if (c.esito === 'non eseguito') return `    <testcase ${nome}>\n      <skipped message="${xmlEscape(c.risultato)}"/>\n      <system-out>${testo}</system-out>\n    </testcase>`;
     return `    <testcase ${nome}>\n      <system-out>${testo}</system-out>\n    </testcase>`;
   });
-  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <skipped message="${xmlEscape(`${p.esito}: ${p.motivo}`)}"/>\n    </testcase>`);
+  // con failOnSkipped la voce fallisce; altrimenti resta saltata
+  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <${FAIL_ON_SKIPPED ? 'failure' : 'skipped'} message="${xmlEscape(`${p.esito}: ${p.motivo}`)}"/>\n    </testcase>`);
   const caseGate = gate.superato
     ? `    <testcase classname="a11y.gate" name="gate di accessibilita'"/>`
     : `    <testcase classname="a11y.gate" name="gate di accessibilita'">\n      <failure message="gate NON superato">${xmlEscape(gate.motivi.join('\n'))}</failure>\n    </testcase>`;
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="gov-a11y" tests="${results.length + controlli.length + perimetro.length + 1}" failures="${fallite + controlli.filter(c => c.esito === 'non superato').length + (gate.superato ? 0 : 1)}">
+<testsuites name="gov-a11y" tests="${results.length + controlli.length + perimetro.length + 1}" failures="${fallite + controlli.filter(c => c.esito === 'non superato').length + (FAIL_ON_SKIPPED ? perimetro.length : 0) + (gate.superato ? 0 : 1)}">
 <testsuite name="accessibility-wcag21aa" tests="${results.length}" failures="${fallite}">
 ${viste.join('\n')}
 </testsuite>
 <testsuite name="controlli" tests="${controlli.length}" failures="${controlli.filter(c => c.esito === 'non superato').length}" skipped="${controlli.filter(c => c.esito === 'non eseguito').length}">
 ${casiControlli.join('\n')}
 </testsuite>
-${perimetro.length ? `<testsuite name="perimetro" tests="${perimetro.length}" failures="0" skipped="${perimetro.length}">\n${perimetro.join('\n')}\n</testsuite>\n` : ''}<testsuite name="gate" tests="1" failures="${gate.superato ? 0 : 1}">
+${perimetro.length ? `<testsuite name="perimetro" tests="${perimetro.length}" failures="${FAIL_ON_SKIPPED ? perimetro.length : 0}" skipped="${FAIL_ON_SKIPPED ? 0 : perimetro.length}">\n${perimetro.join('\n')}\n</testsuite>\n` : ''}<testsuite name="gate" tests="1" failures="${gate.superato ? 0 : 1}">
 ${caseGate}
 </testsuite>
 </testsuites>
@@ -3955,7 +3997,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   const WCAG = wcagVerificato(TAG_USATI);
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnHttpError: FAIL_ON_HTTP_ERROR, failOnScreenReader: FAIL_ON_SCREEN_READER, failOnEqualAccess: FAIL_ON_EQUAL_ACCESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], httpErrorViews: [], lighthouse: [],
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnHttpError: FAIL_ON_HTTP_ERROR, failOnSkipped: FAIL_ON_SKIPPED, failOnScreenReader: FAIL_ON_SCREEN_READER, failOnEqualAccess: FAIL_ON_EQUAL_ACCESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], httpErrorViews: [], lighthouse: [],
     equalAccess: DO_EA ? { motore: 'IBM Equal Access (accessibility-checker-engine)', versione: moduleVersion('accessibility-checker-engine'), regole: EA_RULESET, violazioni: 0, daVerificare: 0, confermatiDaTab: 0 } : null,
     perimetro: [...PERIMETRO], erroriSistematici: [], confrontoMotori: null, stimaContrasti: null };
   for (const pr of results) {
@@ -3972,7 +4014,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.srRoleOnlyTotal += srRoleOnly;
     const ea = pr.equalAccess ? { violazioni: pr.equalAccess.violazioni.length, daVerificare: pr.equalAccess.daVerificare.length, confermatiDaTab: (pr.equalAccess.confermatiDaTab || []).length } : null;
     if (ea && summary.equalAccess) { summary.equalAccess.violazioni += ea.violazioni; summary.equalAccess.daVerificare += ea.daVerificare; summary.equalAccess.confermatiDaTab += ea.confermatiDaTab; }
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, httpStatus: pr.httpStatus ?? null, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, ...(pr.lhNota ? { lhNota: pr.lhNota } : {}), lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, httpStatus: pr.httpStatus ?? null, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
     if (pr.vuota) summary.emptyViews.push({ target: pr.targetName, name: pr.name, url: pr.url });
     if (pr.erroreHttp) summary.httpErrorViews.push({ target: pr.targetName, name: pr.name, url: pr.url, status: pr.httpStatus });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
@@ -4041,7 +4083,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     return `<tr${pr.vuota || pr.erroreHttp ? ' style="background:#fde8e8"' : ''}><td class="lungo"><a href="#pg${i}">${esc(pr.name)}</a>${pr.vuota ? ' <span class="crit">VISTA VUOTA</span>' : ''}${pr.erroreHttp ? ` <span class="crit">HTTP ${pr.httpStatus}</span>` : ''}</td><td class="lungo"><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
-      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}">${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? (pr.lhMotivo ? `<span title="${esc(pr.lhMotivo)}">escluso</span>` : 'escluso') : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
+      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}"${pr.lhNota ? ` title="${esc(pr.lhNota)}"` : ''}>${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? (pr.lhMotivo ? `<span title="${esc(pr.lhMotivo)}">escluso</span>` : 'escluso') : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
       <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td>
       <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td>
@@ -4218,7 +4260,7 @@ tr.e-ko td{background:#fff6f6}details.non-eseguiti{margin:-1rem 0 1.5rem;backgro
 <tr><th>Applicazione</th><td>${esc(app)}</td><th>Data</th><td>${esc(new Date(summary.generatedAt).toLocaleString('it-IT'))}</td></tr>
 <tr><th>Indirizzo</th><td><code>${esc(BASE)}</code></td><th>Versione in prova</th><td>${PRODUCT_VERSION ? `<code>${esc(PRODUCT_VERSION)}</code>` : '<small>non dichiarata</small>'}</td></tr>
 <tr><th>Standard</th><td>${esc(WCAG.breve)}<br><small>tag: ${esc([...TAG_USATI].join(', '))}</small></td><th>Viste analizzate</th><td>${results.length}${Object.keys(perTarget).length > 1 ? `<br><small>${Object.entries(perTarget).map(([t, l]) => `${esc(t)}: ${l.length}`).join(', ')}</small>` : ''}</td></tr>
-<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'} · errori HTTP: ${FAIL_ON_HTTP_ERROR ? 'blocca' : 'non blocca'}</td></tr>
+<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'} · errori HTTP: ${FAIL_ON_HTTP_ERROR ? 'blocca' : 'non blocca'} · perimetro incompleto: ${FAIL_ON_SKIPPED ? 'blocca' : 'non blocca'}</td></tr>
 </table>
 
 <div class="gate ${gate.superato ? 'gate-ok' : 'gate-ko'}">
@@ -4237,7 +4279,7 @@ ${controlli.filter(c => c.esito === 'non eseguito').map(rigaControllo).join('\n'
 </table></details>` : ''}
 
 ${perimetro.length ? `<details class="disclaimer" style="border-left-color:#b00">
-<summary><h2>Perimetro non coperto — ${perimetro.length} ${perimetro.length === 1 ? 'voce' : 'voci'}</h2> <small>(non decide l'esito: clic per espandere)</small></summary>
+<summary><h2>Perimetro non coperto — ${perimetro.length} ${perimetro.length === 1 ? 'voce' : 'voci'}</h2> <small>(${FAIL_ON_SKIPPED ? "blocca il gate (failOnSkipped)" : "non decide l'esito"}: clic per espandere)</small></summary>
 <p>Viste previste dal config che <b>non</b> sono state analizzate, o solo in parte. Gli esiti di questo report
 <b>non</b> valgono per loro: vanno ripristinate (dati, selettori, ambiente) e la scansione rifatta, oppure
 dichiarate fuori perimetro.</p>
@@ -4540,9 +4582,11 @@ function valutaControlli(results) {
       soglia: 'non decide l\'esito (solo casi da verificare)', risultato: usate.length ? `${coperte} occorrenze coperte da ${usate.filter(v => v.matches > 0).length} voci su ${usate.length}${scadute.length ? `; ${scadute.length} voci scadute` : ''}` : 'nessun registro caricato',
       esito: !usate.length ? 'non eseguito' : scadute.length ? 'segnalazioni' : 'nessuna segnalazione' });
   }
-  add({ id: 'perimetro', nome: 'Perimetro previsto dal config', criteri: 'copertura della scansione', soglia: 'non decide l\'esito',
+  add({ id: 'perimetro', nome: 'Perimetro previsto dal config', criteri: 'copertura della scansione', decide: FAIL_ON_SKIPPED,
+    soglia: FAIL_ON_SKIPPED ? 'ogni vista e flow previsti analizzati' : 'non decide l\'esito (failOnSkipped=false)',
     risultato: PERIMETRO.length ? `${PERIMETRO.length} ${PERIMETRO.length === 1 ? 'vista o flow non analizzato' : 'viste o flow non analizzati'}, o solo in parte` : 'tutte le viste previste sono state analizzate',
-    esito: PERIMETRO.length ? 'segnalazioni' : 'nessuna segnalazione',
+    esito: FAIL_ON_SKIPPED ? (PERIMETRO.length ? 'non superato' : 'superato') : (PERIMETRO.length ? 'segnalazioni' : 'nessuna segnalazione'),
+    motivi: FAIL_ON_SKIPPED && PERIMETRO.length ? [`perimetro incompleto, ${PERIMETRO.length} ${PERIMETRO.length === 1 ? 'voce' : 'voci'}: ${PERIMETRO.map(p => `${p.tipo} ${p.nome} ${p.esito}`).join(', ')}`] : [],
     viste: PERIMETRO.map(p => ({ indice: -1, target: p.target, nome: p.nome, url: null, sourceHint: null, valore: p.esito, nota: p.motivo })) });
 
   const motivi = controlli.filter(c => ESITI_KO.has(c.esito)).flatMap(c => c.motivi);

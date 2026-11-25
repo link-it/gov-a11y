@@ -1,6 +1,21 @@
 2026-11-24  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]
+	Lighthouse: un secondo tentativo, dopo 5 s, quando l'audit fallisce per un errore del momento
+	(NO_FCP, PAGE_HUNG, PROTOCOL_TIMEOUT); prima bastava un rallentamento del server per lasciare la
+	vista senza punteggio e far fallire il gate con --min-score. Non si ritenta su un'altra pagina
+	misurata né su un audit senza punteggio. La vista riuscita al secondo tentativo lo dice (lhNota in
+	summary.json, nota JUnit, titolo nel report HTML) e a fine run si contano i ritentativi.
+	Flow con skipIfMissing: se la sentinella non compare in tempo si ricarica una volta la pagina di
+	partenza prima di saltare il flow; con un server lento un flow con i dati presenti risultava
+	saltato e la vista mancava dal report. A fine run si contano i flow avviati al secondo tentativo.
+	Gate del perimetro: opzione failOnSkipped (--fail-on-skipped), spenta di default. Accesa, una vista
+	o un flow del config non analizzato (flow saltato, interrotto o in errore, pagina non analizzata,
+	login non confermato) fa fallire il gate, con la voce in errore in SARIF e fallita nel JUnit: in CI
+	un report incompleto non passa. Accesa nel target GovCat 2.5.1. Suite di test gate-skipped.
+	Target GovCat 2.5.1: immagini delle schede escluse dai comandi solo col mouse (mouseOnlyIgnore,
+	stessa destinazione del titolo); attesa dell'h1 nei passi del flow adesione e sentinelle dei flow
+	portate a 60 s per il server di sviluppo lento.
 	Percorso col Tab: due parametri nuovi, spenti di default, per criteri più precisi. Senza, l'esito
 	resta quello di prima.
 	keyboardWalkWidgetFocus (fuoco visibile, 2.4.7): oltre all'elemento e ai due contenitori più vicini

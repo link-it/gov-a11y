@@ -82,6 +82,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--fail-on-mouse-only` | **on** | **Gate livello 2b**: fallisci se esistono comandi utilizzabili col solo mouse. Si disattiva con `"failOnMouseOnly": false` nel config |
 | `--fail-on-empty` | **on** | **Gate delle viste vuote**: fallisci se una vista è stata analizzata senza alcun contenuto accessibile (albero di accessibilità vuoto: pagina non renderizzata per backend irraggiungibile, sessione persa, errore dell'app). Il suo "nessuna violazione" non vale. Prima di arrendersi lo strumento attende una volta (5 s). Si disattiva con `"failOnEmpty": false` nel config |
 | `--fail-on-http-error` | off | **Gate delle viste in errore HTTP**: fallisci se una vista è arrivata con stato HTTP ≥ 400. È stata esaminata la pagina d'errore dell'applicazione (URL non più valido, contesto di navigazione mancante, sessione persa, bug), che di solito è accessibile e farebbe risultare pulita una vista mai vista. Lo stato di ogni vista è comunque riportato. Si attiva anche con `"failOnHttpError": true` nel config |
+| `--fail-on-skipped` | off | **Gate del perimetro**: fallisci se una vista o un flow previsto dal config non è stato analizzato, o solo in parte (flow saltato, interrotto o in errore, pagina non analizzata, login non confermato). Per la CI: un report incompleto non passa. In config `"failOnSkipped": true` |
 | `--no-mouse-only` | — | Disabilita il controllo dei comandi solo-mouse (attivo di default) |
 | `--reflow` | off | **1.4.10**: la vista a 320px di larghezza non deve scorrere in orizzontale |
 | `--text-spacing` | off | **1.4.12**: con la spaziatura del testo aumentata nessun testo viene tagliato |
@@ -108,7 +109,7 @@ I report finiscono nella dir `--out`. Exit-code: **0** = gate superato, **1** = 
 | `--help` | | Aiuto |
 
 > **Parametri in config**: `tags`, `crawl`, `crawlDepth`, `lighthouse`, `screenReader`, `equalAccess`, `equalAccessKeyboardConfirm`, `screenshots`, `screenshotsMax`, `contrastEstimate`, `contrastEstimateMax`, `reflow`, `textSpacing`, `keyboardWalk`, `keyboardWalkMax`, `keyboardWalkWaitMs`, `keyboardWalkWidgetFocus`, `keyboardWalkObscuredPaintOnly`, `languageParts`, `failOn`,
-> `failOnNameless`, `failOnEmpty`, `failOnHttpError`, `failOnEqualAccess`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
+> `failOnNameless`, `failOnEmpty`, `failOnHttpError`, `failOnSkipped`, `failOnEqualAccess`, `minScore`, `noFlows`, `insecure`, `locale`, `productVersion`, `falsePositives` si possono dichiarare nel file di config, nel
 > blocco `defaults` (globali) e/o dentro un target (override). **Precedenza: CLI > target > defaults >
 > built-in.** I flag `--no-*` servono a spegnere da CLI ciò che è acceso in config. Dettaglio in
 > [`docs/GUIDA-esecuzione.md`](docs/GUIDA-esecuzione.md).

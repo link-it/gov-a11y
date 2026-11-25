@@ -1,6 +1,6 @@
 {
   "$app": "GovCat 2.5.1",
-  "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'): l'identità viene da A11Y_GOVCAT_PRINCIPAL (es. lorenzo.gestore in sviluppo; un codice fiscale è un dato personale e non va scritto qui). La select-org, se l'utente ha più organizzazioni -> postLogin (passi opzionali). navWait=domcontentloaded perché l'HMR del dev server impedisce networkidle. Versione 2.5.1: flussi del servizio sul nuovo wizard; per la 2.5 usare targets.govcat-2.5.json, per la 2.4.x targets.govcat.json. I flussi attendono la sentinella fino a 20 s (skipIfMissingTimeoutMs): sui backend lenti le liste e le pagine 'nuovo' superano gli 8 s predefiniti e il flusso verrebbe saltato. Due target: 'govcat-pubblico' (senza identità: solo la pagina di accesso) e 'govcat' (autenticato). Il catalogo anonimo non è scansionato: richiede un backend che accetti le richieste anonime e mostra servizi e adesioni già coperti dal target autenticato.",
+  "$comment": "GovCat (Angular SPA, dev :6200). Auth locale via header X-GovCat-principal (alternativa alle altre modalita'): l'identità viene da A11Y_GOVCAT_PRINCIPAL (es. lorenzo.gestore in sviluppo; un codice fiscale è un dato personale e non va scritto qui). La select-org, se l'utente ha più organizzazioni -> postLogin (passi opzionali). navWait=domcontentloaded perché l'HMR del dev server impedisce networkidle. Versione 2.5.1: flussi del servizio sul nuovo wizard; per la 2.5 usare targets.govcat-2.5.json, per la 2.4.x targets.govcat.json. I flussi attendono la sentinella fino a 60 s (skipIfMissingTimeoutMs): sui backend lenti le liste e le pagine 'nuovo' superano gli 8 s predefiniti, e nelle giornate peggiori anche 20 s, e il flusso verrebbe saltato. Due target: 'govcat-pubblico' (senza identità: solo la pagina di accesso) e 'govcat' (autenticato). Il catalogo anonimo non è scansionato: richiede un backend che accetti le richieste anonime e mostra servizi e adesioni già coperti dal target autenticato.",
   "$d13": "Configurazione usata per la verifica richiesta da Regione Toscana (Linee guida servizi digitali, Sezione D, Cap. 13): due motori (axe-core e IBM Equal Access), Lighthouse, screen reader virtuale, screenshot delle occorrenze, casi da verificare visibili nel report, stati di errore dei form principali.",
   "defaults": {
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
@@ -11,6 +11,7 @@
     "falsePositives": "falsePositives.govcat.json",
     "mouseOnly": true,
     "failOnMouseOnly": true,
+    "mouseOnlyIgnore": "lnk-card .card-image, app-servizi-group-list-card .group-list-card-image",
     "failOnNameless": true,
     "minScore": 0.98,
     "failOn": "minor",
@@ -23,7 +24,8 @@
     "keyboardWalkObscuredPaintOnly": true,
     "screenshotsMax": 20,
     "failOnEqualAccess": true,
-    "failOnHttpError": true
+    "failOnHttpError": true,
+    "failOnSkipped": true
   },
   "govcat-pubblico": {
     "name": "govcat-pubblico",
@@ -136,7 +138,7 @@
         "name": "servizio-vetrina-wizard",
         "start": "/servizi",
         "skipIfMissing": ".card:not(.group) h2.card-title",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
         "steps": [
           { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio della lista (vetrina); le schede .group sono gruppi" },
@@ -150,7 +152,7 @@
         "name": "servizio-wizard-fase1",
         "start": "/servizi",
         "skipIfMissing": ".card:not(.group) h2.card-title",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi/servizio-workflow-wizard",
         "steps": [
           { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio della lista (vetrina); le schede .group sono gruppi" },
@@ -172,7 +174,7 @@
         "name": "servizio-wizard-api",
         "start": "/servizi",
         "skipIfMissing": ".card:not(.group) h2.card-title",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
         "steps": [
           { "click": ".card:not(.group) h2.card-title", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo servizio della lista (vetrina); le schede .group sono gruppi" },
@@ -194,13 +196,13 @@
         "name": "adesione-vetrina-modifica",
         "start": "/adesioni",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/adesioni",
         "steps": [
-          { "click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima adesione -> vetrina /adesioni/:id/view" },
+          { "click": ".item-row-link", "wait": "main h1", "timeoutMs": 30000, "delayMs": 1500, "desc": "apri la prima adesione -> vetrina /adesioni/:id/view; si attende il titolo, disegnato a dati arrivati" },
           { "scan": "adesione-vetrina" },
           { "click": "button[aria-label='Altre azioni']", "delayMs": 1500, "desc": "apri menu 'Altre azioni'" },
-          { "click": ".dropdown-menu .dropdown-item:has-text('Configura')", "wait": "domcontentloaded", "delayMs": 3000, "desc": "Configura -> modifica/wizard /adesioni/:id" },
+          { "click": ".dropdown-menu .dropdown-item:has-text('Configura')", "wait": "main h1", "timeoutMs": 30000, "delayMs": 1500, "desc": "Configura -> modifica/wizard /adesioni/:id; si attende il titolo, disegnato a dati arrivati" },
           { "scan": "adesione-modifica" }
         ]
       },
@@ -208,7 +210,7 @@
         "name": "organizzazione-dettaglio-modifica",
         "start": "/organizzazioni",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/organizzazioni",
         "steps": [
           {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri la prima organizzazione (la lista utenti c'è solo per quelle non intermediate: i passi sugli utenti sono opzionali)"},
@@ -230,7 +232,7 @@
         "name": "utente-dettaglio-modifica",
         "start": "/utenti",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/utenti",
         "steps": [
           {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
@@ -243,7 +245,7 @@
         "name": "client-dettaglio-modifica",
         "start": "/client",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/clients",
         "steps": [
           {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
@@ -256,7 +258,7 @@
         "name": "soggetto-dettaglio-modifica",
         "start": "/soggetti",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/soggetti",
         "steps": [
           {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
@@ -269,7 +271,7 @@
         "name": "classe-utente-dettaglio-modifica",
         "start": "/classi-utente",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/classi-utente",
         "steps": [
           {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
@@ -282,7 +284,7 @@
         "name": "dominio-dettaglio-modifica",
         "start": "/domini",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/domini",
         "steps": [
           {"click": ".item-row-link", "wait": "domcontentloaded", "delayMs": 3000, "desc": "apri il primo elemento della lista"},
@@ -295,7 +297,7 @@
         "name": "client-nuovo-compilato",
         "start": "/client/new",
         "skipIfMissing": "#id_organizzazione",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/clients",
         "steps": [
           {"fill": {"selector": "#id_organizzazione", "value": "Ente"}, "optional": true, "delayMs": 2000, "desc": "cerca organizzazione"},
@@ -308,7 +310,7 @@
         "name": "errori-servizio-nuovo",
         "start": "/servizi/new/wizard",
         "skipIfMissing": "main button:has-text('Avanti')",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/servizi",
         "steps": [
           {"script": "./govcat.steps.mjs#toccaCampi", "desc": "campi toccati senza valori né invio: messaggi di validazione"},
@@ -319,7 +321,7 @@
         "name": "errori-adesione-nuova",
         "start": "/adesioni/new/edit",
         "skipIfMissing": "main button:has-text('Crea adesione')",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/adesioni",
         "steps": [
           {"script": "./govcat.steps.mjs#toccaCampi"},
@@ -330,7 +332,7 @@
         "name": "errori-client-nuovo",
         "start": "/client",
         "skipIfMissing": ".item-row-link",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/clients",
         "steps": [
           {"goto": "/client/new", "wait": "main button:has-text('Salva')", "timeoutMs": 20000, "delayMs": 3000, "desc": "nuovo client: aperto subito in un context nuovo rimanda a /servizi"},
@@ -342,7 +344,7 @@
         "name": "errori-organizzazione-nuova",
         "start": "/organizzazioni/new",
         "skipIfMissing": "main button:has-text('Salva')",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/organizzazioni",
         "steps": [
           {"script": "./govcat.steps.mjs#toccaCampi"},
@@ -353,7 +355,7 @@
         "name": "errori-utente-nuovo",
         "start": "/utenti/new",
         "skipIfMissing": "main button:has-text('Salva')",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/utenti",
         "steps": [
           {"script": "./govcat.steps.mjs#toccaCampi"},
@@ -364,7 +366,7 @@
         "name": "errori-dominio-nuovo",
         "start": "/domini/new",
         "skipIfMissing": "main button:has-text('Salva')",
-        "skipIfMissingTimeoutMs": 20000,
+        "skipIfMissingTimeoutMs": 60000,
         "sourceHint": "frontend/angular/projects/apicat-app/src/views/domini",
         "steps": [
           {"script": "./govcat.steps.mjs#toccaCampi"},

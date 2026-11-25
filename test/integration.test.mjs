@@ -600,6 +600,7 @@ check(M.evaluateGate(results, summary).length >= 1, 'gate rileva violazioni (but
 check(M.evaluateGate(results, summary).some(m => /viste vuote/.test(m) && /bianca/.test(m) && !/tardiva/.test(m)), 'gate: la vista vuota (e solo lei) fra i motivi');
 check(summary.failOnHttpError === false && summary.httpErrorViews.length === 1 && summary.httpErrorViews[0].status === 503, 'summary.json: vista in errore HTTP elencata, opzione spenta di default');
 check(!M.evaluateGate(results, summary).some(m => /errore HTTP/.test(m)), 'failOnHttpError spento: la vista in errore HTTP non decide il gate');
+check(summary.failOnSkipped === false && summary.controlli.find(c => c.id === 'perimetro').decide === false, 'failOnSkipped spento di default: il perimetro non decide il gate');
 check(summary.controlli.find(c => c.id === 'httpErrors').esito === 'segnalazioni', 'controllo httpErrors: segnalazioni (non decide)');
 check(/Viste in errore HTTP — 1/.test(html) && /HTTP 503<\/span>/.test(html), 'report.html: sezione e riga della vista in errore HTTP');
 

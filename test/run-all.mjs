@@ -28,6 +28,7 @@ const SUITES = [
   ['unit',        'unit.test.mjs'],         // funzioni pure + reporter + gate
   ['gate-ibm',    'gate-equal-access.test.mjs'], // gate del secondo motore (--fail-on-equal-access)
   ['gate-http',   'gate-http-error.test.mjs'],   // gate delle viste in errore HTTP (--fail-on-http-error)
+  ['gate-skipped', 'gate-skipped.test.mjs'],    // gate del perimetro (--fail-on-skipped)
   ['detection',   'detection.test.mjs'],    // livelli 2/3 (accessibility tree + screen reader)
   ['integration', 'integration.test.mjs'],  // motore end-to-end su mock server
 ];
