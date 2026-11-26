@@ -133,6 +133,7 @@
       },
       {
         "name": "allarmi-nuovo",
+        "optional": true,
         "$note": "Allarmi > Aggiungi: il form cambia interamente secondo il plugin scelto (sezioni e parametri propri di ciascuno), e il flow menu vede solo gli allarmi gia' configurati. scanOptions sceglie uno alla volta tutti i plugin installati, scoperti a runtime, e scansiona il form che ne risulta; 'Salva' non viene mai premuto. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
         "start": "/govwayConsole/",
         "skipIfMissing": "a.voceMenuRC[title='Allarmi']",
@@ -146,6 +147,7 @@
       },
       {
         "name": "allarmi-azioni-riga",
+        "optional": true,
         "$note": "Elenco degli Allarmi: il menu delle azioni di riga (tre puntini) e la vista 'Visualizza runtime' che apre. Il flow menu entra nel dettaglio della prima riga, che puo' non avere azioni (allarme passivo): qui si apre il primo menu di riga presente, quale che sia l'allarme. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
         "start": "/govwayConsole/",
         "skipIfMissing": "a.voceMenuRC[title='Allarmi']",

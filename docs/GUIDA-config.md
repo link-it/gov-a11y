@@ -180,9 +180,16 @@ per il gate in CI).
 
 ```jsonc
 "pages": [
-  { "name": "welcome", "path": "/app/welcome" }
+  { "name": "welcome", "path": "/app/welcome" },
+  { "name": "allarmi", "path": "/app/allarmi", "optional": true }   // può mancare: vedi sotto
 ]
 ```
+
+`"optional": true` (su una pagina o su un flow) dichiara una vista che può mancare in alcune
+installazioni, per esempio un modulo spento. Se manca (flow saltato per `skipIfMissing`, pagina che
+rimanda a una vista già analizzata) non diventa un risultato SARIF, che Jenkins Warnings e Code
+Scanning conterebbero come segnalazione; negli altri report resta nel perimetro non coperto, marcata
+come opzionale. Un flow opzionale interrotto da un passo non riuscito resta un risultato SARIF.
 
 ### `flows[]` — navigazione scriptata
 
@@ -195,6 +202,7 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
     "start": "/app/lista",               // URL di partenza (onora navWait/navDelayMs del target)
     "skipIfMissing": "#tabella",         // se il selettore manca sulla start page, salta il flow
     "skipIfMissingTimeoutMs": 8000,      // attesa max per la sentinella (liste async); default 8000
+    "optional": true,                    // opzionale: se saltato non va in SARIF (vedi pages[])
     "sourceHint": "…/dettaglio.xhtml",   // opzionale: override del sourceHint per questo flow
     "steps": [ … ]                        // sequenza di azioni + scansioni
   }

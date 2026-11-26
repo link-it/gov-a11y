@@ -297,6 +297,8 @@ writeFileSync(CFG, JSON.stringify({
       ] },
       // sentinella assente: flow saltato, e il salto deve risultare nel perimetro del report
       { name: 'senza-dati', start: '/app/home', skipIfMissing: '#nessun-dato', skipIfMissingTimeoutMs: 300, steps: [{ scan: 'mai' }] },
+      // come sopra ma dichiarato opzionale: resta nel perimetro dei report, ma non in SARIF
+      { name: 'senza-dati-opzionale', optional: true, start: '/app/home', skipIfMissing: '#nessun-dato', skipIfMissingTimeoutMs: 300, steps: [{ scan: 'mai' }] },
     ],
   },
   // controlli fuori da axe, accesi dal config del target; secondo motore (IBM Equal Access)
@@ -506,6 +508,16 @@ check(per.some(p => p.nome === 'senza-dati' && p.esito === 'saltato' && /#nessun
 check(per.some(p => p.nome === 'senza-env' && p.esito === 'saltato' && /A11Y_INT_ASSENTE/.test(p.motivo)), 'flow saltato per variabile mancante registrato nel perimetro');
 check(per.some(p => p.nome === 'script-fuori' && p.esito === 'interrotto'), 'flow interrotto da un passo fallito registrato nel perimetro');
 check(per.some(p => p.nome === 'spa-riservata' && p.esito === 'non analizzata'), 'pagina che rimbalza su una vista già analizzata registrata nel perimetro');
+{
+  const opz = per.find(p => p.nome === 'senza-dati-opzionale');
+  const sarifPer = JSON.parse(readFileSync(join(OUT, 'a11y.sarif'), 'utf8')).runs.flatMap(r => r.results || []).filter(r => r.ruleId === 'gova11y-perimeter');
+  const ctrlPer = summary.controlli.find(c => c.id === 'perimetro');
+  check(!!opz && opz.opzionale === true && opz.esito === 'saltato' && per.find(p => p.nome === 'senza-dati').opzionale === false, "flow 'optional' assente: nel perimetro del summary, marcato come opzionale");
+  check(sarifPer.length > 0 && sarifPer.every(r => !r.message.text.includes('senza-dati-opzionale')) && sarifPer.some(r => r.message.text.includes("'senza-dati'")),
+    "SARIF: la vista opzionale assente non e' un risultato, quella non opzionale si'");
+  check(ctrlPer.viste.some(v => v.nome === 'senza-dati-opzionale') && ctrlPer.esito === 'segnalazioni', 'controllo del perimetro: la vista opzionale assente resta contata');
+  check(/name="[^"]*senza-dati-opzionale">\s*<skipped message="saltato \(vista opzionale\)/.test(readFileSync(join(OUT, 'a11y-junit.xml'), 'utf8')), 'JUnit: la vista opzionale assente resta, marcata');
+}
 const html = readFileSync(join(OUT, 'report.html'), 'utf8');
 check(/<\/h3><details class="vista"[^>]*><summary>/.test(html), 'report.html: il dettaglio di ogni vista si puo\' richiudere (details.vista subito sotto il titolo)');
 console.log('— tempi della scansione (dati reali)');
@@ -528,6 +540,7 @@ check(/<details class="pagine dettaglio">\n<summary><h2>Dettaglio violazioni per
   'report.html: dettaglio per pagina in una sezione chiusa, con i numeri nella sintesi');
 check(/Tempi della scansione/.test(html) && /<details class="tempi"><summary>Tempi: <b>/.test(html), 'report.html: tempi complessivi e per vista');
 check(/Perimetro non coperto/.test(html) && html.includes('senza-dati'), 'report.html: sezione del perimetro non coperto');
+check(/<code>senza-dati-opzionale<\/code><\/td><td>saltato<br><small>vista opzionale<\/small>/.test(html), 'report.html: la vista opzionale assente resta nel perimetro, marcata');
 console.log('— screenshot delle occorrenze');
 const conImg = results.flatMap(r => r.violations).flatMap(v => v.nodes).filter(n => n.screenshot);
 check(conImg.length > 0 && conImg.every(n => existsSync(join(OUT, n.screenshot))), `occorrenze con screenshot, file presenti (${conImg.length})`);

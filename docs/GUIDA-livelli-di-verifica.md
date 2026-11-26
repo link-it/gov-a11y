@@ -282,7 +282,8 @@ visibile.
   un passo non riuscito, pagine in errore o che rimandano a una vista già analizzata, login non
   confermato. Prima finivano solo nel log; ora stanno in un riquadro del report e in
   `summary.json` (`perimetro`), perché gli esiti del report non valgono per le viste che non sono
-  state analizzate.
+  state analizzate. Le viste dichiarate `"optional": true` nel config, se mancano, restano qui
+  marcate come opzionali ma non vanno in SARIF.
 
 ---
 

@@ -1,3 +1,10 @@
+2026-11-26  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Opzione 'optional' su pagine e flow: una vista che può mancare in alcune installazioni (es. modulo
+	spento), se assente, non diventa un risultato SARIF e quindi non risulta come segnalazione in
+	Jenkins Warnings; negli altri report resta nel perimetro non coperto, marcata come opzionale.
+
 2026-11-23  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]

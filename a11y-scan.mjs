@@ -2596,9 +2596,14 @@ async function caricaScript(spec) {
    analizzata, login non confermato. Finiva solo nel log della console, che non accompagna il
    report: chi lo leggeva non poteva sapere che una vista prevista dal config non era stata
    analizzata, e gli zeri del report sembravano valere anche per lei. */
+/* 'optional' (pagina o flow): la vista puo' mancare in alcune installazioni (es. modulo spento). Se
+   manca (flow saltato per sentinella assente, pagina che rimbalza su una vista gia' analizzata) non
+   diventa un risultato SARIF, che i lettori (Jenkins Warnings, Code Scanning) contano come
+   segnalazione; negli altri report resta nel perimetro come prima, marcata come opzionale. Un flow
+   opzionale interrotto o in errore resta un risultato SARIF. */
 const PERIMETRO = [];
-function annotaPerimetro(target, tipo, nome, esito, motivo) {
-  PERIMETRO.push({ target: target.name || target.key, tipo, nome, esito, motivo: maskSecrets(String(motivo || '')) });
+function annotaPerimetro(target, tipo, nome, esito, motivo, opzionale = false) {
+  PERIMETRO.push({ target: target.name || target.key, tipo, nome, esito, motivo: maskSecrets(String(motivo || '')), opzionale });
 }
 
 /* Motore delle varianti di un form, comune a 'scanCharts' e 'scanFormVariants'. I campi si
@@ -2742,7 +2747,7 @@ async function runFlows(browser, target, pageResults) {
       // confermata solo dopo un timeout ragionevole.
       if (flow.skipIfMissing && !(await page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).catch(() => null))) {
         console.warn(`    flow '${flow.name}' saltato: sentinella '${flow.skipIfMissing}' assente (dati mancanti?)`);
-        annotaPerimetro(target, 'flow', flow.name, 'saltato', `elemento '${flow.skipIfMissing}' assente in ${flow.start}: dati mancanti o pagina diversa da quella attesa`);
+        annotaPerimetro(target, 'flow', flow.name, 'saltato', `elemento '${flow.skipIfMissing}' assente in ${flow.start}: dati mancanti o pagina diversa da quella attesa`, flow.optional === true);
         continue;
       }
       let aborted = false, scanned = false;
@@ -3271,7 +3276,7 @@ async function scan() {
 
     // Coda BFS: pagine in config (depth 0, sempre scansionate) + crawl opzionale.
     const ctxPath = defaultCtxPath(target);
-    const configPages = (target.pages || []).map(p => ({ path: p.path, name: p.name, depth: 0 }));
+    const configPages = (target.pages || []).map(p => ({ path: p.path, name: p.name, depth: 0, optional: p.optional === true }));
     const queue = [...configPages];
     if (CRAWL > 0 && queue.length === 0) queue.push({ path: loginAltrove(target) ? '/' : target.loginPath, name: 'landing', depth: 0 });
     const visited = new Set();
@@ -3294,7 +3299,7 @@ async function scan() {
         // Dedup: se l'URL effettivo e' gia' stato scansionato (es. piu' pagine rimbalzano su welcome), salta.
         if (scannedFinal.has(normUrl(finalUrl))) {
           console.warn(`  [${item.name}] gia' scansionata come ${finalUrl.replace(BASE, '')}, salto`);
-          if (item.depth === 0) annotaPerimetro(target, 'pagina', item.name, 'non analizzata', `${item.path} rimanda a ${finalUrl.replace(BASE, '')}, già analizzata`);
+          if (item.depth === 0) annotaPerimetro(target, 'pagina', item.name, 'non analizzata', `${item.path} rimanda a ${finalUrl.replace(BASE, '')}, già analizzata`, item.optional);
           continue;
         }
         scannedFinal.add(normUrl(finalUrl));
@@ -3456,7 +3461,7 @@ function writeSarif(results, summary) {
       properties: { page: e.pr.name, target: e.pr.targetName, bloccante: e.bloccante },
     });
   }
-  for (const p of PERIMETRO) {
+  for (const p of PERIMETRO.filter(v => !v.opzionale)) {   // le viste opzionali assenti non vanno in SARIF
     regolaGov('gova11y-perimeter');
     risGov.push({ ruleId: 'gova11y-perimeter', level: 'note', message: { text: `${p.tipo} '${p.nome}' ${p.esito}: ${p.motivo}` }, properties: { target: p.target, nome: p.nome, esito: p.esito } });
   }
@@ -3627,7 +3632,7 @@ function writeJUnit(results, summary) {
     if (c.esito === 'non eseguito') return `    <testcase ${nome}>\n      <skipped message="${xmlEscape(c.risultato)}"/>\n      <system-out>${testo}</system-out>\n    </testcase>`;
     return `    <testcase ${nome}>\n      <system-out>${testo}</system-out>\n    </testcase>`;
   });
-  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <skipped message="${xmlEscape(`${p.esito}: ${p.motivo}`)}"/>\n    </testcase>`);
+  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <skipped message="${xmlEscape(`${p.esito}${p.opzionale ? ' (vista opzionale)' : ''}: ${p.motivo}`)}"/>\n    </testcase>`);
   const caseGate = gate.superato
     ? `    <testcase classname="a11y.gate" name="gate di accessibilita'"/>`
     : `    <testcase classname="a11y.gate" name="gate di accessibilita'">\n      <failure message="gate NON superato">${xmlEscape(gate.motivi.join('\n'))}</failure>\n    </testcase>`;
@@ -4169,9 +4174,9 @@ ${perimetro.length ? `<details class="disclaimer" style="border-left-color:#b00"
 <summary><h2>Perimetro non coperto — ${perimetro.length} ${perimetro.length === 1 ? 'voce' : 'voci'}</h2> <small>(non decide l'esito: clic per espandere)</small></summary>
 <p>Viste previste dal config che <b>non</b> sono state analizzate, o solo in parte. Gli esiti di questo report
 <b>non</b> valgono per loro: vanno ripristinate (dati, selettori, ambiente) e la scansione rifatta, oppure
-dichiarate fuori perimetro.</p>
+dichiarate fuori perimetro. Le viste dichiarate opzionali (<code>"optional": true</code>) non compaiono in SARIF.</p>
 <table><tr><th>Console</th><th>Tipo</th><th>Nome</th><th>Esito</th><th>Motivo</th></tr>
-${perimetro.map(p => `<tr><td>${esc(p.target)}</td><td>${esc(p.tipo)}</td><td><code>${esc(p.nome)}</code></td><td>${esc(p.esito)}</td><td>${esc(p.motivo)}</td></tr>`).join('\n')}</table>
+${perimetro.map(p => `<tr><td>${esc(p.target)}</td><td>${esc(p.tipo)}</td><td><code>${esc(p.nome)}</code></td><td>${esc(p.esito)}${p.opzionale ? '<br><small>vista opzionale</small>' : ''}</td><td>${esc(p.motivo)}</td></tr>`).join('\n')}</table>
 </details>` : ''}
 
 ${summary.emptyViews.length ? `<div class="disclaimer" style="border-left-color:#b00">
@@ -4472,7 +4477,7 @@ function valutaControlli(results) {
   add({ id: 'perimetro', nome: 'Perimetro previsto dal config', criteri: 'copertura della scansione', soglia: 'non decide l\'esito',
     risultato: PERIMETRO.length ? `${PERIMETRO.length} ${PERIMETRO.length === 1 ? 'vista o flow non analizzato' : 'viste o flow non analizzati'}, o solo in parte` : 'tutte le viste previste sono state analizzate',
     esito: PERIMETRO.length ? 'segnalazioni' : 'nessuna segnalazione',
-    viste: PERIMETRO.map(p => ({ indice: -1, target: p.target, nome: p.nome, url: null, sourceHint: null, valore: p.esito, nota: p.motivo })) });
+    viste: PERIMETRO.map(p => ({ indice: -1, target: p.target, nome: p.nome, url: null, sourceHint: null, valore: p.opzionale ? `${p.esito} (vista opzionale)` : p.esito, nota: p.motivo })) });
 
   const motivi = controlli.filter(c => ESITI_KO.has(c.esito)).flatMap(c => c.motivi);
   return { controlli, gate: { superato: motivi.length === 0, motivi } };

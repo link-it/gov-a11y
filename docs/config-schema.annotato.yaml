@@ -120,6 +120,7 @@ console:
     - name: "dettaglio-soggetto"
       start: "/govwayConsole/soggettiList.do"
       skipIfMissing: "table.dataTable"   # se manca sulla start page, il flow è saltato
+      optional: false                    # true: vista che può mancare (modulo spento); se saltato non va in SARIF
       sourceHint: "tools/.../soggetti.jsp"   # opzionale
       steps:
         # tipi di step disponibili:
