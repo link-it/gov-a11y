@@ -936,11 +936,18 @@ async function lhPreparaSessione(page, target, port = LH_PORT) {
     const def = await lhContextDefault(port);
     const cookies = await page.context().cookies();
     if (cookies.length) await def.addCookies(cookies);
-    const ss = await page.evaluate(() => ({ origin: location.origin, items: Object.fromEntries(Object.entries(sessionStorage)) })).catch(() => null);
-    if (ss && Object.keys(ss.items).length) {
-      script = await def.addInitScript(({ origin, items }) => {
+    // sessionStorage e localStorage: alcune app tengono qui il contesto scelto dopo il login
+    // (es. l'organizzazione corrente); senza, Lighthouse misurerebbe la pagina di scelta.
+    const ss = await page.evaluate(() => ({
+      origin: location.origin,
+      items: Object.fromEntries(Object.entries(sessionStorage)),
+      local: Object.fromEntries(Object.entries(localStorage)),
+    })).catch(() => null);
+    if (ss && (Object.keys(ss.items).length || Object.keys(ss.local).length)) {
+      script = await def.addInitScript(({ origin, items, local }) => {
         if (location.origin !== origin) return;
         for (const [k, v] of Object.entries(items)) sessionStorage.setItem(k, v);
+        for (const [k, v] of Object.entries(local)) localStorage.setItem(k, v);
       }, ss);
     }
   } catch (e) {
@@ -1728,8 +1735,10 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
           && cs.visibility !== 'hidden' && !trasparente(e);
         const percorsoEa = window.__gwEaPercorsi?.get(e) || null;
         const m = window.__gwModale;
+        // le sentinelle delle trappole di focus (cdk, focus-trap) non sono comandi: non contano
         const unicoNellaModale = !!m && m.contains(e) && [...m.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')]
-          .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden').length === 1;
+          .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden'
+            && !x.matches('.cdk-focus-trap-anchor, [data-focus-guard], [data-focus-trap-sentinel]')).length === 1;
         if (!window.__gwIdentita) { window.__gwIdentita = new WeakMap(); window.__gwIdentitaN = 0; }
         let uid = window.__gwIdentita.get(e);
         if (!uid) { uid = ++window.__gwIdentitaN; window.__gwIdentita.set(e, uid); }
@@ -1883,9 +1892,21 @@ async function runEqualAccess(page, include) {
       snippet: String(x.snippet || '').slice(0, 300), xpath: (x.path && x.path.dom) || null,
       wcag: criteri[x.ruleId] || [],
     });
+    /* Il motore valuta anche il contenuto inerte (attributo inert, es. lo sfondo di una finestra
+       modale), che non riceve il fuoco ed e' fuori dall'albero di accessibilita': gli esiti su
+       quegli elementi non descrivono la vista e si scartano, come fa axe. */
+    const inerte = xp => {
+      if (!xp) return false;
+      try {
+        const n = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        const el = n && (n.nodeType === 1 ? n : n.parentElement);
+        return !!(el && el.closest('[inert]'));
+      } catch { return false; }
+    };
     const violazioni = [], daVerificare = [];
     for (const x of esito.results) {
       if (x.value[0] !== 'VIOLATION') continue;
+      if (inerte(x.path && x.path.dom)) continue;
       if (x.value[1] === 'FAIL') violazioni.push(voce(x));
       else if (x.value[1] === 'POTENTIAL') daVerificare.push(voce(x));
     }
@@ -2186,6 +2207,24 @@ function contrastiPerComponente(results) {
   }).sort((a, b) => ORDINE_ESITO[a.esito] - ORDINE_ESITO[b.esito] || b.viste.length - a.viste.length || b.occorrenze - a.occorrenze);
 }
 
+/* Il puntatore resta dove l'ha lasciato l'ultimo clic del flow: se e' sopra un comando con un
+   tooltip, la vista verrebbe analizzata col tooltip aperto, uno stato che dipende dalla posizione
+   del mouse e non dalla vista (e un tooltip agganciato al body sta fuori dai landmark). Prima di
+   analizzare, il puntatore va in un punto neutro: un margine della finestra senza comandi sotto.
+   Se nessun punto e' neutro resta dov'e'. Si attende poi che i tooltip si chiudano (breve). */
+async function puntatoreInDisparte(page) {
+  const punto = await page.evaluate(() => {
+    const w = innerWidth, h = innerHeight;
+    const candidati = [[w - 3, h - 3], [3, h - 3], [w - 3, Math.round(h / 2)], [3, Math.round(h / 2)], [w - 3, 3], [3, 3]];
+    const comando = 'a[href], button, input, select, textarea, label, summary, [tabindex], [title], [onclick], [role=button], [role=link], [role=tab], [role=menuitem], [role=option], [role=tooltip], [role=slider], [role=checkbox], [role=radio], [role=switch]';
+    return candidati.find(([x, y]) => { const t = document.elementFromPoint(x, y); return !t || !t.closest(comando); }) || null;
+  }).catch(() => null);
+  if (!punto) return;
+  await page.mouse.move(punto[0], punto[1]).catch(() => {});
+  await page.waitForFunction(() => ![...document.querySelectorAll('[role=tooltip]')].some(t => t.getClientRects().length && getComputedStyle(t).visibility !== 'hidden'),
+    null, { timeout: 1000 }).catch(() => {});
+}
+
 async function recordScan(browser, page, target, name, pageResults, sourceHint, extra = {}) {
   const t0 = performance.now();
   const primaDellaVista = TEMPI.fineUltimaVista == null ? null : t0 - TEMPI.fineUltimaVista;
@@ -2206,6 +2245,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
      pagina vuota che verrebbe scambiata per un difetto. Se e' gia' caricata torna subito. */
   await misura('attesa', async () => {
     await page.waitForLoadState('load').catch(() => {});
+    await puntatoreInDisparte(page);
     await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
     /* Vista senza contenuto accessibile: di solito non e' ancora arrivata (un backend lento, una lista
        che tarda), a volte non arrivera' mai. Si concede un'attesa, una sola, prima di analizzarla; se

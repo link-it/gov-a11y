@@ -146,6 +146,15 @@ const server = createServer((req, res) => {
     '/app3/troncato': `<main><h1>Troncato</h1><a href="#p" id="icona" style="display:block;width:16px;height:16px;overflow:hidden;text-indent:-99999px">Prec</a><div id="annuncio" style="position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">18 Novembre 2026</div><div id="puntini" style="width:80px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">nome molto lungo che non entra nella card</div><div id="riquadro" style="width:300px;height:60px;overflow:hidden"><style>.riquadro-regola-di-stile-molto-lunga-che-non-si-legge{color:inherit}</style><p style="margin:0">Testo che si legge per intero</p><div style="height:80px"></div></div></main>`,
     // finestra modale aperta con un solo comando, sopra una pagina con collegamenti: il percorso parte nella finestra
     '/app3/modale': `<header><a href="#a">Primo</a> <a href="#b">Secondo</a></header><main><h1>Modale</h1><p>Contenuto</p></main><div style="position:fixed;inset:0;background:rgba(0,0,0,.5)"></div><div role="dialog" aria-modal="true" aria-label="Avviso" style="position:fixed;top:0;left:0;width:100%;height:200px;background:#fff"><p>Selezionare un elemento.</p><button id="chiudi" type="button">Chiudi</button></div><script>document.addEventListener('keydown', e => { if (e.key === 'Tab' && document.activeElement.id === 'chiudi') e.preventDefault(); });</script>`,
+    // come la precedente, con le sentinelle della trappola di focus di Angular CDK (div tabindex=0 invisibili
+    // che rimandano il fuoco al comando): non sono comandi, la finestra ha comunque un solo comando
+    '/app3/modale-cdk': `<main><h1>Modale CDK</h1><a href="#a">Sotto</a></main><div role="dialog" aria-modal="true" aria-label="Storico" style="position:fixed;top:0;left:0;width:100%;height:200px;background:#fff"><div tabindex="0" class="cdk-visually-hidden cdk-focus-trap-anchor" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"></div><p>Nessun cambio di stato.</p><button id="chiudi" type="button">Chiudi</button><div tabindex="0" class="cdk-visually-hidden cdk-focus-trap-anchor" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"></div></div><script>for (const a of document.querySelectorAll('.cdk-focus-trap-anchor')) a.addEventListener('focus', () => document.getElementById('chiudi').focus());</script>`,
+    // tooltip agganciato al body che si apre al passaggio del mouse: dopo il clic del flow il puntatore
+    // resta sul comando, ma la vista va analizzata senza (fuori dai landmark axe segnalerebbe 'region')
+    '/app3/tooltip': `<main><h1>Tooltip</h1><p>Testo</p><button id="apri" type="button" style="margin:120px">Apri</button></main><script>const b = document.getElementById('apri'); b.addEventListener('mouseenter', () => { const t = document.createElement('div'); t.id = 'tip'; t.setAttribute('role', 'tooltip'); t.textContent = 'Suggerimento del comando'; document.body.appendChild(t); }); b.addEventListener('mouseleave', () => document.getElementById('tip')?.remove());</script>`,
+    // sfondo inerte dietro una finestra modale: i tab non ricevono il fuoco per costruzione, e IBM
+    // (che valuta anche il contenuto inerte) li segnalerebbe come aria_child_tabbable
+    '/app3/inerte': `<div inert><main><h1>Inerte</h1><div role="tablist"><button type="button" role="tab" aria-selected="true">Uno</button><button type="button" role="tab" aria-selected="false">Due</button></div></main></div><div role="dialog" aria-modal="true" aria-label="Finestra"><button type="button">Chiudi</button></div>`,
     // trappola vera, fuori da una finestra modale: il campo trattiene il Tab
     // indicatore di caricamento: copre tutta la pagina solo mentre una richiesta e' in corso
     '/app3/maschera': `<div id="maschera" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9"></div><main><h1>Maschera</h1><a id="aggiorna" href="#a">Aggiorna</a> <a id="altro" href="#b">Altro</a></main><script>document.getElementById('aggiorna').addEventListener('focus', () => { const m = document.getElementById('maschera'); m.style.display = 'block'; fetch('/app3/lento').then(() => { m.style.display = 'none'; }); });</script>`,
@@ -309,8 +318,9 @@ writeFileSync(CFG, JSON.stringify({
     reflow: true, textSpacing: true, keyboardWalk: true, equalAccess: true, falsePositives: 'fp-app3.json',
     languageParts: { it: ['Accedendo accetti'] },
     pages: [{ name: 'ok', path: '/app3/ok' }, { name: 'larga', path: '/app3/larga' }, { name: 'taglio', path: '/app3/taglio' }, { name: 'troncato', path: '/app3/troncato' },
-      { name: 'focus', path: '/app3/focus' }, { name: 'widget', path: '/app3/widget' }, { name: 'omonimi', path: '/app3/omonimi' }, { name: 'ridisegno', path: '/app3/ridisegno' }, { name: 'modale', path: '/app3/modale' }, { name: 'bloccato', path: '/app3/bloccato' }, { name: 'coperto', path: '/app3/coperto' }, { name: 'maschera', path: '/app3/maschera' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' },
-      { name: 'sfumato', path: '/app3/sfumato' }, { name: 'trappola', path: '/app3/trappola' }],
+      { name: 'focus', path: '/app3/focus' }, { name: 'widget', path: '/app3/widget' }, { name: 'omonimi', path: '/app3/omonimi' }, { name: 'ridisegno', path: '/app3/ridisegno' }, { name: 'modale', path: '/app3/modale' }, { name: 'modale-cdk', path: '/app3/modale-cdk' }, { name: 'bloccato', path: '/app3/bloccato' }, { name: 'coperto', path: '/app3/coperto' }, { name: 'maschera', path: '/app3/maschera' }, { name: 'lingua', path: '/app3/lingua' }, { name: 'sotto', path: '/app3/sotto' },
+      { name: 'sfumato', path: '/app3/sfumato' }, { name: 'trappola', path: '/app3/trappola' }, { name: 'inerte', path: '/app3/inerte' }],
+    flows: [{ name: 'tooltip', start: '/app3/tooltip', steps: [{ click: '#apri' }, { scan: 'tooltip' }] }],
   },
   // stesse viste di app3 con i criteri estesi del percorso col Tab, spenti di default
   app3x: {
@@ -464,6 +474,8 @@ const app3x = n => results.find(r => r.target === 'app3x' && r.name === n);
 const copertiX = (app3x('coperto')?.violations.find(v => v.id === 'gova11y-focus-obscured')?.nodes || []).map(n => n.target[0]);
 check(JSON.stringify(copertiX) === JSON.stringify(['button#coperto']),
   `2.4.11 con keyboardWalkObscuredPaintOnly: la fascia fissa vuota e senza sfondo non copre (${copertiX})`);
+check(!ids('modale-cdk').includes('gova11y-keyboard-trap'), `2.1.2: le sentinelle della trappola di focus (cdk) non contano come comandi della finestra (${ids('modale-cdk')})`);
+{ const v = app3('flow:tooltip/tooltip'); check(v && !(v.violations || []).some(x => x.id === 'region'), `il puntatore lasciato dal clic va in disparte: il tooltip aperto al passaggio del mouse non entra nella vista (${v && (v.violations || []).map(x => x.id)})`); }
 check(ids('bloccato').includes('gova11y-keyboard-trap'), `2.1.2: il campo che trattiene il Tab fuori da una finestra modale e' una trappola (${ids('bloccato')})`);
 check(ids('lingua').includes('gova11y-language-of-parts'), '3.1.2: testo italiano in pagina inglese segnalato');
 check(app3('lingua')?.violations.find(v => v.id === 'gova11y-language-of-parts')?.nodes.length === 1, '3.1.2: il testo con lang="it" non viene segnalato');
@@ -587,6 +599,7 @@ const trappola = app3('trappola');
 const eaTrap = [...(trappola?.equalAccess?.violazioni || []), ...(trappola?.equalAccess?.daVerificare || [])].filter(x => x.regola === 'aria_hidden_nontabbable');
 const fpTrap = trappola?.falsePositives || [];
 check(fpTrap.some(d => d.engine === 'equalAccess' && d.id === 'trappola-ibm' && d.tipo === 'violazione'), `IBM: violazione sugli ancoraggi del focus trap derogata dal registro (${JSON.stringify(fpTrap.map(d => [d.engine, d.id, d.tipo]))})`);
+{ const ea = app3('inerte')?.equalAccess; check(ea && !ea.violazioni.some(x => x.regola === 'aria_child_tabbable'), `IBM: gli esiti sul contenuto inerte (sfondo di una modale) sono scartati (${ea && ea.violazioni.map(x => x.regola)})`); }
 check(eaTrap.length > 0 && eaTrap.every(x => !/cdk-focus-trap-anchor/.test(x.snippet)), `IBM: il collegamento dentro aria-hidden resta segnalato, gli ancoraggi no (${eaTrap.map(x => x.snippet.slice(0, 40)).join(' | ')})`);
 check(!fpTrap.some(d => d.engine === 'equalAccess' && /vero-nascosto/.test(d.html || '')), 'IBM: il selettore della voce non copre il difetto vero');
 check(fpTrap.filter(d => d.engine === 'axe').every(d => d.tipo === 'da verificare' && /cdk-focus-trap-anchor/.test(d.html)), 'axe: derogati solo casi da verificare, sugli ancoraggi');
@@ -613,7 +626,7 @@ const lh = await M.runLighthouse(lhBrowser, `${BASE}/app/home`, {});
 const ctxSess = await lhBrowser.newContext();
 await ctxSess.addCookies([{ name: 'SESS', value: 'ok', domain: '127.0.0.1', path: '/api2', httpOnly: true }, { name: 'XSRF', value: 't', domain: '127.0.0.1', path: '/' }]);
 const pSess = await ctxSess.newPage(); await pSess.goto(`${BASE}/app2/lingua`);
-await pSess.evaluate(() => sessionStorage.setItem('org', '44'));
+await pSess.evaluate(() => { sessionStorage.setItem('org', '44'); localStorage.setItem('ctx', 'org-44'); });
 const sess = await M.lhPreparaSessione(pSess, {}, 9223);
 const cdpLh = await chromium.connectOverCDP('http://127.0.0.1:9223');
 const nelDefault = await cdpLh.contexts()[0].cookies(`${BASE}/api2/chi`);
@@ -621,12 +634,15 @@ const nelDefault = await cdpLh.contexts()[0].cookies(`${BASE}/api2/chi`);
 const leggiOrg = async () => { const t = await cdpLh.contexts()[0].newPage(); await t.goto(`${BASE}/app2/lingua`);
   const v = await t.evaluate(() => sessionStorage.getItem('org')); await t.close(); return v; };
 const orgPrima = await leggiOrg();
+const ctxPrima = await (async () => { const t = await cdpLh.contexts()[0].newPage(); await t.goto(`${BASE}/app2/lingua`);
+  const v = await t.evaluate(() => localStorage.getItem('ctx')); await t.close(); return v; })();
 await sess.rilascia();
 const orgDopo = await leggiOrg();
 await cdpLh.close(); await lhBrowser.close();
 check(nelDefault.some(c => c.name === 'SESS' && c.path === '/api2' && c.httpOnly) && nelDefault.some(c => c.name === 'XSRF'), 'lhPreparaSessione: cookie copiati nel context di Lighthouse con path e httpOnly');
 check(!sess.headers?.Cookie, "lhPreparaSessione: nessun header 'Cookie' fisso (i cookie sono veri)");
 check(orgPrima === '44', 'lhPreparaSessione: la scheda nuova di Lighthouse trova lo sessionStorage della vista');
+check(ctxPrima === 'org-44', 'lhPreparaSessione: la scheda nuova di Lighthouse trova il localStorage della vista');
 check(orgDopo === null, 'rilascia(): lo script tolto non vale per le viste successive');
 check(lh === null || (typeof lh === 'number' && lh >= 0 && lh <= 1), 'runLighthouse → punteggio 0..1 oppure null (fallback se dep assente)');
 

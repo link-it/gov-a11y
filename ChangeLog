@@ -1,3 +1,35 @@
+2026-11-25  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Target GovCat 2.5.1 esteso alle viste non coperte. Pagine: profilo e PDND (escluso il dettaglio
+	classico del servizio, non piu' raggiungibile dall'interfaccia). Flow nuovi: monitoraggio del
+	servizio (comunicazioni, transazioni con filtri, elenco e dettaglio, statistiche in grafico,
+	tabella ed esiti, audit e verifiche opzionali) e wizard del servizio pubblicato (fasi 2-3, menu
+	degli stati, storico), sul servizio indicato da A11Y_GOVCAT_SERVIZIO_MONITORAGGIO; dialog della
+	vetrina (specifica API, rate limiting, nota, PDND, produzione, referenti del dominio); ricerca e
+	vista per gruppi dei servizi, ricerca delle adesioni; fasi e storico del wizard adesione;
+	comunicazioni dell'adesione; adesioni del servizio; gestione dell'organizzazione; referenti del
+	dominio; adesioni e verifiche del client; modifica gruppo; richieste PDND (senza invio). Nei flow
+	esistenti: form di nuovo referente, allegato e gruppo nella fase 1 e "Crea API". Due target
+	disattivati, da abilitare dove il server li prevede: govcat-anonimo (catalogo anonimo) e
+	govcat-moduli (tassonomie, monitoraggio generale, notifiche e servizi generici, attivi da
+	configurazione). Scelta dell'organizzazione nel postLogin attesa fino a 10 s: con il server lento
+	un flow restava sulla pagina di scelta e veniva saltato.
+	Lighthouse: la sessione copiata nella sua scheda comprende anche il localStorage; le app che vi
+	tengono il contesto scelto dopo il login (l'organizzazione corrente di GovCat, per gli utenti con
+	più organizzazioni) venivano misurate sulla pagina di scelta e restavano senza punteggio.
+	Percorso col Tab: le sentinelle delle trappole di focus (cdk-focus-trap-anchor e simili) non
+	contano come comandi della finestra modale; un dialog con il solo pulsante di chiusura risultava
+	una trappola da tastiera. Target GovCat: la legenda dei grafici (ngx-charts) esclusa dai comandi
+	solo mouse, perche' il clic evidenzia soltanto la serie.
+	Prima di ogni vista il puntatore va in un margine della finestra senza comandi: lasciato dove
+	l'aveva portato l'ultimo clic del flow, poteva tenere aperto un tooltip agganciato al body, che
+	axe segnalava fuori dai landmark. IBM Equal Access: scartati gli esiti sugli elementi inerti
+	(attributo inert, es. lo sfondo di una finestra modale), fuori dall'albero di accessibilita' e
+	irraggiungibili col fuoco per costruzione. Target GovCat: nelle transazioni il modulo di ricerca
+	si riapre se il percorso col Tab lo ha chiuso; registro dei falsi positivi con la spaziatura IBM
+	del campo organizzazione del nuovo utente, misurata mentre il campo e' fuori vista.
+
 2026-11-24  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]
