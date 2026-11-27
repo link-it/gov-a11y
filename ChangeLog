@@ -1,6 +1,14 @@
 2026-11-27  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]
+	Gli accorgimenti nati sulla scansione di GovCat diventano opzionali, spenti di default, perché
+	cambiavano esiti e tempi anche degli altri target: senza, il tool si comporta come prima.
+	keyboardWalkIgnoreFocusGuards (sentinelle delle trappole di focus escluse dai comandi della
+	finestra modale), pointerAside (puntatore in un margine neutro prima di ogni vista),
+	equalAccessIgnoreInert (esiti IBM sugli elementi inerti scartati), lighthouseRetry (secondo
+	tentativo sugli errori del momento), lighthouseLocalStorage (anche il localStorage nella scheda di
+	Lighthouse), flowSkipRetry (pagina di partenza ricaricata prima di saltare un flow). Opzioni CLI
+	--[no-]… corrispondenti; accesi nel target GovCat 2.5.1. Test d'integrazione con e senza.
 	Target GovCat 2.5.1: target dei moduli acceso, con le viste opzionali ('optional'). Tassonomie,
 	monitoraggio, notifiche e servizi generici dipendono dalla configurazione: dove il modulo è
 	spento la rotta rimanda a /servizi, analizzata per prima come riferimento, e la vista resta nel

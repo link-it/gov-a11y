@@ -40,6 +40,12 @@ defaults:
   keyboardWalkWidgetFocus: false        # 2.4.7: indicatore anche nel widget che marca il fuoco con una classe
                                         # (ng-select), nel contenitore di un comando trasparente, nell'icona interna
   keyboardWalkObscuredPaintOnly: false  # 2.4.11: copre solo un elemento che in quel punto disegna qualcosa
+  keyboardWalkIgnoreFocusGuards: false  # 2.1.2: le sentinelle delle trappole di focus non contano come comandi
+  pointerAside: false         # puntatore in un margine neutro prima di ogni vista (niente tooltip aperti)
+  equalAccessIgnoreInert: false   # IBM: scarta gli esiti sugli elementi inerti ([inert])
+  lighthouseRetry: false      # Lighthouse: un secondo tentativo sugli errori del momento (NO_FCP, PAGE_HUNG, ...)
+  lighthouseLocalStorage: false   # Lighthouse: copia anche il localStorage della vista
+  flowSkipRetry: false        # flow: ricarica una volta la pagina di partenza prima di saltarlo per sentinella assente
   languageParts: null         # 3.1.2: espressioni per lingua, es. { it: ["Accedendo accetti"], en: ["\\b(the|your)\\b"] }
   # --- gate (GLOBALI: qui, non per-target) ---
   failOn: "serious"           # critical | serious | moderate | minor | none

@@ -159,6 +159,18 @@ if (args.help || args.h) {
                       interna di un comando piccolo (default spento)
   --[no-]keyboard-walk-obscured-paint-only  Fuoco coperto solo da un elemento che in quel punto disegna
                       qualcosa: un contenitore vuoto e senza sfondo non copre (default spento)
+  --[no-]keyboard-walk-ignore-focus-guards  Le sentinelle delle trappole di focus (cdk-focus-trap-anchor e
+                      simili) non contano come comandi della finestra modale (default spento)
+  --[no-]pointer-aside  Prima di ogni vista il puntatore va in un margine senza comandi, così un tooltip
+                      aperto dall'ultimo clic del flow non entra nella vista (default spento)
+  --[no-]equal-access-ignore-inert  IBM Equal Access: scarta gli esiti sugli elementi inerti (attributo
+                      inert, es. lo sfondo di una finestra modale), come fa axe (default spento)
+  --[no-]lighthouse-retry  Lighthouse: un secondo tentativo dopo 5 s se l'audit fallisce per un errore del
+                      momento (NO_FCP, PAGE_HUNG, PROTOCOL_TIMEOUT) (default spento)
+  --[no-]lighthouse-local-storage  Lighthouse: copia nella sua scheda anche il localStorage della vista,
+                      oltre a cookie e sessionStorage (default spento)
+  --[no-]flow-skip-retry  Flow con skipIfMissing: se la sentinella non compare, ricarica una volta la
+                      pagina di partenza prima di saltare il flow (default spento)
                       (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
   --[no-]equal-access-keyboard-confirm  Casi da verificare di IBM sul fuoco (si vede, non e' coperto, diventa
                       visibile) confermati dalla misura del percorso col Tab sullo stesso elemento: escono dai
@@ -183,7 +195,9 @@ if (args.help || args.h) {
   failOnMouseOnly, failOnEmpty, failOnHttpError, failOnSkipped, failOnScreenReader, failOnEqualAccess, minScore, noFlows, insecure, locale, loginBase,
   productVersion, reflow, textSpacing, keyboardWalk, keyboardWalkMax, keyboardWalkWaitMs, languageParts, equalAccess,
   equalAccessKeyboardConfirm, screenshots, screenshotsMax,
-  contrastEstimate, contrastEstimateMax.
+  contrastEstimate, contrastEstimateMax, keyboardWalkWidgetFocus, keyboardWalkObscuredPaintOnly,
+  keyboardWalkIgnoreFocusGuards, pointerAside, equalAccessIgnoreInert, lighthouseRetry,
+  lighthouseLocalStorage, flowSkipRetry.
   Nei valori di "extraHTTPHeaders" ${'${NOME}'} si sostituisce con la variabile d'ambiente NOME (dati
   personali, come l'identità del principal, restano fuori dal config).
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/failOnEqualAccess/minScore è globale.)
@@ -326,6 +340,20 @@ let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, KEYBOARD_MA
    fuoco coperto solo da un elemento che in quel punto disegna qualcosa (keyboardWalkObscuredPaintOnly). */
 const CLI_KEYBOARD_WIDGET = cliOnOff('keyboard-walk-widget-focus'), CLI_KEYBOARD_COPERTO = cliOnOff('keyboard-walk-obscured-paint-only');
 let KEYBOARD_WIDGET = false, KEYBOARD_COPERTO_DISEGNA = false;
+/* Accorgimenti nati sulla scansione di GovCat, predefiniti SPENTI perché cambierebbero gli esiti o i
+   tempi dei target già in scansione; ogni target li accende se gli servono.
+   keyboardWalkIgnoreFocusGuards: le sentinelle delle trappole di focus non contano come comandi
+   della finestra modale (un dialog col solo pulsante di chiusura non è una trappola).
+   pointerAside: il puntatore va in un margine neutro prima di ogni vista (niente tooltip aperti
+   dall'ultimo clic del flow). equalAccessIgnoreInert: esiti IBM sul contenuto inerte scartati.
+   lighthouseRetry: secondo tentativo sugli errori del momento. lighthouseLocalStorage: anche il
+   localStorage nella scheda di Lighthouse. flowSkipRetry: pagina di partenza ricaricata una volta
+   prima di saltare un flow per sentinella assente. */
+const CLI_KEYBOARD_SENTINELLE = cliOnOff('keyboard-walk-ignore-focus-guards'), CLI_PUNTATORE = cliOnOff('pointer-aside'),
+  CLI_EA_INERTI = cliOnOff('equal-access-ignore-inert'), CLI_LH_RITENTA = cliOnOff('lighthouse-retry'),
+  CLI_LH_LOCAL = cliOnOff('lighthouse-local-storage'), CLI_FLOW_RITENTA = cliOnOff('flow-skip-retry');
+let KEYBOARD_SENTINELLE = false, PUNTATORE_IN_DISPARTE = false, EA_SCARTA_INERTI = false,
+  LH_RITENTA = false, LH_LOCAL_STORAGE = false, FLOW_RITENTA = false;
 /* Secondo motore, indipendente da axe: IBM Equal Access, con regole e algoritmi propri. Due motori
    diversi trovano problemi diversi, ed e' quello che chiedono le linee guida che prescrivono la
    verifica "con almeno due strumenti". Predefinito SPENTO (modulo opzionale); i suoi esiti decidono
@@ -384,6 +412,12 @@ function applyTargetParams(target) {
   { const a = parseInt(resolveParam(args['keyboard-walk-wait-ms'], target, 'keyboardWalkWaitMs', 120), 10); KEYBOARD_ATTESA_MS = Number.isFinite(a) && a >= 0 ? a : 120; }
   KEYBOARD_WIDGET = !!resolveParam(CLI_KEYBOARD_WIDGET, target, 'keyboardWalkWidgetFocus', false);
   KEYBOARD_COPERTO_DISEGNA = !!resolveParam(CLI_KEYBOARD_COPERTO, target, 'keyboardWalkObscuredPaintOnly', false);
+  KEYBOARD_SENTINELLE = !!resolveParam(CLI_KEYBOARD_SENTINELLE, target, 'keyboardWalkIgnoreFocusGuards', false);
+  PUNTATORE_IN_DISPARTE = !!resolveParam(CLI_PUNTATORE, target, 'pointerAside', false);
+  EA_SCARTA_INERTI = !!resolveParam(CLI_EA_INERTI, target, 'equalAccessIgnoreInert', false);
+  LH_RITENTA = !!resolveParam(CLI_LH_RITENTA, target, 'lighthouseRetry', false);
+  LH_LOCAL_STORAGE = !!resolveParam(CLI_LH_LOCAL, target, 'lighthouseLocalStorage', false);
+  FLOW_RITENTA = !!resolveParam(CLI_FLOW_RITENTA, target, 'flowSkipRetry', false);
   LANGUAGE_PARTS = resolveParam(undefined, target, 'languageParts', null) || null;
   if (DO_REFLOW) CONTROLLI_USATI.add('reflow');
   if (DO_TEXT_SPACING) CONTROLLI_USATI.add('textSpacing');
@@ -929,20 +963,20 @@ async function lhContextDefault(port) {
   }
   try { return await _lhDefault.get(port); } catch (e) { _lhDefault.delete(port); throw e; }
 }
-async function lhPreparaSessione(page, target, port = LH_PORT) {
+async function lhPreparaSessione(page, target, port = LH_PORT, { localStorage: conLocal = LH_LOCAL_STORAGE } = {}) {
   const headers = { ...(target?.extraHTTPHeaders || {}) };
   let script = null;
   try {
     const def = await lhContextDefault(port);
     const cookies = await page.context().cookies();
     if (cookies.length) await def.addCookies(cookies);
-    // sessionStorage e localStorage: alcune app tengono qui il contesto scelto dopo il login
-    // (es. l'organizzazione corrente); senza, Lighthouse misurerebbe la pagina di scelta.
-    const ss = await page.evaluate(() => ({
+    // sessionStorage e, con lighthouseLocalStorage, localStorage: alcune app tengono qui il contesto
+    // scelto dopo il login (es. l'organizzazione corrente); senza, Lighthouse misurerebbe la pagina di scelta.
+    const ss = await page.evaluate(conLocal => ({
       origin: location.origin,
       items: Object.fromEntries(Object.entries(sessionStorage)),
-      local: Object.fromEntries(Object.entries(localStorage)),
-    })).catch(() => null);
+      local: conLocal ? Object.fromEntries(Object.entries(localStorage)) : {},
+    }), conLocal).catch(() => null);
     if (ss && (Object.keys(ss.items).length || Object.keys(ss.local).length)) {
       script = await def.addInitScript(({ origin, items, local }) => {
         if (location.origin !== origin) return;
@@ -998,7 +1032,7 @@ async function runLighthouse(browser, url, target, extraHeaders, tentativo = 1) 
     const lhr = runner?.lhr;
     const rtErr = lhr?.runtimeError;
     if (rtErr && rtErr.code && rtErr.code !== 'NO_ERROR') {
-      if (tentativo === 1 && LH_ERRORI_TRANSITORI.has(rtErr.code)) {
+      if (tentativo === 1 && LH_RITENTA && LH_ERRORI_TRANSITORI.has(rtErr.code)) {
         console.warn(`  [lighthouse] ${rtErr.code} su ${url}: nuovo tentativo fra ${LH_ATTESA_RITENTATIVO_MS / 1000} s`);
         await new Promise(r => setTimeout(r, LH_ATTESA_RITENTATIVO_MS));
         const score = await runLighthouse(browser, url, target, extraHeaders, 2);
@@ -1589,7 +1623,7 @@ async function analyzeTextSpacing(page) {
    l'abbinamento usa il percorso del motore, non uno ricostruito qui. Le misure degli elementi
    raggiunti tornano in 'misure', per percorso. */
 async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = [], opzioni = {}) {
-  const { fuocoNeiWidget = false, copertoSoloSeDisegna = false } = opzioni;
+  const { fuocoNeiWidget = false, copertoSoloSeDisegna = false, ignoraSentinelle = false } = opzioni;
   await installaDescrivi(page);
   await page.evaluate(({ daMisurare, fuocoNeiWidget }) => {
     window.__gwEaPercorsi = new Map();
@@ -1683,7 +1717,7 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
         await page.waitForTimeout(attesaMs);
       }
       saltaTab = false;
-      const leggiFuoco = () => page.evaluate(copertoSoloSeDisegna => {
+      const leggiFuoco = () => page.evaluate(({ copertoSoloSeDisegna, ignoraSentinelle }) => {
         const e = document.activeElement;
         if (!e || e === document.body || e.id === '__gw_partenza') return null;
         const cs = getComputedStyle(e);
@@ -1735,15 +1769,15 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
           && cs.visibility !== 'hidden' && !trasparente(e);
         const percorsoEa = window.__gwEaPercorsi?.get(e) || null;
         const m = window.__gwModale;
-        // le sentinelle delle trappole di focus (cdk, focus-trap) non sono comandi: non contano
+        // con keyboardWalkIgnoreFocusGuards le sentinelle delle trappole di focus (cdk, focus-trap) non contano
         const unicoNellaModale = !!m && m.contains(e) && [...m.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')]
           .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden'
-            && !x.matches('.cdk-focus-trap-anchor, [data-focus-guard], [data-focus-trap-sentinel]')).length === 1;
+            && !(ignoraSentinelle && x.matches('.cdk-focus-trap-anchor, [data-focus-guard], [data-focus-trap-sentinel]'))).length === 1;
         if (!window.__gwIdentita) { window.__gwIdentita = new WeakMap(); window.__gwIdentitaN = 0; }
         let uid = window.__gwIdentita.get(e);
         if (!uid) { uid = ++window.__gwIdentitaN; window.__gwIdentita.set(e, uid); }
         return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok, copre, unicoNellaModale, mostrato, percorsoEa, uid };
-      }, copertoSoloSeDisegna);
+      }, { copertoSoloSeDisegna, ignoraSentinelle });
       let f = await leggiFuoco();
       /* Una copertura puo' essere solo del momento: l'indicatore di caricamento che molte applicazioni
          stendono sopra la pagina durante una richiesta (polling, aggiornamenti AJAX). Si attende che la
@@ -1875,7 +1909,7 @@ async function runEqualAccess(page, include) {
   if (_eaSorgente === null) _eaSorgente = readFileSync(resolveModule('accessibility-checker-engine'), 'utf8');
   const presente = await page.evaluate(() => typeof window.ace !== 'undefined' && !!window.ace.Checker).catch(() => false);
   if (!presente) await page.evaluate(_eaSorgente);
-  return page.evaluate(async ({ include, ruleset }) => {
+  return page.evaluate(async ({ include, ruleset, scartaInerti }) => {
     const checker = new window.ace.Checker();
     const regole = checker.getGuidelines().find(g => g.id === ruleset);
     const criteri = {};
@@ -1892,7 +1926,7 @@ async function runEqualAccess(page, include) {
       snippet: String(x.snippet || '').slice(0, 300), xpath: (x.path && x.path.dom) || null,
       wcag: criteri[x.ruleId] || [],
     });
-    /* Il motore valuta anche il contenuto inerte (attributo inert, es. lo sfondo di una finestra
+    /* Con equalAccessIgnoreInert. Il motore valuta anche il contenuto inerte (attributo inert, es. lo sfondo di una finestra
        modale), che non riceve il fuoco ed e' fuori dall'albero di accessibilita': gli esiti su
        quegli elementi non descrivono la vista e si scartano, come fa axe. */
     const inerte = xp => {
@@ -1906,12 +1940,12 @@ async function runEqualAccess(page, include) {
     const violazioni = [], daVerificare = [];
     for (const x of esito.results) {
       if (x.value[0] !== 'VIOLATION') continue;
-      if (inerte(x.path && x.path.dom)) continue;
+      if (scartaInerti && inerte(x.path && x.path.dom)) continue;
       if (x.value[1] === 'FAIL') violazioni.push(voce(x));
       else if (x.value[1] === 'POTENTIAL') daVerificare.push(voce(x));
     }
     return { violazioni, daVerificare };
-  }, { include: include || null, ruleset: EA_RULESET });
+  }, { include: include || null, ruleset: EA_RULESET, scartaInerti: EA_SCARTA_INERTI });
 }
 
 /* ------------------------- screenshot delle occorrenze --------------------- */
@@ -2245,7 +2279,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
      pagina vuota che verrebbe scambiata per un difetto. Se e' gia' caricata torna subito. */
   await misura('attesa', async () => {
     await page.waitForLoadState('load').catch(() => {});
-    await puntatoreInDisparte(page);
+    if (PUNTATORE_IN_DISPARTE) await puntatoreInDisparte(page);
     await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
     /* Vista senza contenuto accessibile: di solito non e' ancora arrivata (un backend lento, una lista
        che tarda), a volte non arrivera' mai. Si concede un'attesa, una sola, prima di analizzarla; se
@@ -2363,7 +2397,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   if (DO_KEYBOARD && extra.keyboard !== false) {
     const daMisurare = DO_EA_TAB && equalAccess
       ? [...new Set(equalAccess.daVerificare.filter(x => REGOLE_CONFERMATE_DAL_TAB[x.regola] && x.xpath).map(x => x.xpath))] : [];
-    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare, { fuocoNeiWidget: KEYBOARD_WIDGET, copertoSoloSeDisegna: KEYBOARD_COPERTO_DISEGNA })));
+    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare, { fuocoNeiWidget: KEYBOARD_WIDGET, copertoSoloSeDisegna: KEYBOARD_COPERTO_DISEGNA, ignoraSentinelle: KEYBOARD_SENTINELLE })));
     if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
     if (k && daMisurare.length) {
       const c = confermaDalTab(equalAccess.daVerificare, k.misure);
@@ -2886,9 +2920,9 @@ async function runFlows(browser, target, pageResults) {
       // confermata solo dopo un timeout ragionevole.
       const sentinellaPresente = () => page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).then(() => true, () => false);
       let sentinella = !flow.skipIfMissing || await sentinellaPresente();
-      /* Un server lento puo' non mostrare la sentinella in tempo anche se i dati ci sono: prima di
-         saltare il flow si ricarica una volta la pagina di partenza. Nessuna vista e' ancora registrata. */
-      if (!sentinella) {
+      /* Con flowSkipRetry. Un server lento puo' non mostrare la sentinella in tempo anche se i dati ci
+         sono: prima di saltare il flow si ricarica una volta la pagina di partenza. Nessuna vista e' ancora registrata. */
+      if (!sentinella && FLOW_RITENTA) {
         console.warn(`    flow '${flow.name}': sentinella '${flow.skipIfMissing}' assente, nuovo tentativo ricaricando ${flow.start}`);
         await page.goto(absUrl(flow.start), { waitUntil: target.navWait || 'networkidle' }).catch(() => {});
         if (target.navDelayMs) await page.waitForTimeout(target.navDelayMs);

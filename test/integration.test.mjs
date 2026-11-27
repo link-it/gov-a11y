@@ -324,11 +324,13 @@ writeFileSync(CFG, JSON.stringify({
       { name: 'sfumato', path: '/app3/sfumato' }, { name: 'trappola', path: '/app3/trappola' }, { name: 'inerte', path: '/app3/inerte' }],
     flows: [{ name: 'tooltip', start: '/app3/tooltip', steps: [{ click: '#apri' }, { scan: 'tooltip' }] }],
   },
-  // stesse viste di app3 con i criteri estesi del percorso col Tab, spenti di default
+  // stesse viste di app3 con i criteri e gli accorgimenti opzionali, spenti di default
   app3x: {
     name: 'MockApp3x', enabled: true, loginPath: '/app3/ok',
     keyboardWalk: true, keyboardWalkWidgetFocus: true, keyboardWalkObscuredPaintOnly: true,
-    pages: [{ name: 'widget', path: '/app3/widget' }, { name: 'coperto', path: '/app3/coperto' }],
+    keyboardWalkIgnoreFocusGuards: true, pointerAside: true, equalAccess: true, equalAccessIgnoreInert: true,
+    pages: [{ name: 'widget', path: '/app3/widget' }, { name: 'coperto', path: '/app3/coperto' }, { name: 'modale-cdk', path: '/app3/modale-cdk' }, { name: 'inerte', path: '/app3/inerte' }],
+    flows: [{ name: 'tooltip', start: '/app3/tooltip', steps: [{ click: '#apri' }, { scan: 'tooltip' }] }],
   },
   // login su un'altra origine (loginPath assoluto), pagine su --base autenticate dal cookie condiviso
   app2: {
@@ -476,8 +478,11 @@ const app3x = n => results.find(r => r.target === 'app3x' && r.name === n);
 const copertiX = (app3x('coperto')?.violations.find(v => v.id === 'gova11y-focus-obscured')?.nodes || []).map(n => n.target[0]);
 check(JSON.stringify(copertiX) === JSON.stringify(['button#coperto']),
   `2.4.11 con keyboardWalkObscuredPaintOnly: la fascia fissa vuota e senza sfondo non copre (${copertiX})`);
-check(!ids('modale-cdk').includes('gova11y-keyboard-trap'), `2.1.2: le sentinelle della trappola di focus (cdk) non contano come comandi della finestra (${ids('modale-cdk')})`);
-{ const v = app3('flow:tooltip/tooltip'); check(v && !(v.violations || []).some(x => x.id === 'region'), `il puntatore lasciato dal clic va in disparte: il tooltip aperto al passaggio del mouse non entra nella vista (${v && (v.violations || []).map(x => x.id)})`); }
+check(ids('modale-cdk').includes('gova11y-keyboard-trap'), `2.1.2 senza keyboardWalkIgnoreFocusGuards: le sentinelle della trappola di focus contano come comandi, come prima (${ids('modale-cdk')})`);
+{ const ids3x = n => (app3x(n)?.violations || []).map(v => v.id);
+  check(!ids3x('modale-cdk').includes('gova11y-keyboard-trap'), `2.1.2 con keyboardWalkIgnoreFocusGuards: le sentinelle della trappola di focus (cdk) non contano come comandi della finestra (${ids3x('modale-cdk')})`); }
+{ const v = app3('flow:tooltip/tooltip'); check(v && (v.violations || []).some(x => x.id === 'region'), `senza pointerAside il puntatore resta dove l'ha lasciato il clic, come prima: il tooltip aperto entra nella vista (${v && (v.violations || []).map(x => x.id)})`); }
+{ const v = app3x('flow:tooltip/tooltip'); check(v && !(v.violations || []).some(x => x.id === 'region'), `con pointerAside il puntatore va in disparte: il tooltip aperto al passaggio del mouse non entra nella vista (${v && (v.violations || []).map(x => x.id)})`); }
 check(ids('bloccato').includes('gova11y-keyboard-trap'), `2.1.2: il campo che trattiene il Tab fuori da una finestra modale e' una trappola (${ids('bloccato')})`);
 check(ids('lingua').includes('gova11y-language-of-parts'), '3.1.2: testo italiano in pagina inglese segnalato');
 check(app3('lingua')?.violations.find(v => v.id === 'gova11y-language-of-parts')?.nodes.length === 1, '3.1.2: il testo con lang="it" non viene segnalato');
@@ -612,7 +617,8 @@ const trappola = app3('trappola');
 const eaTrap = [...(trappola?.equalAccess?.violazioni || []), ...(trappola?.equalAccess?.daVerificare || [])].filter(x => x.regola === 'aria_hidden_nontabbable');
 const fpTrap = trappola?.falsePositives || [];
 check(fpTrap.some(d => d.engine === 'equalAccess' && d.id === 'trappola-ibm' && d.tipo === 'violazione'), `IBM: violazione sugli ancoraggi del focus trap derogata dal registro (${JSON.stringify(fpTrap.map(d => [d.engine, d.id, d.tipo]))})`);
-{ const ea = app3('inerte')?.equalAccess; check(ea && !ea.violazioni.some(x => x.regola === 'aria_child_tabbable'), `IBM: gli esiti sul contenuto inerte (sfondo di una modale) sono scartati (${ea && ea.violazioni.map(x => x.regola)})`); }
+{ const ea = app3('inerte')?.equalAccess; check(ea && ea.violazioni.some(x => x.regola === 'aria_child_tabbable'), `IBM senza equalAccessIgnoreInert: gli esiti sul contenuto inerte restano, come prima (${ea && ea.violazioni.map(x => x.regola)})`); }
+{ const ea = results.find(r => r.target === 'app3x' && r.name === 'inerte')?.equalAccess; check(ea && !ea.violazioni.some(x => x.regola === 'aria_child_tabbable'), `IBM con equalAccessIgnoreInert: gli esiti sul contenuto inerte (sfondo di una modale) sono scartati (${ea && ea.violazioni.map(x => x.regola)})`); }
 check(eaTrap.length > 0 && eaTrap.every(x => !/cdk-focus-trap-anchor/.test(x.snippet)), `IBM: il collegamento dentro aria-hidden resta segnalato, gli ancoraggi no (${eaTrap.map(x => x.snippet.slice(0, 40)).join(' | ')})`);
 check(!fpTrap.some(d => d.engine === 'equalAccess' && /vero-nascosto/.test(d.html || '')), 'IBM: il selettore della voce non copre il difetto vero');
 check(fpTrap.filter(d => d.engine === 'axe').every(d => d.tipo === 'da verificare' && /cdk-focus-trap-anchor/.test(d.html)), 'axe: derogati solo casi da verificare, sugli ancoraggi');
@@ -640,22 +646,28 @@ const ctxSess = await lhBrowser.newContext();
 await ctxSess.addCookies([{ name: 'SESS', value: 'ok', domain: '127.0.0.1', path: '/api2', httpOnly: true }, { name: 'XSRF', value: 't', domain: '127.0.0.1', path: '/' }]);
 const pSess = await ctxSess.newPage(); await pSess.goto(`${BASE}/app2/lingua`);
 await pSess.evaluate(() => { sessionStorage.setItem('org', '44'); localStorage.setItem('ctx', 'org-44'); });
-const sess = await M.lhPreparaSessione(pSess, {}, 9223);
 const cdpLh = await chromium.connectOverCDP('http://127.0.0.1:9223');
+const leggiCtx = async () => { const t = await cdpLh.contexts()[0].newPage(); await t.goto(`${BASE}/app2/lingua`);
+  const v = await t.evaluate(() => localStorage.getItem('ctx')); await t.close(); return v; };
+// predefinito (lighthouseLocalStorage spento): il localStorage non si copia, come prima
+const sessSenza = await M.lhPreparaSessione(pSess, {}, 9223);
+const ctxSenza = await leggiCtx();
+await sessSenza.rilascia();
+const sess = await M.lhPreparaSessione(pSess, {}, 9223, { localStorage: true });
 const nelDefault = await cdpLh.contexts()[0].cookies(`${BASE}/api2/chi`);
 // una scheda nuova del context di default (come quella di Lighthouse) trova lo sessionStorage della vista
 const leggiOrg = async () => { const t = await cdpLh.contexts()[0].newPage(); await t.goto(`${BASE}/app2/lingua`);
   const v = await t.evaluate(() => sessionStorage.getItem('org')); await t.close(); return v; };
 const orgPrima = await leggiOrg();
-const ctxPrima = await (async () => { const t = await cdpLh.contexts()[0].newPage(); await t.goto(`${BASE}/app2/lingua`);
-  const v = await t.evaluate(() => localStorage.getItem('ctx')); await t.close(); return v; })();
+const ctxPrima = await leggiCtx();
 await sess.rilascia();
 const orgDopo = await leggiOrg();
 await cdpLh.close(); await lhBrowser.close();
 check(nelDefault.some(c => c.name === 'SESS' && c.path === '/api2' && c.httpOnly) && nelDefault.some(c => c.name === 'XSRF'), 'lhPreparaSessione: cookie copiati nel context di Lighthouse con path e httpOnly');
 check(!sess.headers?.Cookie, "lhPreparaSessione: nessun header 'Cookie' fisso (i cookie sono veri)");
 check(orgPrima === '44', 'lhPreparaSessione: la scheda nuova di Lighthouse trova lo sessionStorage della vista');
-check(ctxPrima === 'org-44', 'lhPreparaSessione: la scheda nuova di Lighthouse trova il localStorage della vista');
+check(ctxSenza === null, 'lhPreparaSessione senza lighthouseLocalStorage: il localStorage non si copia, come prima');
+check(ctxPrima === 'org-44', 'lhPreparaSessione con lighthouseLocalStorage: la scheda nuova di Lighthouse trova il localStorage della vista');
 check(orgDopo === null, 'rilascia(): lo script tolto non vale per le viste successive');
 check(lh === null || (typeof lh === 'number' && lh >= 0 && lh <= 1), 'runLighthouse → punteggio 0..1 oppure null (fallback se dep assente)');
 
