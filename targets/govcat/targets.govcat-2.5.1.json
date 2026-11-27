@@ -679,8 +679,7 @@
   },
   "govcat-moduli": {
     "name": "govcat-moduli",
-    "enabled": false,
-    "$enabledNote": "Moduli che dipendono dalla configurazione (tassonomie, monitoraggio generale e servizi generici dal server, questi ultimi con servizio.generico.abilitato; notifiche dall'app-config: AppConfig.Layout.showNotificationsBar o showNotificationsMenu, con Layout.dashboard.enabled=false, perché la dashboard le nasconde): da abilitare dove sono attivi, altrimenti le rotte rimandano a /servizi o non hanno link, e con failOnSkipped il gate fallisce.",
+    "$optionalNote": "Moduli che dipendono dalla configurazione (tassonomie, monitoraggio generale e servizi generici dal server, questi ultimi con servizio.generico.abilitato; notifiche dall'app-config: AppConfig.Layout.showNotificationsBar o showNotificationsMenu, con Layout.dashboard.enabled=false, perché la dashboard le nasconde). Le loro viste sono 'optional': dove il modulo è spento la rotta rimanda a /servizi, analizzata per prima proprio per riconoscere il rimando, e la vista resta nel perimetro come opzionale senza far fallire il gate (failOnSkipped).",
     "loginPath": "/",
     "contextPath": "/",
     "sourceHint": "frontend/angular/projects/apicat-app/src",
@@ -697,14 +696,16 @@
       ]
     },
     "pages": [
-      { "name": "tassonomie", "path": "/tassonomie" },
-      { "name": "monitoraggio", "path": "/monitoraggio" },
-      { "name": "notifiche", "path": "/notifications" },
-      { "name": "servizi-generici", "path": "/servizi-generici" }
+      { "name": "moduli-servizi", "path": "/servizi", "$comment": "riferimento: le rotte dei moduli spenti rimandano qui e risultano non analizzate invece di essere scambiate per la lista dei servizi" },
+      { "name": "tassonomie", "path": "/tassonomie", "optional": true },
+      { "name": "monitoraggio", "path": "/monitoraggio", "optional": true },
+      { "name": "notifiche", "path": "/notifications", "optional": true },
+      { "name": "servizi-generici", "path": "/servizi-generici", "optional": true }
     ],
     "flows": [
       {
         "name": "tassonomia-dettaglio-categorie",
+        "optional": true,
         "start": "/tassonomie",
         "skipIfMissing": ".item-row-link",
         "skipIfMissingTimeoutMs": 60000,

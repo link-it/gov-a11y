@@ -1,3 +1,11 @@
+2026-11-27  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Target GovCat 2.5.1: target dei moduli acceso, con le viste opzionali ('optional'). Tassonomie,
+	monitoraggio, notifiche e servizi generici dipendono dalla configurazione: dove il modulo è
+	spento la rotta rimanda a /servizi, analizzata per prima come riferimento, e la vista resta nel
+	perimetro come opzionale senza far fallire il gate con failOnSkipped.
+
 2026-11-26  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]
