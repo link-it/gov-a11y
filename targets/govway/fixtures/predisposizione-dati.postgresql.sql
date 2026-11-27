@@ -8,6 +8,14 @@
 --   - modale-stato-api: il permesso di operatività sulle API ('O' in users.permessi), senza il
 --     quale il comando di cambio stato delle API non è disegnato.
 --
+-- e del target 'targets.govway_console.json':
+--   - elimina-archivio e le voci di menu Elimina, Cache, Cache PDND, Coda messaggi: l'interfaccia
+--     avanzata per l'utente 'amministratore' (users.tipo_interfaccia), che nell'installazione è
+--     'STANDARD'. In standard quelle voci non sono nel menu: il flow elimina-archivio si interrompe
+--     e le viste del menu, scoperte a runtime, mancano senza comparire nel perimetro. La voce
+--     'Modalità avanzata' del menu utente, cliccata dal flow menu, cambia l'interfaccia solo per
+--     la sessione: non basta per i flow successivi.
+--
 -- Lo script è idempotente (si può eseguire a ogni build) e non fa nulla se l'utente non esiste.
 -- I permessi sono letti al login: va eseguito prima di avviare la scansione.
 --
@@ -16,6 +24,10 @@
 -- Permesso di operatività sulle API
 UPDATE users SET permessi = permessi || 'O'
  WHERE login = 'operatore' AND permessi NOT LIKE '%O%';
+
+-- Interfaccia avanzata per l'utente della scansione della console
+UPDATE users SET tipo_interfaccia = 'AVANZATA'
+ WHERE login = 'amministratore' AND tipo_interfaccia <> 'AVANZATA';
 
 -- Ricerca utente di prova (la stessa ricerca statistica di 'ricerche-esempio.json', profilo SPCoop)
 INSERT INTO users_ricerche (id_utente, label, descrizione, modulo, modalita_ricerca, visibilita, ricerca, protocollo)
