@@ -5,7 +5,21 @@
   "defaults": {
     "tags": "wcag2a,wcag2aa,wcag21a,wcag21aa,wcag22aa,best-practice",
     "screenReader": true,
-    "lighthouse": true
+    "lighthouse": true,
+    "equalAccess": true,
+    "mouseOnly": true,
+    "failOnMouseOnly": true,
+    "failOnNameless": true,
+    "minScore": 0.98,
+    "failOn": "minor",
+    "failOnScreenReader": true,
+    "reflow": true,
+    "textSpacing": true,
+    "keyboardWalk": true,
+    "keyboardWalkMax": 200,
+    "screenshotsMax": 20,
+    "failOnEqualAccess": true,
+    "failOnHttpError": true
   },
 
   "govpayConsoleLegacy": {

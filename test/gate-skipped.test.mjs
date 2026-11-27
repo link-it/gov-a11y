@@ -60,5 +60,16 @@ const junit = readFileSync(join(OUT, 'a11y-junit.xml'), 'utf8');
 check(/<testsuite name="perimetro" tests="1" failures="1" skipped="0">/.test(junit), 'JUnit: suite del perimetro con la voce fallita');
 check(/classname="a11y.perimetro" name="App flow dettaglio">\s*<failure message="saltato: /.test(junit), 'JUnit: il flow saltato fallisce');
 
+console.log('— vista opzionale assente con failOnSkipped');
+M.PERIMETRO.length = 0;
+M.PERIMETRO.push({ target: 'App', tipo: 'flow', nome: 'modulo', esito: 'saltato', motivo: "elemento '.riga' assente in /modulo", opzionale: true });
+esito = M.valutaControlli(VISTE);
+check(esito.gate.superato && esito.controlli.find(x => x.id === 'perimetro').esito === 'superato', 'la vista opzionale assente non blocca il gate');
+M.writeJUnit(VISTE, M.writeSummaryAndHtml(VISTE, M.writeAriaTrees(VISTE)));
+check(/<testsuite name="perimetro" tests="1" failures="0" skipped="1">/.test(readFileSync(join(OUT, 'a11y-junit.xml'), 'utf8')), 'JUnit: la vista opzionale assente resta saltata, non fallita');
+M.PERIMETRO.push({ target: 'App', tipo: 'flow', nome: 'dettaglio', esito: 'saltato', motivo: "elemento '.riga' assente in /elenco" });
+esito = M.valutaControlli(VISTE);
+check(!esito.gate.superato && esito.gate.motivi.some(m => /1 voce: flow dettaglio saltato$/.test(m)), `con una voce non opzionale il gate fallisce solo per lei (${esito.gate.motivi})`);
+
 console.log(failed ? `\n❌ gate-skipped: ${failed} check falliti` : '\n✅ gate-skipped: tutti i check superati');
 process.exit(failed ? 1 : 0);

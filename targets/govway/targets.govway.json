@@ -91,10 +91,12 @@
       },
       {
         "name": "allarmi-stato",
+        "optional": true,
         "path": "/govwayMonitor/allarmi/pages/list/statoAllarmi.jsf"
       },
       {
         "name": "allarmi-history",
+        "optional": true,
         "path": "/govwayMonitor/allarmi/pages/list/allarmeHistory.jsf"
       },
       {
@@ -722,6 +724,7 @@
       },
       {
         "name": "allarmi-lista",
+        "optional": true,
         "$note": "Stato Allarmi: aperta dall'URL la pagina mostra solo il riepilogo degli stati e il filtro, l'elenco compare dopo 'Cerca'. Si entra dalla voce di menu, come un utente. La voce esiste solo nelle installazioni con gli allarmi: senza, questo flow e i successivi sugli allarmi vengono saltati.",
         "start": "/govwayMonitor/commons/pages/welcome.jsf",
         "skipIfMissing": "table[id$='statoAllarmiLnk']",
@@ -754,6 +757,7 @@
       },
       {
         "name": "allarme-dettaglio",
+        "optional": true,
         "$note": "Dettaglio di un allarme ATTIVO (icona 'alarm' nella colonna Modalita'): solo questi hanno il tab dei parametri, quindi la riga si sceglie per modalita' e non per posizione. I tab sono scoperti a runtime (scanTabs). L'Archivio Stati sta nel flow 'allarme-archivio-stati', separato perche' escluso da Lighthouse.",
         "start": "/govwayMonitor/commons/pages/welcome.jsf",
         "skipIfMissing": "table[id$='statoAllarmiLnk']",
@@ -786,6 +790,7 @@
       },
       {
         "name": "allarme-archivio-stati",
+        "optional": true,
         "lighthouse": false,
         "$lighthouseNote": "Lighthouse ricarica la vista per URL in una scheda separata con la stessa sessione. L'Archivio Stati e' una vista JSF raggiunta con un'azione (allarme.jsf): ricaricata per URL risponde 200 ma senza percorso ne' titolo, cioe' non e' la stessa vista, e l'audit resta senza punteggio (verificato il 2026-11-18).",
         "$note": "Archivio Stati di un allarme ATTIVO, aperto dal tab Stato del suo dettaglio, e dettaglio della prima voce dell'archivio se presente (con l'archivio vuoto il passo opzionale non trova il link e la seconda vista coincide con la prima).",
@@ -840,6 +845,7 @@
       },
       {
         "name": "allarme-dettaglio-passivo",
+        "optional": true,
         "$note": "Dettaglio di un allarme PASSIVO (icona 'alarm_off'): senza il tab dei parametri e con un tab Stato diverso. Se non ci sono allarmi passivi il click fallisce e il flow si interrompe con un avviso.",
         "start": "/govwayMonitor/commons/pages/welcome.jsf",
         "skipIfMissing": "table[id$='statoAllarmiLnk']",
@@ -872,6 +878,7 @@
       },
       {
         "name": "allarme-modifica-stato",
+        "optional": true,
         "$note": "Matita 'Modifica Stato' dell'elenco: form con il nuovo stato, il dettaglio e l'acknowledge. 'Salva' non viene premuto. La matita compare solo per gli allarmi il cui stato e' modificabile manualmente: se manca, il flow si interrompe con un avviso.",
         "start": "/govwayMonitor/commons/pages/welcome.jsf",
         "skipIfMissing": "table[id$='statoAllarmiLnk']",
@@ -902,6 +909,7 @@
       },
       {
         "name": "allarme-criteri-acknowledge",
+        "optional": true,
         "$note": "Matita 'Modifica Criteri Acknowledge' dell'elenco: form dei criteri, con la finestra informativa del campo. 'Salva' non viene premuto. La matita compare solo per gli allarmi con criteri modificabili: se manca, il flow si interrompe con un avviso.",
         "start": "/govwayMonitor/commons/pages/welcome.jsf",
         "skipIfMissing": "table[id$='statoAllarmiLnk']",
@@ -1182,6 +1190,7 @@
       },
       {
         "name": "allarmi-nuovo",
+        "optional": true,
         "$note": "Allarmi > Aggiungi: il form cambia interamente secondo il plugin scelto (sezioni e parametri propri di ciascuno), e il flow menu vede solo gli allarmi gia' configurati. scanOptions sceglie uno alla volta tutti i plugin installati, scoperti a runtime, e scansiona il form che ne risulta; 'Salva' non viene mai premuto. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
         "start": "/govwayConsole/",
         "skipIfMissing": "a.voceMenuRC[title='Allarmi']",
@@ -1215,6 +1224,7 @@
       },
       {
         "name": "allarmi-azioni-riga",
+        "optional": true,
         "$note": "Elenco degli Allarmi: il menu delle azioni di riga (tre puntini) e la vista 'Visualizza runtime' che apre. Il flow menu entra nel dettaglio della prima riga, che puo' non avere azioni (allarme passivo): qui si apre il primo menu di riga presente, quale che sia l'allarme. La voce di menu esiste solo nelle installazioni con gli allarmi: senza, il flow viene saltato.",
         "start": "/govwayConsole/",
         "skipIfMissing": "a.voceMenuRC[title='Allarmi']",

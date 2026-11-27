@@ -54,7 +54,7 @@ Tutte hanno un default built-in, quindi sono opzionali.
 | `failOnEqualAccess` | booleano | `false` | Gate del secondo motore: fallisce se IBM Equal Access trova violazioni — **globale**. I casi da verificare non contano; una vista su cui il motore non riesce a girare (dopo un secondo tentativo) è un esito non verificabile. Vale sulle viste dei target con `equalAccess`. Le violazioni vanno nel SARIF a livello `error` e in Sonar. Spento di default: su un'applicazione nuova il motore va prima conosciuto, poi si accende perché i difetti corretti non tornino |
 | `failOnEmpty` | booleano | `true` | Gate: fallisce se una vista è stata analizzata **vuota**, cioè con l'albero di accessibilità senza alcun nodo — **globale**. Una vista così non si è renderizzata (backend irraggiungibile, sessione persa, errore dell'app, tempi): su una pagina bianca nessuna regola può fallire, quindi il suo esito pulito è falso. Lo strumento attende una volta (5 s) prima di analizzarla; se resta vuota la segnala nel log, nel report (riga e riquadro dedicato), in `summary.json` (`vuota`, `emptyViews`) e come test fallito nel JUnit. Si spegne con `false` |
 | `failOnHttpError` | booleano | `false` | Gate: fallisce se una vista è arrivata con stato HTTP **≥ 400** — **globale**. Lo stato è quello del documento che ha caricato la vista (Navigation Timing); con un errore è stata esaminata la pagina d'errore dell'applicazione, di solito accessibile, e la vista voluta non è mai stata vista. Lo stato di ogni vista è sempre rilevato e riportato nel log, nel report (riga e riquadro dedicato), in `summary.json` (`httpStatus`, `httpErrorViews`), nel SARIF; con l'opzione accesa la vista è anche un test fallito nel JUnit. Spento di default, perché un'applicazione può rispondere di proposito con un 4xx a una pagina che si vuole esaminare (es. "non trovato") |
-| `failOnSkipped` | booleano | `false` | Gate: fallisce se il perimetro previsto dal config non è coperto per intero (flow saltato, interrotto o in errore, pagina non analizzata, login non confermato) — **globale**. Spento, le voci restano segnalate nel riquadro "Perimetro non coperto" del report e come `skipped` nel JUnit; acceso, falliscono. Utile in CI, con dati di prova fissi |
+| `failOnSkipped` | booleano | `false` | Gate: fallisce se il perimetro previsto dal config non è coperto per intero (flow saltato, interrotto o in errore, pagina non analizzata, login non confermato) — **globale**. Spento, le voci restano segnalate nel riquadro "Perimetro non coperto" del report e come `skipped` nel JUnit; acceso, falliscono. Una vista dichiarata `optional` e assente non blocca: resta segnalata come prima. Utile in CI, con dati di prova fissi |
 | `failOnMouseOnly` | booleano | `true` | Gate: fallisce se esistono comandi utilizzabili col solo mouse — **globale**. È l'unico gate attivo di suo: un comando che risponde al clic ma non alla tastiera è un difetto oggettivo. Si spegne con `false` |
 | `minScore` | 0..1 | *(nessuno)* | Gate Lighthouse a soglia — **globale** |
 | `noFlows` | booleano | `false` | Non eseguire i `flows` |
@@ -183,9 +183,16 @@ per il gate in CI).
 
 ```jsonc
 "pages": [
-  { "name": "welcome", "path": "/app/welcome" }
+  { "name": "welcome", "path": "/app/welcome" },
+  { "name": "allarmi", "path": "/app/allarmi", "optional": true }   // può mancare: vedi sotto
 ]
 ```
+
+`"optional": true` (su una pagina o su un flow) dichiara una vista che può mancare in alcune
+installazioni, per esempio un modulo spento. Se manca (flow saltato per `skipIfMissing`, pagina che
+rimanda a una vista già analizzata) non diventa un risultato SARIF, che Jenkins Warnings e Code
+Scanning conterebbero come segnalazione; negli altri report resta nel perimetro non coperto, marcata
+come opzionale. Un flow opzionale interrotto da un passo non riuscito resta un risultato SARIF.
 
 ### `flows[]` — navigazione scriptata
 
@@ -198,6 +205,7 @@ Raggiungono viste **non navigabili via URL** (dietro postback/AJAX): dettagli, r
     "start": "/app/lista",               // URL di partenza (onora navWait/navDelayMs del target)
     "skipIfMissing": "#tabella",         // se il selettore manca sulla start page, salta il flow
     "skipIfMissingTimeoutMs": 8000,      // attesa max per la sentinella (liste async); default 8000
+    "optional": true,                    // opzionale: se saltato non va in SARIF (vedi pages[])
     "sourceHint": "…/dettaglio.xhtml",   // opzionale: override del sourceHint per questo flow
     "steps": [ … ]                        // sequenza di azioni + scansioni
   }

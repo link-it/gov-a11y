@@ -1,3 +1,10 @@
+2026-11-26  Andrea Poli <andrea.poli@link.it>
+
+	* [gov-a11y]
+	Opzione 'optional' su pagine e flow: una vista che può mancare in alcune installazioni (es. modulo
+	spento), se assente, non diventa un risultato SARIF e quindi non risulta come segnalazione in
+	Jenkins Warnings; negli altri report resta nel perimetro non coperto, marcata come opzionale.
+
 2026-11-25  Alfonso Tatarelli <a.tatarelli@gmail.com>
 
 	* [gov-a11y]
@@ -44,7 +51,8 @@
 	Gate del perimetro: opzione failOnSkipped (--fail-on-skipped), spenta di default. Accesa, una vista
 	o un flow del config non analizzato (flow saltato, interrotto o in errore, pagina non analizzata,
 	login non confermato) fa fallire il gate, con la voce in errore in SARIF e fallita nel JUnit: in CI
-	un report incompleto non passa. Accesa nel target GovCat 2.5.1. Suite di test gate-skipped.
+	un report incompleto non passa. Una vista dichiarata 'optional' e assente non blocca il gate e
+	resta saltata nel JUnit. Accesa nel target GovCat 2.5.1. Suite di test gate-skipped.
 	Target GovCat 2.5.1: immagini delle schede escluse dai comandi solo col mouse (mouseOnlyIgnore,
 	stessa destinazione del titolo); attesa dell'h1 nei passi del flow adesione e sentinelle dei flow
 	portate a 60 s per il server di sviluppo lento.
