@@ -20,6 +20,17 @@
       "verification": "Come per ancoraggi-focus-trap-dialog: codice di ngx-bootstrap 21.0.1 (focus-trap), gestori del focus che spostano subito il focus sul primo o sull'ultimo elemento attivabile del dialog. Le occorrenze IBM sono sugli stessi elementi (XPath /html/body/modal-container/div[1] e div[3]).",
       "author": "alfonso.tatarelli@link.it",
       "expires": "2027-11-14"
+    },
+    {
+      "id": "spaziatura-campo-fuori-vista-ibm",
+      "engine": "equalAccess",
+      "rule": "target_spacing_sufficient",
+      "cause": "violation_spacing",
+      "selector": "app-utente-details ng-select input#id_organizzazione",
+      "reason": "Nel modulo nuovo utente in stato di errore (passo toccaCampi) il campo organizzazione è scorso fuori dal contenitore a scorrimento della pagina (section.container-scroller), che lo taglia: non è visibile né cliccabile. IBM misura comunque la spaziatura sulla sua posizione teorica, che cade sotto l'intestazione fissa, accanto al selettore dell'organizzazione e al menu utente: i due comandi non sono mai vicini a schermo.",
+      "verification": "Riprodotto il 26/11/2026 nel Docker locale (lorenzo.gestore, /utenti/new, campi toccati come nel passo toccaCampi, finestra 1280x720): il campo ha top -17 px nella finestra, mentre il contenitore a scorrimento comincia sotto l'intestazione fissa di 48 px; gli unici pulsanti vicini secondo IBM sono #organization-switcher e il menu utente dell'intestazione.",
+      "author": "alfonso.tatarelli@link.it",
+      "expires": "2027-11-26"
     }
   ]
 }

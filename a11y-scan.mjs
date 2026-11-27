@@ -114,6 +114,10 @@ if (args.help || args.h) {
                       HTTP >= 400 (pagina d'errore dell'app, URL non piu' valido, sessione persa). Lo
                       stato di ogni vista e' comunque riportato nei report. Spento di default; si
                       accende con "failOnHttpError": true nel config
+  --fail-on-skipped   Gate del perimetro: fallisci se una vista o un flow previsto dal config non e'
+                      stato analizzato, o solo in parte (flow saltato, interrotto o in errore, pagina
+                      non analizzata, login non confermato). Per la CI: un report incompleto non
+                      passa. Spento di default; si accende con "failOnSkipped": true nel config
   --fail-on-screen-reader  Gate del virtual screen reader: fallisci se esistono annunci col solo ruolo
                       (elementi letti senza nome). Richiede --screen-reader
   --fail-on-mouse-only  Gate tastiera, ATTIVO per impostazione predefinita: fallisci se esistono comandi
@@ -150,6 +154,23 @@ if (args.help || args.h) {
                       focus non coperto, nessuna trappola) e registra l'ordine di focus
   --keyboard-walk-max <n>  Fermate massime del percorso col Tab per vista (default 45)
   --keyboard-walk-wait-ms <ms>  Attesa dopo ogni Tab prima di leggere il fuoco e il suo aspetto (default 120)
+  --[no-]keyboard-walk-widget-focus  Fuoco visibile anche con l'indicatore nel widget che marca il fuoco con
+                      una classe (ng-select), nel contenitore di un comando trasparente o nell'icona
+                      interna di un comando piccolo (default spento)
+  --[no-]keyboard-walk-obscured-paint-only  Fuoco coperto solo da un elemento che in quel punto disegna
+                      qualcosa: un contenitore vuoto e senza sfondo non copre (default spento)
+  --[no-]keyboard-walk-ignore-focus-guards  Le sentinelle delle trappole di focus (cdk-focus-trap-anchor e
+                      simili) non contano come comandi della finestra modale (default spento)
+  --[no-]pointer-aside  Prima di ogni vista il puntatore va in un margine senza comandi, così un tooltip
+                      aperto dall'ultimo clic del flow non entra nella vista (default spento)
+  --[no-]equal-access-ignore-inert  IBM Equal Access: scarta gli esiti sugli elementi inerti (attributo
+                      inert, es. lo sfondo di una finestra modale), come fa axe (default spento)
+  --[no-]lighthouse-retry  Lighthouse: un secondo tentativo dopo 5 s se l'audit fallisce per un errore del
+                      momento (NO_FCP, PAGE_HUNG, PROTOCOL_TIMEOUT) (default spento)
+  --[no-]lighthouse-local-storage  Lighthouse: copia nella sua scheda anche il localStorage della vista,
+                      oltre a cookie e sessionStorage (default spento)
+  --[no-]flow-skip-retry  Flow con skipIfMissing: se la sentinella non compare, ricarica una volta la
+                      pagina di partenza prima di saltare il flow (default spento)
                       (--no-reflow / --no-text-spacing / --no-keyboard-walk li spengono se attivi in config)
   --[no-]equal-access-keyboard-confirm  Casi da verificare di IBM sul fuoco (si vede, non e' coperto, diventa
                       visibile) confermati dalla misura del percorso col Tab sullo stesso elemento: escono dai
@@ -171,10 +192,12 @@ if (args.help || args.h) {
   Parametri in CONFIG: oltre che da CLI, i parametri si possono dichiarare nel file config, nel blocco
   "defaults" (globali) e/o dentro ogni target (override per-target). Chiavi: tags, crawl, crawlDepth,
   lighthouse, screenReader, mouseOnly, mouseOnlyIgnore, mouseOnlyMax, failOn, failOnNameless,
-  failOnMouseOnly, failOnEmpty, failOnHttpError, failOnScreenReader, failOnEqualAccess, minScore, noFlows, insecure, locale, loginBase,
+  failOnMouseOnly, failOnEmpty, failOnHttpError, failOnSkipped, failOnScreenReader, failOnEqualAccess, minScore, noFlows, insecure, locale, loginBase,
   productVersion, reflow, textSpacing, keyboardWalk, keyboardWalkMax, keyboardWalkWaitMs, languageParts, equalAccess,
   equalAccessKeyboardConfirm, screenshots, screenshotsMax,
-  contrastEstimate, contrastEstimateMax.
+  contrastEstimate, contrastEstimateMax, keyboardWalkWidgetFocus, keyboardWalkObscuredPaintOnly,
+  keyboardWalkIgnoreFocusGuards, pointerAside, equalAccessIgnoreInert, lighthouseRetry,
+  lighthouseLocalStorage, flowSkipRetry.
   Nei valori di "extraHTTPHeaders" ${'${NOME}'} si sostituisce con la variabile d'ambiente NOME (dati
   personali, come l'identità del principal, restano fuori dal config).
   Precedenza: CLI > target > defaults > built-in. (Il gate failOn/failOnNameless/failOnEqualAccess/minScore è globale.)
@@ -238,6 +261,11 @@ const FAIL_ON_EMPTY = !!resolveParam(args['fail-on-empty'], null, 'failOnEmpty',
    spento di default perche' alcune applicazioni rispondono di proposito con un 4xx a pagine che si
    vogliono comunque esaminare (es. la pagina "non trovato"). */
 const FAIL_ON_HTTP_ERROR = !!resolveParam(args['fail-on-http-error'], null, 'failOnHttpError', false);
+/* Gate del perimetro, predefinito SPENTO: un flow saltato (sentinella assente) o interrotto lascia
+   fuori dal report viste previste dal config, e gli zeri del report non valgono per loro. Acceso, il
+   gate fallisce: in CI un report incompleto non deve passare. Spento resta una segnalazione, perche'
+   su un ambiente senza dati fissi un flow saltato puo' essere atteso. */
+const FAIL_ON_SKIPPED = !!resolveParam(args['fail-on-skipped'], null, 'failOnSkipped', false);
 /* Gate del secondo motore, predefinito SPENTO: IBM Equal Access ha regole proprie, e su
    un'applicazione nuova va prima conosciuto (quante segnalazioni, quali vere). Chi ha corretto
    i difetti che trova lo accende, perche' non ne tornino di nuovi. Conta solo le violazioni:
@@ -306,6 +334,26 @@ let DO_SR = !!resolveParam(CLI_SR, null, 'screenReader', false);
 const cliOnOff = k => (args[`no-${k}`] ? false : (args[k] ? true : undefined));
 const CLI_REFLOW = cliOnOff('reflow'), CLI_TEXT_SPACING = cliOnOff('text-spacing'), CLI_KEYBOARD = cliOnOff('keyboard-walk');
 let DO_REFLOW = false, DO_TEXT_SPACING = false, DO_KEYBOARD = false, KEYBOARD_MAX = 45, KEYBOARD_ATTESA_MS = 120, LANGUAGE_PARTS = null;
+/* Criteri estesi del percorso col Tab, predefiniti SPENTI perché cambiano l'esito sui target già in
+   scansione: fuoco visibile anche quando l'indicatore sta nel widget che marca il fuoco con una
+   classe, nel contenitore del comando trasparente o nell'icona interna (keyboardWalkWidgetFocus);
+   fuoco coperto solo da un elemento che in quel punto disegna qualcosa (keyboardWalkObscuredPaintOnly). */
+const CLI_KEYBOARD_WIDGET = cliOnOff('keyboard-walk-widget-focus'), CLI_KEYBOARD_COPERTO = cliOnOff('keyboard-walk-obscured-paint-only');
+let KEYBOARD_WIDGET = false, KEYBOARD_COPERTO_DISEGNA = false;
+/* Accorgimenti nati sulla scansione di GovCat, predefiniti SPENTI perché cambierebbero gli esiti o i
+   tempi dei target già in scansione; ogni target li accende se gli servono.
+   keyboardWalkIgnoreFocusGuards: le sentinelle delle trappole di focus non contano come comandi
+   della finestra modale (un dialog col solo pulsante di chiusura non è una trappola).
+   pointerAside: il puntatore va in un margine neutro prima di ogni vista (niente tooltip aperti
+   dall'ultimo clic del flow). equalAccessIgnoreInert: esiti IBM sul contenuto inerte scartati.
+   lighthouseRetry: secondo tentativo sugli errori del momento. lighthouseLocalStorage: anche il
+   localStorage nella scheda di Lighthouse. flowSkipRetry: pagina di partenza ricaricata una volta
+   prima di saltare un flow per sentinella assente. */
+const CLI_KEYBOARD_SENTINELLE = cliOnOff('keyboard-walk-ignore-focus-guards'), CLI_PUNTATORE = cliOnOff('pointer-aside'),
+  CLI_EA_INERTI = cliOnOff('equal-access-ignore-inert'), CLI_LH_RITENTA = cliOnOff('lighthouse-retry'),
+  CLI_LH_LOCAL = cliOnOff('lighthouse-local-storage'), CLI_FLOW_RITENTA = cliOnOff('flow-skip-retry');
+let KEYBOARD_SENTINELLE = false, PUNTATORE_IN_DISPARTE = false, EA_SCARTA_INERTI = false,
+  LH_RITENTA = false, LH_LOCAL_STORAGE = false, FLOW_RITENTA = false;
 /* Secondo motore, indipendente da axe: IBM Equal Access, con regole e algoritmi propri. Due motori
    diversi trovano problemi diversi, ed e' quello che chiedono le linee guida che prescrivono la
    verifica "con almeno due strumenti". Predefinito SPENTO (modulo opzionale); i suoi esiti decidono
@@ -362,6 +410,14 @@ function applyTargetParams(target) {
   DO_KEYBOARD = !!resolveParam(CLI_KEYBOARD, target, 'keyboardWalk', false);
   KEYBOARD_MAX = parseInt(resolveParam(args['keyboard-walk-max'], target, 'keyboardWalkMax', 45), 10) || 45;
   { const a = parseInt(resolveParam(args['keyboard-walk-wait-ms'], target, 'keyboardWalkWaitMs', 120), 10); KEYBOARD_ATTESA_MS = Number.isFinite(a) && a >= 0 ? a : 120; }
+  KEYBOARD_WIDGET = !!resolveParam(CLI_KEYBOARD_WIDGET, target, 'keyboardWalkWidgetFocus', false);
+  KEYBOARD_COPERTO_DISEGNA = !!resolveParam(CLI_KEYBOARD_COPERTO, target, 'keyboardWalkObscuredPaintOnly', false);
+  KEYBOARD_SENTINELLE = !!resolveParam(CLI_KEYBOARD_SENTINELLE, target, 'keyboardWalkIgnoreFocusGuards', false);
+  PUNTATORE_IN_DISPARTE = !!resolveParam(CLI_PUNTATORE, target, 'pointerAside', false);
+  EA_SCARTA_INERTI = !!resolveParam(CLI_EA_INERTI, target, 'equalAccessIgnoreInert', false);
+  LH_RITENTA = !!resolveParam(CLI_LH_RITENTA, target, 'lighthouseRetry', false);
+  LH_LOCAL_STORAGE = !!resolveParam(CLI_LH_LOCAL, target, 'lighthouseLocalStorage', false);
+  FLOW_RITENTA = !!resolveParam(CLI_FLOW_RITENTA, target, 'flowSkipRetry', false);
   LANGUAGE_PARTS = resolveParam(undefined, target, 'languageParts', null) || null;
   if (DO_REFLOW) CONTROLLI_USATI.add('reflow');
   if (DO_TEXT_SPACING) CONTROLLI_USATI.add('textSpacing');
@@ -859,6 +915,12 @@ function normalizeLinks(hrefs, contextPath) {
 let _lhOk = 0, _lhFail = 0, _lhFirstErr = null;
 // motivo dell'ultimo audit senza punteggio: finisce nel risultato della vista (evidenza nei report)
 let _lhUltimoMotivo = null;
+// nota dell'ultimo audit riuscito solo al secondo tentativo (evidenza nei report)
+let _lhUltimaNota = null;
+let _lhRitentati = 0;
+// Errori di Lighthouse dovuti al momento (pagina lenta o bloccata), non alla vista: si ritenta una volta.
+const LH_ERRORI_TRANSITORI = new Set(['NO_FCP', 'PAGE_HUNG', 'PROTOCOL_TIMEOUT']);
+const LH_ATTESA_RITENTATIVO_MS = 5000;
 
 // Porta CDP su cui il browser della scansione si apre a Lighthouse (vedi scan()). Non e' fissa:
 // scan() ne chiede al sistema una libera prima di lanciare il browser. Con una porta fissa due
@@ -901,18 +963,25 @@ async function lhContextDefault(port) {
   }
   try { return await _lhDefault.get(port); } catch (e) { _lhDefault.delete(port); throw e; }
 }
-async function lhPreparaSessione(page, target, port = LH_PORT) {
+async function lhPreparaSessione(page, target, port = LH_PORT, { localStorage: conLocal = LH_LOCAL_STORAGE } = {}) {
   const headers = { ...(target?.extraHTTPHeaders || {}) };
   let script = null;
   try {
     const def = await lhContextDefault(port);
     const cookies = await page.context().cookies();
     if (cookies.length) await def.addCookies(cookies);
-    const ss = await page.evaluate(() => ({ origin: location.origin, items: Object.fromEntries(Object.entries(sessionStorage)) })).catch(() => null);
-    if (ss && Object.keys(ss.items).length) {
-      script = await def.addInitScript(({ origin, items }) => {
+    // sessionStorage e, con lighthouseLocalStorage, localStorage: alcune app tengono qui il contesto
+    // scelto dopo il login (es. l'organizzazione corrente); senza, Lighthouse misurerebbe la pagina di scelta.
+    const ss = await page.evaluate(conLocal => ({
+      origin: location.origin,
+      items: Object.fromEntries(Object.entries(sessionStorage)),
+      local: conLocal ? Object.fromEntries(Object.entries(localStorage)) : {},
+    }), conLocal).catch(() => null);
+    if (ss && (Object.keys(ss.items).length || Object.keys(ss.local).length)) {
+      script = await def.addInitScript(({ origin, items, local }) => {
         if (location.origin !== origin) return;
         for (const [k, v] of Object.entries(items)) sessionStorage.setItem(k, v);
+        for (const [k, v] of Object.entries(local)) localStorage.setItem(k, v);
       }, ss);
     }
   } catch (e) {
@@ -937,8 +1006,9 @@ function lhStessaVista(a, b) {
   } catch { return null; }
 }
 
-async function runLighthouse(browser, url, target, extraHeaders) {
+async function runLighthouse(browser, url, target, extraHeaders, tentativo = 1) {
   _lhUltimoMotivo = null;
+  if (tentativo === 1) _lhUltimaNota = null;
   try {
     const { default: lighthouse } = await import('lighthouse');
     // Il browser e' lanciato con --remote-debugging-port=LH_PORT, porta libera scelta da scan().
@@ -962,6 +1032,16 @@ async function runLighthouse(browser, url, target, extraHeaders) {
     const lhr = runner?.lhr;
     const rtErr = lhr?.runtimeError;
     if (rtErr && rtErr.code && rtErr.code !== 'NO_ERROR') {
+      if (tentativo === 1 && LH_RITENTA && LH_ERRORI_TRANSITORI.has(rtErr.code)) {
+        console.warn(`  [lighthouse] ${rtErr.code} su ${url}: nuovo tentativo fra ${LH_ATTESA_RITENTATIVO_MS / 1000} s`);
+        await new Promise(r => setTimeout(r, LH_ATTESA_RITENTATIVO_MS));
+        const score = await runLighthouse(browser, url, target, extraHeaders, 2);
+        if (score != null) {
+          _lhRitentati++;
+          _lhUltimaNota = `punteggio al 2° tentativo (il primo: ${rtErr.code})`;
+        }
+        return score;
+      }
       _lhFail++;
       if (!_lhFirstErr) _lhFirstErr = `${rtErr.code}: ${rtErr.message}`;
       _lhUltimoMotivo = `${rtErr.code}: ${rtErr.message}`;
@@ -1542,9 +1622,10 @@ async function analyzeTextSpacing(page) {
    misura del fuoco. Si risolvono nella pagina PRIMA di iniziare, sullo stesso DOM che ha visto IBM:
    l'abbinamento usa il percorso del motore, non uno ricostruito qui. Le misure degli elementi
    raggiunti tornano in 'misure', per percorso. */
-async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = []) {
+async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = [], opzioni = {}) {
+  const { fuocoNeiWidget = false, copertoSoloSeDisegna = false, ignoraSentinelle = false } = opzioni;
   await installaDescrivi(page);
-  await page.evaluate(daMisurare => {
+  await page.evaluate(({ daMisurare, fuocoNeiWidget }) => {
     window.__gwEaPercorsi = new Map();
     for (const xp of daMisurare) {
       try {
@@ -1561,12 +1642,49 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
     const proprieta = ['outlineStyle', 'outlineWidth', 'outlineColor', 'boxShadow', 'backgroundColor', 'backgroundImage', 'color', 'textDecorationLine',
       ...['Top', 'Right', 'Bottom', 'Left'].flatMap(l => [`border${l}Style`, `border${l}Width`, `border${l}Color`])];
     const aspetto = e => { const cs = getComputedStyle(e); return proprieta.map(p => cs[p]).join('|'); };
-    const daConfrontare = e => { const l = [e]; for (let p = e.parentElement; p && l.length < 3 && p !== document.body; p = p.parentElement) l.push(p); return l; };
-    const base = new Map();
-    for (const e of document.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]'))
-      for (const x of daConfrontare(e)) if (!base.has(x)) base.set(x, aspetto(x));
+    /* Si confrontano l'elemento e i due contenitori più vicini. Con keyboardWalkWidgetFocus (spento di
+       default: senza, il criterio resta quello di sempre) anche i casi che seguono.
+       Più in alto solo dentro un widget che
+       marca il proprio fuoco con una classe. È il caso delle combobox come ng-select: l'input con il
+       fuoco è tre livelli sotto il contenitore che cambia bordo, e il componente aggiunge
+       'ng-select-focused' al suo elemento radice. La classe lega il cambio d'aspetto al fuoco di questo
+       elemento: senza, un contenitore alto che cambia aspetto per altri motivi (':focus-within' di un
+       intero form) farebbe passare anche i campi senza indicatore. */
+    const LIVELLI_WIDGET = fuocoNeiWidget ? 6 : 2;
+    const catena = e => { const l = [e]; for (let p = e.parentElement; p && l.length <= LIVELLI_WIDGET && p !== document.body; p = p.parentElement) l.push(p); return l; };
+    const classi = x => new Set(String(x.getAttribute('class') || '').split(/\s+/).filter(Boolean));
+    /* Comando trasparente steso sopra un altro elemento (l'input file invisibile sopra un pulsante
+       "carica"): l'indicatore non può stare su di lui, e l'applicazione lo mostra su un fratello,
+       di solito con ':focus-within' sul contenitore. Per questi si confrontano anche gli elementi
+       dentro il contenitore diretto (al più 50). */
+    const trasparenteAlFuoco = e => { for (let x = e; x && x.nodeType === 1; x = x.parentElement) if (parseFloat(getComputedStyle(x).opacity) < 0.05) return true; return false; };
+    const vicinato = e => e.parentElement && e.parentElement !== document.body ? [...e.parentElement.querySelectorAll('*')].filter(x => x !== e).slice(0, 50) : [];
+    /* Indicatore su un elemento interno: il comando colora l'icona che contiene (la X "Clear all" di
+       ng-select diventa rossa col fuoco). Solo per i comandi piccoli, al più 20 elementi interni: in
+       un contenitore grande un cambio d'aspetto all'interno può non avere niente a che fare col fuoco. */
+    const INTERNI_MAX = 20;
+    const interni = e => { if (!fuocoNeiWidget) return []; const d = e.querySelectorAll('*'); return d.length <= INTERNI_MAX ? [...d] : []; };
+    const base = new Map(), baseClassi = new Map();
+    const registra = x => { if (!base.has(x)) { base.set(x, aspetto(x)); baseClassi.set(x, classi(x)); } };
+    for (const e of document.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')) {
+      catena(e).forEach(registra);
+      interni(e).forEach(registra);
+      if (fuocoNeiWidget && trasparenteAlFuoco(e)) vicinato(e).forEach(registra);
+    }
+    const cambiato = x => base.has(x) && base.get(x) !== aspetto(x);
+    const classeDelFuoco = x => baseClassi.has(x) && [...classi(x)].some(c => !baseClassi.get(x).has(c) && /focus/i.test(c));
     // true/false: cambia o no rispetto alla partenza; null: elemento comparso dopo, senza aspetto di partenza
-    window.__gwFocusCambiaAspetto = e => base.has(e) ? daConfrontare(e).some(x => base.has(x) && base.get(x) !== aspetto(x)) : null;
+    window.__gwFocusCambiaAspetto = e => {
+      if (!base.has(e)) return null;
+      const l = catena(e);
+      if (l.slice(0, 3).some(cambiato)) return true;
+      if (interni(e).some(cambiato)) return true;
+      if (fuocoNeiWidget && trasparenteAlFuoco(e) && vicinato(e).some(cambiato)) return true;
+      if (!fuocoNeiWidget) return false;
+      let radice = -1;
+      for (let i = l.length - 1; i >= 1; i--) if (classeDelFuoco(l[i])) { radice = i; break; }
+      return radice > 0 && l.slice(0, radice + 1).some(cambiato);
+    };
     /* Identita' degli elementi raggiunti: il giro completo e la trappola si riconoscono dall'elemento
        stesso, non dalla sua descrizione. Descrizione e testo (troncato) possono coincidere per
        elementi diversi, come i collegamenti di due righe che cominciano con lo stesso nome lungo, e
@@ -1578,7 +1696,7 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
     window.__gwUltimoFuoco = null;
     window.__gwSuFocusin = ev => { window.__gwUltimoFuoco = ev.target; window.__gwUltimoFuocoDescr = window.__gwDescrivi(ev.target); };
     document.addEventListener('focusin', window.__gwSuFocusin, true);
-  }, daMisurare);
+  }, { daMisurare, fuocoNeiWidget });
   const ordine = [], senzaFocus = [], coperti = [], misure = {}, visitati = new Set();
   let trappola = null, prec = null, uguali = 0, recuperi = 0, saltaTab = false;
   /* Richieste in corso, per sapere quando la rete e' davvero ferma: waitForLoadState('networkidle')
@@ -1599,7 +1717,7 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
         await page.waitForTimeout(attesaMs);
       }
       saltaTab = false;
-      const leggiFuoco = () => page.evaluate(() => {
+      const leggiFuoco = () => page.evaluate(({ copertoSoloSeDisegna, ignoraSentinelle }) => {
         const e = document.activeElement;
         if (!e || e === document.body || e.id === '__gw_partenza') return null;
         const cs = getComputedStyle(e);
@@ -1611,11 +1729,31 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
         // provano piu' punti, cioe' il centro del riquadro e centro e angoli di ogni riga dell'elemento
         // (un link che va a capo ha un riquadro complessivo che comprende anche i vicini), e basta che
         // uno solo mostri l'elemento. Non conta chi copre restando trasparente (opacity 0: lo strato
-        // che alcuni componenti stendono sopra un select per intercettare il clic).
+        // che alcuni componenti stendono sopra un select per intercettare il clic). Con
+        // keyboardWalkObscuredPaintOnly (spento di default) non conta neanche chi in quel punto non
+        // disegna nulla: un contenitore fisso vuoto e senza sfondo (una fascia per i messaggi a
+        // comparsa, quando non ce ne sono) intercetta il clic ma lascia vedere l'elemento. Si scorrono
+        // tutti gli elementi sopra il punto, fino all'elemento col fuoco: copre il primo che disegna.
         const fuori = b.bottom < 0 || b.top > innerHeight;
         const trasparente = t => { for (let x = t; x && x.nodeType === 1; x = x.parentElement) if (parseFloat(getComputedStyle(x).opacity) < 0.05) return true; return false; };
-        const copritore = (x, y) => { const t = document.elementFromPoint(x, y);
-          return t && t !== e && !e.contains(t) && !t.contains(e) && !trasparente(t) ? t : null; };
+        const colorato = c => c && !/rgba\(\d+, \d+, \d+, 0\)|transparent/.test(c);
+        const disegna = t => {
+          if (/^(img|svg|canvas|video|iframe|object|embed|input|select|textarea|button)$/i.test(t.tagName)) return true;
+          const c = getComputedStyle(t);
+          return colorato(c.backgroundColor) || c.backgroundImage !== 'none' || c.boxShadow !== 'none'
+            || (c.backdropFilter && c.backdropFilter !== 'none')
+            || ['Top', 'Right', 'Bottom', 'Left'].some(l => c[`border${l}Style`] !== 'none' && parseFloat(c[`border${l}Width`]) > 0 && colorato(c[`border${l}Color`]))
+            || [...t.childNodes].some(n => n.nodeType === 3 && n.textContent.trim());
+        };
+        const copritore = (x, y) => {
+          if (!copertoSoloSeDisegna) { const t = document.elementFromPoint(x, y);
+            return t && t !== e && !e.contains(t) && !t.contains(e) && !trasparente(t) ? t : null; }
+          for (const t of document.elementsFromPoint(x, y)) {
+            if (t === e || e.contains(t) || t.contains(e)) return null;
+            if (!trasparente(t) && disegna(t)) return t;
+          }
+          return null;
+        };
         const punti = [[b.left + b.width / 2, b.top + Math.min(b.height / 2, 5)]];
         for (const r of e.getClientRects()) if (r.width > 4 && r.height > 4)
           punti.push([r.left + r.width / 2, r.top + r.height / 2], [r.left + 2, r.top + 2], [r.right - 2, r.top + 2], [r.left + 2, r.bottom - 2], [r.right - 2, r.bottom - 2]);
@@ -1631,13 +1769,15 @@ async function analyzeKeyboard(page, massimo = 45, attesaMs = 120, daMisurare = 
           && cs.visibility !== 'hidden' && !trasparente(e);
         const percorsoEa = window.__gwEaPercorsi?.get(e) || null;
         const m = window.__gwModale;
+        // con keyboardWalkIgnoreFocusGuards le sentinelle delle trappole di focus (cdk, focus-trap) non contano
         const unicoNellaModale = !!m && m.contains(e) && [...m.querySelectorAll('a[href], button, input, select, textarea, summary, iframe, [tabindex], [contenteditable]')]
-          .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden').length === 1;
+          .filter(x => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden'
+            && !(ignoraSentinelle && x.matches('.cdk-focus-trap-anchor, [data-focus-guard], [data-focus-trap-sentinel]'))).length === 1;
         if (!window.__gwIdentita) { window.__gwIdentita = new WeakMap(); window.__gwIdentitaN = 0; }
         let uid = window.__gwIdentita.get(e);
         if (!uid) { uid = ++window.__gwIdentitaN; window.__gwIdentita.set(e, uid); }
         return { target: window.__gwDescrivi(e) + (nome ? `[name="${nome}"]` : ''), testo, html: e.outerHTML.slice(0, 200), ok, copre, unicoNellaModale, mostrato, percorsoEa, uid };
-      });
+      }, { copertoSoloSeDisegna, ignoraSentinelle });
       let f = await leggiFuoco();
       /* Una copertura puo' essere solo del momento: l'indicatore di caricamento che molte applicazioni
          stendono sopra la pagina durante una richiesta (polling, aggiornamenti AJAX). Si attende che la
@@ -1769,7 +1909,7 @@ async function runEqualAccess(page, include) {
   if (_eaSorgente === null) _eaSorgente = readFileSync(resolveModule('accessibility-checker-engine'), 'utf8');
   const presente = await page.evaluate(() => typeof window.ace !== 'undefined' && !!window.ace.Checker).catch(() => false);
   if (!presente) await page.evaluate(_eaSorgente);
-  return page.evaluate(async ({ include, ruleset }) => {
+  return page.evaluate(async ({ include, ruleset, scartaInerti }) => {
     const checker = new window.ace.Checker();
     const regole = checker.getGuidelines().find(g => g.id === ruleset);
     const criteri = {};
@@ -1786,14 +1926,26 @@ async function runEqualAccess(page, include) {
       snippet: String(x.snippet || '').slice(0, 300), xpath: (x.path && x.path.dom) || null,
       wcag: criteri[x.ruleId] || [],
     });
+    /* Con equalAccessIgnoreInert. Il motore valuta anche il contenuto inerte (attributo inert, es. lo sfondo di una finestra
+       modale), che non riceve il fuoco ed e' fuori dall'albero di accessibilita': gli esiti su
+       quegli elementi non descrivono la vista e si scartano, come fa axe. */
+    const inerte = xp => {
+      if (!xp) return false;
+      try {
+        const n = document.evaluate(xp, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        const el = n && (n.nodeType === 1 ? n : n.parentElement);
+        return !!(el && el.closest('[inert]'));
+      } catch { return false; }
+    };
     const violazioni = [], daVerificare = [];
     for (const x of esito.results) {
       if (x.value[0] !== 'VIOLATION') continue;
+      if (scartaInerti && inerte(x.path && x.path.dom)) continue;
       if (x.value[1] === 'FAIL') violazioni.push(voce(x));
       else if (x.value[1] === 'POTENTIAL') daVerificare.push(voce(x));
     }
     return { violazioni, daVerificare };
-  }, { include: include || null, ruleset: EA_RULESET });
+  }, { include: include || null, ruleset: EA_RULESET, scartaInerti: EA_SCARTA_INERTI });
 }
 
 /* ------------------------- screenshot delle occorrenze --------------------- */
@@ -2089,6 +2241,24 @@ function contrastiPerComponente(results) {
   }).sort((a, b) => ORDINE_ESITO[a.esito] - ORDINE_ESITO[b.esito] || b.viste.length - a.viste.length || b.occorrenze - a.occorrenze);
 }
 
+/* Il puntatore resta dove l'ha lasciato l'ultimo clic del flow: se e' sopra un comando con un
+   tooltip, la vista verrebbe analizzata col tooltip aperto, uno stato che dipende dalla posizione
+   del mouse e non dalla vista (e un tooltip agganciato al body sta fuori dai landmark). Prima di
+   analizzare, il puntatore va in un punto neutro: un margine della finestra senza comandi sotto.
+   Se nessun punto e' neutro resta dov'e'. Si attende poi che i tooltip si chiudano (breve). */
+async function puntatoreInDisparte(page) {
+  const punto = await page.evaluate(() => {
+    const w = innerWidth, h = innerHeight;
+    const candidati = [[w - 3, h - 3], [3, h - 3], [w - 3, Math.round(h / 2)], [3, Math.round(h / 2)], [w - 3, 3], [3, 3]];
+    const comando = 'a[href], button, input, select, textarea, label, summary, [tabindex], [title], [onclick], [role=button], [role=link], [role=tab], [role=menuitem], [role=option], [role=tooltip], [role=slider], [role=checkbox], [role=radio], [role=switch]';
+    return candidati.find(([x, y]) => { const t = document.elementFromPoint(x, y); return !t || !t.closest(comando); }) || null;
+  }).catch(() => null);
+  if (!punto) return;
+  await page.mouse.move(punto[0], punto[1]).catch(() => {});
+  await page.waitForFunction(() => ![...document.querySelectorAll('[role=tooltip]')].some(t => t.getClientRects().length && getComputedStyle(t).visibility !== 'hidden'),
+    null, { timeout: 1000 }).catch(() => {});
+}
+
 async function recordScan(browser, page, target, name, pageResults, sourceHint, extra = {}) {
   const t0 = performance.now();
   const primaDellaVista = TEMPI.fineUltimaVista == null ? null : t0 - TEMPI.fineUltimaVista;
@@ -2109,6 +2279,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
      pagina vuota che verrebbe scambiata per un difetto. Se e' gia' caricata torna subito. */
   await misura('attesa', async () => {
     await page.waitForLoadState('load').catch(() => {});
+    if (PUNTATORE_IN_DISPARTE) await puntatoreInDisparte(page);
     await page.waitForLoadState('networkidle', { timeout: RETE_A_RIPOSO_MS }).catch(() => {});
     /* Vista senza contenuto accessibile: di solito non e' ancora arrivata (un backend lento, una lista
        che tarda), a volte non arrivera' mai. Si concede un'attesa, una sola, prima di analizzarla; se
@@ -2193,14 +2364,14 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
       derogati = [...derogati, ...ea.derogati];
     }
   }
-  let lhScore = null, lhMotivo = null;
+  let lhScore = null, lhMotivo = null, lhNota = null;
   /* extra.senzaLighthouse: motivo per cui questa sola vista non passa da Lighthouse (es. il suo URL
      cambia la configurazione e ricaricarlo ripeterebbe l'azione). */
   const lhEscluso = DO_LH && (LH_ESCLUSO_NEL_FLOW || !!extra.senzaLighthouse);
   if (extra.senzaLighthouse && DO_LH) lhMotivo = extra.senzaLighthouse;
   if (DO_LH && !lhEscluso) await misura('lighthouse', async () => {
     const sessione = await lhPreparaSessione(page, target);
-    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; }
+    try { lhScore = await runLighthouse(browser, url, target, sessione.headers); lhMotivo = lhScore == null ? _lhUltimoMotivo : null; lhNota = lhScore != null ? _lhUltimaNota : null; }
     finally { await sessione.rilascia(); }
   });
   // L'albero ARIA (ariaSnapshot) viene salvato come artefatto separato (dir aria-tree/): lo
@@ -2226,7 +2397,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   if (DO_KEYBOARD && extra.keyboard !== false) {
     const daMisurare = DO_EA_TAB && equalAccess
       ? [...new Set(equalAccess.daVerificare.filter(x => REGOLE_CONFERMATE_DAL_TAB[x.regola] && x.xpath).map(x => x.xpath))] : [];
-    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare)));
+    const k = await misura('keyboardWalk', () => prova('keyboardWalk', () => analyzeKeyboard(page, KEYBOARD_MAX, KEYBOARD_ATTESA_MS, daMisurare, { fuocoNeiWidget: KEYBOARD_WIDGET, copertoSoloSeDisegna: KEYBOARD_COPERTO_DISEGNA, ignoraSentinelle: KEYBOARD_SENTINELLE })));
     if (k) { aggiuntive.push(...k.violazioni); tabOrder = k.ordine; }
     if (k && daMisurare.length) {
       const c = confermaDalTab(equalAccess.daVerificare, k.misure);
@@ -2275,7 +2446,7 @@ async function recordScan(browser, page, target, name, pageResults, sourceHint, 
   }
   pageResults.push({
     target: target.key, targetName: target.name, sourceHint: sourceHint || target.sourceHint,
-    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso, lhMotivo, axTree, soloMouse, ariaSnapshot, sr, vuota, httpStatus, erroreHttp, tabOrder, equalAccess,
+    name, url, violations: r.violations, incomplete, falsePositives: derogati, lhScore, lhEscluso, lhMotivo, lhNota, axTree, soloMouse, ariaSnapshot, sr, vuota, httpStatus, erroreHttp, tabOrder, equalAccess,
     controlliNonEseguiti: nonEseguiti, controlliEseguiti: eseguiti,
     tempi: { inizio: t0 - TEMPI.avvio, primaDellaVista, totale: performance.now() - t0, fasi },
   });
@@ -2602,6 +2773,8 @@ async function caricaScript(spec) {
    segnalazione; negli altri report resta nel perimetro come prima, marcata come opzionale. Un flow
    opzionale interrotto o in errore resta un risultato SARIF. */
 const PERIMETRO = [];
+// flow la cui sentinella e' comparsa solo dopo aver ricaricato la pagina di partenza
+let _flowRitentati = 0;
 function annotaPerimetro(target, tipo, nome, esito, motivo, opzionale = false) {
   PERIMETRO.push({ target: target.name || target.key, tipo, nome, esito, motivo: maskSecrets(String(motivo || '')), opzionale });
 }
@@ -2745,7 +2918,18 @@ async function runFlows(browser, target, pageResults) {
       // skipIfMissing: se un elemento-sentinella non c'e' (es. lista vuota), salta il flow. Attende
       // (non controllo istantaneo): le liste async possono comparire dopo navDelayMs; l'assenza va
       // confermata solo dopo un timeout ragionevole.
-      if (flow.skipIfMissing && !(await page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).catch(() => null))) {
+      const sentinellaPresente = () => page.waitForSelector(flow.skipIfMissing, { timeout: flow.skipIfMissingTimeoutMs || 8000 }).then(() => true, () => false);
+      let sentinella = !flow.skipIfMissing || await sentinellaPresente();
+      /* Con flowSkipRetry. Un server lento puo' non mostrare la sentinella in tempo anche se i dati ci
+         sono: prima di saltare il flow si ricarica una volta la pagina di partenza. Nessuna vista e' ancora registrata. */
+      if (!sentinella && FLOW_RITENTA) {
+        console.warn(`    flow '${flow.name}': sentinella '${flow.skipIfMissing}' assente, nuovo tentativo ricaricando ${flow.start}`);
+        await page.goto(absUrl(flow.start), { waitUntil: target.navWait || 'networkidle' }).catch(() => {});
+        if (target.navDelayMs) await page.waitForTimeout(target.navDelayMs);
+        sentinella = await sentinellaPresente();
+        if (sentinella) { _flowRitentati++; console.log(`    flow '${flow.name}': sentinella trovata al secondo tentativo`); }
+      }
+      if (!sentinella) {
         console.warn(`    flow '${flow.name}' saltato: sentinella '${flow.skipIfMissing}' assente (dati mancanti?)`);
         annotaPerimetro(target, 'flow', flow.name, 'saltato', `elemento '${flow.skipIfMissing}' assente in ${flow.start}: dati mancanti o pagina diversa da quella attesa`, flow.optional === true);
         continue;
@@ -3339,6 +3523,8 @@ async function scan() {
   } else if (anyLh && _lhFail) {
     console.warn(`\n\u26a0 [lighthouse] punteggi calcolati: ${_lhOk}, falliti: ${_lhFail} (primo errore: ${_lhFirstErr})`);
   }
+  if (anyLh && _lhRitentati) console.warn(`  [lighthouse] ${_lhRitentati} punteggi ottenuti al secondo tentativo`);
+  if (_flowRitentati) console.warn(`  [flow] ${_flowRitentati} flow avviati al secondo tentativo (sentinella comparsa dopo aver ricaricato la pagina)`);
   // Per la reportistica complessiva: un livello risulta attivo se lo è stato per almeno un target.
   DO_SR = anySr;
   DO_LH = anyLh;
@@ -3463,7 +3649,7 @@ function writeSarif(results, summary) {
   }
   for (const p of PERIMETRO.filter(v => !v.opzionale)) {   // le viste opzionali assenti non vanno in SARIF
     regolaGov('gova11y-perimeter');
-    risGov.push({ ruleId: 'gova11y-perimeter', level: 'note', message: { text: `${p.tipo} '${p.nome}' ${p.esito}: ${p.motivo}` }, properties: { target: p.target, nome: p.nome, esito: p.esito } });
+    risGov.push({ ruleId: 'gova11y-perimeter', level: FAIL_ON_SKIPPED ? 'error' : 'note', message: { text: `${p.tipo} '${p.nome}' ${p.esito}: ${p.motivo}` }, properties: { target: p.target, nome: p.nome, esito: p.esito } });
   }
   /* L'esito del gate e' un risultato solo se fallisce: i lettori di SARIF (Jenkins Warnings, Code Scanning)
      contano ogni risultato come una segnalazione, anche con level 'none'. Superato, sta in invocations e
@@ -3608,7 +3794,7 @@ function writeJUnit(results, summary) {
     if (sr) (decide('screenReader') ? (motivi.push(`${sr} annunci col solo ruolo`), dettagli) : note).push(`screen reader: ${sr} annunci col solo ruolo`);
     if (pr.lhScore != null && MIN_SCORE != null && pr.lhScore < MIN_SCORE) (decide('lighthouse') ? (motivi.push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}% < ${(MIN_SCORE * 100).toFixed(0)}%`), dettagli) : note).push(`Lighthouse ${(pr.lhScore * 100).toFixed(0)}%`);
     if (pr.lhScore == null && !pr.lhEscluso && (pr.lhMotivo || DO_LH)) (decide('lighthouse') ? (motivi.push('senza punteggio Lighthouse'), dettagli) : note).push(`Lighthouse senza punteggio${pr.lhMotivo ? `: ${pr.lhMotivo}` : ''}`);
-    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%`); else if (pr.lhEscluso) note.push(pr.lhMotivo ? `Lighthouse escluso: ${pr.lhMotivo}` : 'Lighthouse: escluso dal flow');
+    if (pr.lhScore != null) note.push(`Lighthouse: ${(pr.lhScore * 100).toFixed(0)}%${pr.lhNota ? ` (${pr.lhNota})` : ''}`); else if (pr.lhEscluso) note.push(pr.lhMotivo ? `Lighthouse escluso: ${pr.lhMotivo}` : 'Lighthouse: escluso dal flow');
     const c = summarizeImpacts(pr.violations);
     note.push(`axe e controlli aggiuntivi: critical ${c.critical}, serious ${c.serious}, moderate ${c.moderate}, minor ${c.minor}`);
     const inc = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
@@ -3632,19 +3818,21 @@ function writeJUnit(results, summary) {
     if (c.esito === 'non eseguito') return `    <testcase ${nome}>\n      <skipped message="${xmlEscape(c.risultato)}"/>\n      <system-out>${testo}</system-out>\n    </testcase>`;
     return `    <testcase ${nome}>\n      <system-out>${testo}</system-out>\n    </testcase>`;
   });
-  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <skipped message="${xmlEscape(`${p.esito}${p.opzionale ? ' (vista opzionale)' : ''}: ${p.motivo}`)}"/>\n    </testcase>`);
+  // con failOnSkipped la voce fallisce, salvo una vista opzionale assente; altrimenti resta saltata
+  const perimetro = PERIMETRO.map(p => `    <testcase classname="a11y.perimetro" name="${xmlEscape(`${p.target} ${p.tipo} ${p.nome}`)}">\n      <${FAIL_ON_SKIPPED && !p.opzionale ? 'failure' : 'skipped'} message="${xmlEscape(`${p.esito}${p.opzionale ? ' (vista opzionale)' : ''}: ${p.motivo}`)}"/>\n    </testcase>`);
+  const perimetroFalliti = FAIL_ON_SKIPPED ? PERIMETRO.filter(p => !p.opzionale).length : 0;
   const caseGate = gate.superato
     ? `    <testcase classname="a11y.gate" name="gate di accessibilita'"/>`
     : `    <testcase classname="a11y.gate" name="gate di accessibilita'">\n      <failure message="gate NON superato">${xmlEscape(gate.motivi.join('\n'))}</failure>\n    </testcase>`;
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="gov-a11y" tests="${results.length + controlli.length + perimetro.length + 1}" failures="${fallite + controlli.filter(c => c.esito === 'non superato').length + (gate.superato ? 0 : 1)}">
+<testsuites name="gov-a11y" tests="${results.length + controlli.length + perimetro.length + 1}" failures="${fallite + controlli.filter(c => c.esito === 'non superato').length + perimetroFalliti + (gate.superato ? 0 : 1)}">
 <testsuite name="accessibility-wcag21aa" tests="${results.length}" failures="${fallite}">
 ${viste.join('\n')}
 </testsuite>
 <testsuite name="controlli" tests="${controlli.length}" failures="${controlli.filter(c => c.esito === 'non superato').length}" skipped="${controlli.filter(c => c.esito === 'non eseguito').length}">
 ${casiControlli.join('\n')}
 </testsuite>
-${perimetro.length ? `<testsuite name="perimetro" tests="${perimetro.length}" failures="0" skipped="${perimetro.length}">\n${perimetro.join('\n')}\n</testsuite>\n` : ''}<testsuite name="gate" tests="1" failures="${gate.superato ? 0 : 1}">
+${perimetro.length ? `<testsuite name="perimetro" tests="${perimetro.length}" failures="${perimetroFalliti}" skipped="${perimetro.length - perimetroFalliti}">\n${perimetro.join('\n')}\n</testsuite>\n` : ''}<testsuite name="gate" tests="1" failures="${gate.superato ? 0 : 1}">
 ${caseGate}
 </testsuite>
 </testsuites>
@@ -3889,7 +4077,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
   const WCAG = wcagVerificato(TAG_USATI);
   const app = appLabel(results);
   const perTarget = {};
-  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnHttpError: FAIL_ON_HTTP_ERROR, failOnScreenReader: FAIL_ON_SCREEN_READER, failOnEqualAccess: FAIL_ON_EQUAL_ACCESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], httpErrorViews: [], lighthouse: [],
+  const summary = { base: BASE, app, generatedFrom: 'gov-a11y', productVersion: PRODUCT_VERSION, tags: [...TAG_USATI], failOn: FAIL_ON, failOnNameless: FAIL_ON_NAMELESS, failOnMouseOnly: FAIL_ON_MOUSE_ONLY, failOnEmpty: FAIL_ON_EMPTY, failOnHttpError: FAIL_ON_HTTP_ERROR, failOnSkipped: FAIL_ON_SKIPPED, failOnScreenReader: FAIL_ON_SCREEN_READER, failOnEqualAccess: FAIL_ON_EQUAL_ACCESS, minScore: MIN_SCORE, screenReader: DO_SR, lighthouseEnabled: DO_LH, coverage: COVERAGE, pages: [], totals: { critical: 0, serious: 0, moderate: 0, minor: 0 }, namelessTotal: 0, mouseOnlyTotal: 0, incompleteTotal: 0, falsePositivesTotal: 0, falsePositives: [], srRoleOnlyTotal: 0, emptyViews: [], httpErrorViews: [], lighthouse: [],
     equalAccess: DO_EA ? { motore: 'IBM Equal Access (accessibility-checker-engine)', versione: moduleVersion('accessibility-checker-engine'), regole: EA_RULESET, violazioni: 0, daVerificare: 0, confermatiDaTab: 0 } : null,
     perimetro: [...PERIMETRO], erroriSistematici: [], confrontoMotori: null, stimaContrasti: null };
   for (const pr of results) {
@@ -3906,7 +4094,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     summary.srRoleOnlyTotal += srRoleOnly;
     const ea = pr.equalAccess ? { violazioni: pr.equalAccess.violazioni.length, daVerificare: pr.equalAccess.daVerificare.length, confermatiDaTab: (pr.equalAccess.confermatiDaTab || []).length } : null;
     if (ea && summary.equalAccess) { summary.equalAccess.violazioni += ea.violazioni; summary.equalAccess.daVerificare += ea.daVerificare; summary.equalAccess.confermatiDaTab += ea.confermatiDaTab; }
-    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, httpStatus: pr.httpStatus ?? null, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
+    summary.pages.push({ target: pr.targetName, name: pr.name, url: pr.url, counts: c, incomplete: incNodes, lhScore: pr.lhScore, ...(pr.lhNota ? { lhNota: pr.lhNota } : {}), lhEscluso: !!pr.lhEscluso, namelessInteractive: nameless, mouseOnly: soloMouse, srStops: pr.sr ? pr.sr.stops : null, srRoleOnly, vuota: !!pr.vuota, httpStatus: pr.httpStatus ?? null, equalAccess: ea, ariaTree: ariaFiles[results.indexOf(pr)] || null });
     if (pr.vuota) summary.emptyViews.push({ target: pr.targetName, name: pr.name, url: pr.url });
     if (pr.erroreHttp) summary.httpErrorViews.push({ target: pr.targetName, name: pr.name, url: pr.url, status: pr.httpStatus });
     if (pr.lhScore != null) summary.lighthouse.push({ url: pr.url, score: pr.lhScore });
@@ -3975,7 +4163,7 @@ function writeSummaryAndHtml(results, ariaFiles = {}) {
     const incNodes = (pr.incomplete || []).reduce((n, v) => n + v.nodes.length, 0);
     return `<tr${pr.vuota || pr.erroreHttp ? ' style="background:#fde8e8"' : ''}><td class="lungo"><a href="#pg${i}">${esc(pr.name)}</a>${pr.vuota ? ' <span class="crit">VISTA VUOTA</span>' : ''}${pr.erroreHttp ? ` <span class="crit">HTTP ${pr.httpStatus}</span>` : ''}</td><td class="lungo"><a href="${esc(pr.url)}">${esc(pr.url)}</a></td>
       <td class="crit">${c.critical}</td><td class="ser">${c.serious}</td><td>${c.moderate}</td><td>${c.minor}</td>
-      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}">${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? (pr.lhMotivo ? `<span title="${esc(pr.lhMotivo)}">escluso</span>` : 'escluso') : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
+      <td>${pr.lhScore != null ? `<span class="${MIN_SCORE != null && pr.lhScore < MIN_SCORE ? 'ser' : ''}"${pr.lhNota ? ` title="${esc(pr.lhNota)}"` : ''}>${(pr.lhScore * 100).toFixed(0)}%</span>` : (pr.lhEscluso ? (pr.lhMotivo ? `<span title="${esc(pr.lhMotivo)}">escluso</span>` : 'escluso') : (pr.lhMotivo ? `<span class="ser" title="${esc(pr.lhMotivo)}">senza punteggio</span>` : '-'))}</td>
       ${SHOW_INCOMPLETE ? `<td class="${incNodes ? 'mod' : ''}">${incNodes || '-'}</td>` : ''}
       <td class="${nameless ? 'ser' : ''}">${nameless || '-'}</td>
       <td class="${soloMouse ? 'ser' : ''}">${soloMouse || '-'}</td>
@@ -4152,7 +4340,7 @@ tr.e-ko td{background:#fff6f6}details.non-eseguiti{margin:-1rem 0 1.5rem;backgro
 <tr><th>Applicazione</th><td>${esc(app)}</td><th>Data</th><td>${esc(new Date(summary.generatedAt).toLocaleString('it-IT'))}</td></tr>
 <tr><th>Indirizzo</th><td><code>${esc(BASE)}</code></td><th>Versione in prova</th><td>${PRODUCT_VERSION ? `<code>${esc(PRODUCT_VERSION)}</code>` : '<small>non dichiarata</small>'}</td></tr>
 <tr><th>Standard</th><td>${esc(WCAG.breve)}<br><small>tag: ${esc([...TAG_USATI].join(', '))}</small></td><th>Viste analizzate</th><td>${results.length}${Object.keys(perTarget).length > 1 ? `<br><small>${Object.entries(perTarget).map(([t, l]) => `${esc(t)}: ${l.length}`).join(', ')}</small>` : ''}</td></tr>
-<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'} · errori HTTP: ${FAIL_ON_HTTP_ERROR ? 'blocca' : 'non blocca'}</td></tr>
+<tr><th>Soglie del gate</th><td colspan="3"><code>fail-on=${esc(FAIL_ON)}</code>${MIN_SCORE != null && DO_LH ? ` · <code>min-score=${MIN_SCORE}</code>` : ''} · senza nome: ${FAIL_ON_NAMELESS ? 'blocca' : 'non blocca'} · solo mouse: ${FAIL_ON_MOUSE_ONLY ? 'blocca' : 'non blocca'} · screen reader: ${FAIL_ON_SCREEN_READER ? 'blocca' : 'non blocca'} · viste vuote: ${FAIL_ON_EMPTY ? 'blocca' : 'non blocca'} · errori HTTP: ${FAIL_ON_HTTP_ERROR ? 'blocca' : 'non blocca'} · perimetro incompleto: ${FAIL_ON_SKIPPED ? 'blocca' : 'non blocca'}</td></tr>
 </table>
 
 <div class="gate ${gate.superato ? 'gate-ok' : 'gate-ko'}">
@@ -4171,7 +4359,7 @@ ${controlli.filter(c => c.esito === 'non eseguito').map(rigaControllo).join('\n'
 </table></details>` : ''}
 
 ${perimetro.length ? `<details class="disclaimer" style="border-left-color:#b00">
-<summary><h2>Perimetro non coperto — ${perimetro.length} ${perimetro.length === 1 ? 'voce' : 'voci'}</h2> <small>(non decide l'esito: clic per espandere)</small></summary>
+<summary><h2>Perimetro non coperto — ${perimetro.length} ${perimetro.length === 1 ? 'voce' : 'voci'}</h2> <small>(${FAIL_ON_SKIPPED ? "blocca il gate (failOnSkipped)" : "non decide l'esito"}: clic per espandere)</small></summary>
 <p>Viste previste dal config che <b>non</b> sono state analizzate, o solo in parte. Gli esiti di questo report
 <b>non</b> valgono per loro: vanno ripristinate (dati, selettori, ambiente) e la scansione rifatta, oppure
 dichiarate fuori perimetro. Le viste dichiarate opzionali (<code>"optional": true</code>) non compaiono in SARIF.</p>
@@ -4474,9 +4662,13 @@ function valutaControlli(results) {
       soglia: 'non decide l\'esito (solo casi da verificare)', risultato: usate.length ? `${coperte} occorrenze coperte da ${usate.filter(v => v.matches > 0).length} voci su ${usate.length}${scadute.length ? `; ${scadute.length} voci scadute` : ''}` : 'nessun registro caricato',
       esito: !usate.length ? 'non eseguito' : scadute.length ? 'segnalazioni' : 'nessuna segnalazione' });
   }
-  add({ id: 'perimetro', nome: 'Perimetro previsto dal config', criteri: 'copertura della scansione', soglia: 'non decide l\'esito',
+  // con failOnSkipped bloccano solo le voci non opzionali: una vista opzionale assente resta segnalata
+  const perimetroBloccante = PERIMETRO.filter(p => !p.opzionale);
+  add({ id: 'perimetro', nome: 'Perimetro previsto dal config', criteri: 'copertura della scansione', decide: FAIL_ON_SKIPPED,
+    soglia: FAIL_ON_SKIPPED ? 'ogni vista e flow previsti analizzati' : 'non decide l\'esito (failOnSkipped=false)',
     risultato: PERIMETRO.length ? `${PERIMETRO.length} ${PERIMETRO.length === 1 ? 'vista o flow non analizzato' : 'viste o flow non analizzati'}, o solo in parte` : 'tutte le viste previste sono state analizzate',
-    esito: PERIMETRO.length ? 'segnalazioni' : 'nessuna segnalazione',
+    esito: FAIL_ON_SKIPPED ? (perimetroBloccante.length ? 'non superato' : 'superato') : (PERIMETRO.length ? 'segnalazioni' : 'nessuna segnalazione'),
+    motivi: FAIL_ON_SKIPPED && perimetroBloccante.length ? [`perimetro incompleto, ${perimetroBloccante.length} ${perimetroBloccante.length === 1 ? 'voce' : 'voci'}: ${perimetroBloccante.map(p => `${p.tipo} ${p.nome} ${p.esito}`).join(', ')}`] : [],
     viste: PERIMETRO.map(p => ({ indice: -1, target: p.target, nome: p.nome, url: null, sourceHint: null, valore: p.opzionale ? `${p.esito} (vista opzionale)` : p.esito, nota: p.motivo })) });
 
   const motivi = controlli.filter(c => ESITI_KO.has(c.esito)).flatMap(c => c.motivi);

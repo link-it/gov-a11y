@@ -1,9 +1,94 @@
+2026-11-27  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Gli accorgimenti nati sulla scansione di GovCat diventano opzionali, spenti di default, perché
+	cambiavano esiti e tempi anche degli altri target: senza, il tool si comporta come prima.
+	keyboardWalkIgnoreFocusGuards (sentinelle delle trappole di focus escluse dai comandi della
+	finestra modale), pointerAside (puntatore in un margine neutro prima di ogni vista),
+	equalAccessIgnoreInert (esiti IBM sugli elementi inerti scartati), lighthouseRetry (secondo
+	tentativo sugli errori del momento), lighthouseLocalStorage (anche il localStorage nella scheda di
+	Lighthouse), flowSkipRetry (pagina di partenza ricaricata prima di saltare un flow). Opzioni CLI
+	--[no-]… corrispondenti; accesi nel target GovCat 2.5.1. Test d'integrazione con e senza.
+	Target GovCat 2.5.1: target dei moduli acceso, con le viste opzionali ('optional'). Tassonomie,
+	monitoraggio, notifiche e servizi generici dipendono dalla configurazione: dove il modulo è
+	spento la rotta rimanda a /servizi, analizzata per prima come riferimento, e la vista resta nel
+	perimetro come opzionale senza far fallire il gate con failOnSkipped.
+
 2026-11-26  Andrea Poli <andrea.poli@link.it>
 
 	* [gov-a11y]
 	Opzione 'optional' su pagine e flow: una vista che può mancare in alcune installazioni (es. modulo
 	spento), se assente, non diventa un risultato SARIF e quindi non risulta come segnalazione in
 	Jenkins Warnings; negli altri report resta nel perimetro non coperto, marcata come opzionale.
+
+2026-11-25  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Target GovCat 2.5.1 esteso alle viste non coperte. Pagine: profilo e PDND (escluso il dettaglio
+	classico del servizio, non piu' raggiungibile dall'interfaccia). Flow nuovi: monitoraggio del
+	servizio (comunicazioni, transazioni con filtri, elenco e dettaglio, statistiche in grafico,
+	tabella ed esiti, audit e verifiche opzionali) e wizard del servizio pubblicato (fasi 2-3, menu
+	degli stati, storico), sul servizio indicato da A11Y_GOVCAT_SERVIZIO_MONITORAGGIO; dialog della
+	vetrina (specifica API, rate limiting, nota, PDND, produzione, referenti del dominio); ricerca e
+	vista per gruppi dei servizi, ricerca delle adesioni; fasi e storico del wizard adesione;
+	comunicazioni dell'adesione; adesioni del servizio; gestione dell'organizzazione; referenti del
+	dominio; adesioni e verifiche del client; modifica gruppo; richieste PDND (senza invio). Nei flow
+	esistenti: form di nuovo referente, allegato e gruppo nella fase 1 e "Crea API". Due target
+	disattivati, da abilitare dove il server li prevede: govcat-anonimo (catalogo anonimo) e
+	govcat-moduli (tassonomie, monitoraggio generale, notifiche e servizi generici, attivi da
+	configurazione). Scelta dell'organizzazione nel postLogin attesa fino a 10 s: con il server lento
+	un flow restava sulla pagina di scelta e veniva saltato.
+	Lighthouse: la sessione copiata nella sua scheda comprende anche il localStorage; le app che vi
+	tengono il contesto scelto dopo il login (l'organizzazione corrente di GovCat, per gli utenti con
+	più organizzazioni) venivano misurate sulla pagina di scelta e restavano senza punteggio.
+	Percorso col Tab: le sentinelle delle trappole di focus (cdk-focus-trap-anchor e simili) non
+	contano come comandi della finestra modale; un dialog con il solo pulsante di chiusura risultava
+	una trappola da tastiera. Target GovCat: la legenda dei grafici (ngx-charts) esclusa dai comandi
+	solo mouse, perche' il clic evidenzia soltanto la serie.
+	Prima di ogni vista il puntatore va in un margine della finestra senza comandi: lasciato dove
+	l'aveva portato l'ultimo clic del flow, poteva tenere aperto un tooltip agganciato al body, che
+	axe segnalava fuori dai landmark. IBM Equal Access: scartati gli esiti sugli elementi inerti
+	(attributo inert, es. lo sfondo di una finestra modale), fuori dall'albero di accessibilita' e
+	irraggiungibili col fuoco per costruzione. Target GovCat: nelle transazioni il modulo di ricerca
+	si riapre se il percorso col Tab lo ha chiuso; registro dei falsi positivi con la spaziatura IBM
+	del campo organizzazione del nuovo utente, misurata mentre il campo e' fuori vista.
+
+2026-11-24  Alfonso Tatarelli <a.tatarelli@gmail.com>
+
+	* [gov-a11y]
+	Lighthouse: un secondo tentativo, dopo 5 s, quando l'audit fallisce per un errore del momento
+	(NO_FCP, PAGE_HUNG, PROTOCOL_TIMEOUT); prima bastava un rallentamento del server per lasciare la
+	vista senza punteggio e far fallire il gate con --min-score. Non si ritenta su un'altra pagina
+	misurata né su un audit senza punteggio. La vista riuscita al secondo tentativo lo dice (lhNota in
+	summary.json, nota JUnit, titolo nel report HTML) e a fine run si contano i ritentativi.
+	Flow con skipIfMissing: se la sentinella non compare in tempo si ricarica una volta la pagina di
+	partenza prima di saltare il flow; con un server lento un flow con i dati presenti risultava
+	saltato e la vista mancava dal report. A fine run si contano i flow avviati al secondo tentativo.
+	Gate del perimetro: opzione failOnSkipped (--fail-on-skipped), spenta di default. Accesa, una vista
+	o un flow del config non analizzato (flow saltato, interrotto o in errore, pagina non analizzata,
+	login non confermato) fa fallire il gate, con la voce in errore in SARIF e fallita nel JUnit: in CI
+	un report incompleto non passa. Una vista dichiarata 'optional' e assente non blocca il gate e
+	resta saltata nel JUnit. Accesa nel target GovCat 2.5.1. Suite di test gate-skipped.
+	Target GovCat 2.5.1: immagini delle schede escluse dai comandi solo col mouse (mouseOnlyIgnore,
+	stessa destinazione del titolo); attesa dell'h1 nei passi del flow adesione e sentinelle dei flow
+	portate a 60 s per il server di sviluppo lento.
+	Percorso col Tab: due parametri nuovi, spenti di default, per criteri più precisi. Senza, l'esito
+	resta quello di prima.
+	keyboardWalkWidgetFocus (fuoco visibile, 2.4.7): oltre all'elemento e ai due contenitori più vicini
+	si guarda anche più in alto, fino al componente che marca il proprio fuoco con una classe (per
+	esempio ng-select-focused). Nelle combobox ng-select l'input col fuoco è tre livelli sotto il
+	contenitore che cambia bordo, e il fuoco risultava non visibile su ogni combobox. Senza la classe
+	del fuoco un contenitore alto non basta: un intero form evidenziato con :focus-within non fa
+	passare i suoi campi. Per un comando trasparente steso sopra un altro elemento (l'input file
+	invisibile sopra il pulsante "carica") si guardano anche gli elementi del suo contenitore diretto;
+	per un comando piccolo (al più 20 elementi interni) anche gli elementi che contiene: la X
+	"Clear all" di ng-select mostra il fuoco colorando l'icona.
+	keyboardWalkObscuredPaintOnly (fuoco coperto, 2.4.11): copre solo un elemento che in quel punto
+	disegna qualcosa (sfondo, bordo, ombra, testo, immagine o controllo), cercato fra tutti quelli
+	sopra l'elemento col fuoco. Un contenitore fisso vuoto e senza sfondo, come la fascia dei messaggi
+	a comparsa quando non ce ne sono, intercetta il clic ma lascia vedere l'elemento.
+	Opzioni CLI --[no-]keyboard-walk-widget-focus e --[no-]keyboard-walk-obscured-paint-only; accesi
+	nel target GovCat 2.5.1. Test d'integrazione con e senza i parametri.
 
 2026-11-23  Andrea Poli <andrea.poli@link.it>
 
