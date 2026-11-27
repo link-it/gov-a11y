@@ -13,6 +13,9 @@
 	monitoraggio, notifiche e servizi generici dipendono dalla configurazione: dove il modulo è
 	spento la rotta rimanda a /servizi, analizzata per prima come riferimento, e la vista resta nel
 	perimetro come opzionale senza far fallire il gate con failOnSkipped.
+	Target GovCat 2.5.1 (Issue 487 di GovCat): il rate limiting della vetrina si apre dal pulsante con la
+	  sola icona in alto a destra; tolti passo e vista dei referenti del dominio aperti dalla vetrina
+	  (pulsante rimosso, rotta segnata tra quelle non coperte).
 
 2026-11-26  Andrea Poli <andrea.poli@link.it>
 
